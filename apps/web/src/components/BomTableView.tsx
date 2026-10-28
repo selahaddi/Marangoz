@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Code2, Download, FileCode2, Wrench } from "lucide-react";
 import {
+  generatePartCixString,
   generatePartGcodeString,
   generatePartMprString,
+  getLocalCixBlobUrl,
   getLocalDxfBlobUrl,
   getLocalGcodeBlobUrl,
   getLocalMprBlobUrl,
@@ -16,7 +18,7 @@ interface BomTableViewProps {
   onSelectPart: (partId: string) => void;
 }
 
-type CncPreviewMode = "cad_2d" | "gcode_nc" | "homag_mpr";
+type CncPreviewMode = "cad_2d" | "gcode_nc" | "homag_mpr" | "biesse_cix";
 
 function PartCncCadPreview({
   part,
@@ -36,6 +38,8 @@ function PartCncCadPreview({
     DRILL_MINIFIX_CAM_D15: "#EF4444",
     DRILL_MINIFIX_BOLT_D8: "#FACC15",
     DRILL_DOWEL_D8: "#22D3EE",
+    LAYER_CABINEO_POCKET_Z108: "#10B981",
+    DRILL_CABINEO_SCREW_D5: "#34D399",
     DRILL_SHELF_PIN_D5: "#3B82F6",
     DRILL_HINGE_CUP_D35: "#E879F9",
     DRILL_SLIDE_D5: "#F97316",
@@ -44,6 +48,7 @@ function PartCncCadPreview({
   const dxfFilename = `${part.part_id}_${part.code}.dxf`;
   const ncFilename = `${part.part_id}_${part.code}.nc`;
   const mprFilename = `${part.part_id}_${part.code}.mpr`;
+  const cixFilename = `${part.part_id}_${part.code}.cix`;
 
   const dxfHref =
     getLocalDxfBlobUrl(dxfFilename) ??
@@ -54,6 +59,9 @@ function PartCncCadPreview({
   const mprHref =
     getLocalMprBlobUrl(mprFilename) ??
     `/api/v1/jobs/${jobId}/mpr/${mprFilename}`;
+  const cixHref =
+    getLocalCixBlobUrl(cixFilename) ??
+    `/api/v1/jobs/${jobId}/cix/${cixFilename}`;
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
@@ -67,8 +75,8 @@ function PartCncCadPreview({
           </h4>
           <p className="mt-0.5 text-xs text-slate-400">
             Katmanlar: OUTLINE_CUT (Beyaz) | GROOVE_BACK_8MM (Yeşil) | Minifiks Ø15
-            (Kırmızı) | Minifiks Mil Ø8 (Sarı) | Kavela Ø8 (Camgöbeği) | Raf Pimi Ø5
-            (Mavi) | Menteşe Ø35 (Macenta) | Ray Ø5 (Turuncu)
+            (Kırmızı) | Cabineo 12 Z-Cep Ø15 (Zümrüt) | Cabineo Vida Ø5 (Açık Yeşil) |
+            Raf Pimi Ø5 (Mavi) | Menteşe Ø35 (Macenta)
           </p>
         </div>
 
@@ -97,10 +105,18 @@ function PartCncCadPreview({
             <Download className="h-3.5 w-3.5" />
             Homag (.MPR)
           </a>
+          <a
+            href={cixHref}
+            download={cixFilename}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-purple-500"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Biesse (.CIX)
+          </a>
         </div>
       </div>
 
-      {/* Görünüm Seçici: 2D CAD vs ISO G-Code vs Homag WoodWOP MPR */}
+      {/* Görünüm Seçici: 2D CAD vs ISO G-Code vs Homag WoodWOP MPR vs Biesse CIX */}
       <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
@@ -137,6 +153,18 @@ function PartCncCadPreview({
         >
           <Code2 className="h-3.5 w-3.5" />
           Homag / Weeke WoodWOP 4.0 (.MPR) Kodu
+        </button>
+        <button
+          type="button"
+          onClick={() => setPreviewMode("biesse_cix")}
+          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+            previewMode === "biesse_cix"
+              ? "bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/40"
+              : "bg-slate-800/80 text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <Code2 className="h-3.5 w-3.5" />
+          Biesse bSolid / BiesseWorks (.CIX) Kodu
         </button>
       </div>
 
@@ -248,6 +276,12 @@ function PartCncCadPreview({
           {generatePartMprString(part)}
         </pre>
       )}
+
+      {previewMode === "biesse_cix" && (
+        <pre className="max-h-[300px] overflow-auto rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-purple-300">
+          {generatePartCixString(part)}
+        </pre>
+      )}
     </div>
   );
 }
@@ -297,7 +331,7 @@ export function BomTableView({
         </div>
       </div>
 
-      {/* Seçili Parça CNC DXF / G-Code / WoodWOP Önizleme */}
+      {/* Seçili Parça CNC DXF / G-Code / WoodWOP / Biesse CIX Önizleme */}
       {activePart && <PartCncCadPreview part={activePart} jobId={jobId} />}
 
       {/* Modern Web Guidance: responsive-table */}
@@ -313,7 +347,7 @@ export function BomTableView({
             className="border-b border-slate-800 bg-slate-900 px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-300"
           >
             Fabrika Kesim, PVC Kenar Bandı Düşümü ve CNC Post-Processor Tablosu
-            (Parçaya tıklayarak DXF / G-Code / WoodWOP önizleyin)
+            (Parçaya tıklayarak DXF / G-Code / WoodWOP / Biesse CIX önizleyin)
           </caption>
           <thead className="bg-slate-800/95 text-slate-300">
             <tr>
@@ -331,7 +365,7 @@ export function BomTableView({
               <th className="px-3 py-2.5 font-semibold">
                 PVC (Ön/Arka/Üst/Alt)
               </th>
-              <th className="px-3 py-2.5 font-semibold">CNC Delik</th>
+              <th className="px-3 py-2.5 font-semibold">CNC &amp; Rölöve</th>
               <th className="px-3 py-2.5 font-semibold">CNC Çıktıları</th>
             </tr>
           </thead>
@@ -341,6 +375,7 @@ export function BomTableView({
               const dxfFile = `${part.part_id}_${part.code}.dxf`;
               const ncFile = `${part.part_id}_${part.code}.nc`;
               const mprFile = `${part.part_id}_${part.code}.mpr`;
+              const cixFile = `${part.part_id}_${part.code}.cix`;
               const rowDxfHref =
                 getLocalDxfBlobUrl(dxfFile) ??
                 `/api/v1/jobs/${jobId}/dxf/${dxfFile}`;
@@ -350,6 +385,9 @@ export function BomTableView({
               const rowMprHref =
                 getLocalMprBlobUrl(mprFile) ??
                 `/api/v1/jobs/${jobId}/mpr/${mprFile}`;
+              const rowCixHref =
+                getLocalCixBlobUrl(cixFile) ??
+                `/api/v1/jobs/${jobId}/cix/${cixFile}`;
               return (
                 <tr
                   key={part.part_id}
@@ -364,7 +402,12 @@ export function BomTableView({
                     {part.part_id} · {part.code}
                   </th>
                   <td className="px-3 py-2.5 font-medium text-slate-100">
-                    {part.name}
+                    <div>{part.name}</div>
+                    {part.notch_info && (
+                      <span className="mt-0.5 inline-block rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                        {part.notch_info}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-slate-300">{part.material}</td>
                   <td className="px-3 py-2.5">{part.thickness_mm} mm</td>
@@ -382,9 +425,16 @@ export function BomTableView({
                     {part.edge_band.width_1_mm} / {part.edge_band.width_2_mm}
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="rounded bg-slate-800 px-2 py-0.5 font-mono text-slate-200">
-                      {part.drills.length} delik
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="rounded bg-slate-800 px-2 py-0.5 font-mono text-slate-200">
+                        {part.drills.length} delik
+                      </span>
+                      {part.holding_tabs_count && part.holding_tabs_count > 0 ? (
+                        <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-emerald-300">
+                          {part.holding_tabs_count}×TAB
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-1">
@@ -411,6 +461,14 @@ export function BomTableView({
                         className="inline-flex items-center gap-0.5 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[11px] font-medium text-amber-300 hover:border-amber-500"
                       >
                         MPR
+                      </a>
+                      <a
+                        href={rowCixHref}
+                        download={cixFile}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-0.5 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[11px] font-medium text-purple-300 hover:border-purple-500"
+                      >
+                        CIX
                       </a>
                     </div>
                   </td>

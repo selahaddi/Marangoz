@@ -12,12 +12,15 @@ from app.schemas.cabinet import (
     BOMReport,
     Box3DTransform,
     CabinetConfig,
+    CuttingMode,
     DoorType,
     DrillPoint,
     EdgeBandSpec,
+    FastenerType,
     GroovePath,
     HardwareItem,
     PanelPart,
+    PlinthType,
 )
 
 
@@ -90,8 +93,9 @@ class BOMEngine:
         shelf_count: int,
         drawer_count: int,
         drawer_front_height_mm: float,
+        fastener_type: FastenerType = FastenerType.MINIFIX_DOWEL,
     ) -> list[DrillPoint]:
-        """Yan dikme üzerindeki Minifiks mil, kavela, çekmece rayı ve raf pimi deliklerini üretir."""
+        """Yan dikme üzerindeki Minifiks+Kavela veya Lamello Cabineo, çekmece rayı ve raf pimi deliklerini üretir."""
         drills: list[DrillPoint] = []
         t_half = MC.BODY_THICKNESS_MM / 2.0
         bottom_conn_x = round(plinth_height_mm + t_half, 2)
@@ -101,28 +105,40 @@ class BOMEngine:
 
         for conn_x, label in ((bottom_conn_x, "Alt Tabla"), (top_conn_x, "Üst Tabla")):
             for y_pos in conn_y_coords:
-                drills.append(
-                    DrillPoint(
-                        x_mm=conn_x,
-                        y_mm=y_pos,
-                        diameter_mm=MC.MINIFIX_BOLT_DIAMETER_MM,
-                        depth_mm=MC.MINIFIX_BOLT_DEPTH_MM,
-                        layer=MC.LAYER_MINIFIX_BOLT,
-                        description=f"{label} Minifiks Mil Deliği",
-                    )
-                )
-                dowel_y = round(y_pos + MC.DOWEL_OFFSET_FROM_MINIFIX_MM, 2)
-                if dowel_y <= depth_mm - 25.0:
+                if fastener_type == FastenerType.CABINEO_12:
                     drills.append(
                         DrillPoint(
                             x_mm=conn_x,
-                            y_mm=dowel_y,
-                            diameter_mm=MC.DOWEL_DIAMETER_MM,
-                            depth_mm=MC.DOWEL_DEPTH_MM,
-                            layer=MC.LAYER_DOWEL,
-                            description=f"{label} Kavela Deliği",
+                            y_mm=y_pos,
+                            diameter_mm=MC.CABINEO_SCREW_DIAMETER_MM,
+                            depth_mm=MC.CABINEO_SCREW_DEPTH_MM,
+                            layer=MC.LAYER_CABINEO_SCREW,
+                            description=f"{label} Lamello Cabineo 12 Vida Deliği (Saf Z-Ekseni)",
                         )
                     )
+                else:
+                    drills.append(
+                        DrillPoint(
+                            x_mm=conn_x,
+                            y_mm=y_pos,
+                            diameter_mm=MC.MINIFIX_BOLT_DIAMETER_MM,
+                            depth_mm=MC.MINIFIX_BOLT_DEPTH_MM,
+                            layer=MC.LAYER_MINIFIX_BOLT,
+                            description=f"{label} Minifiks Mil Deliği",
+                        )
+                    )
+                    dowel_y = round(y_pos + MC.DOWEL_OFFSET_FROM_MINIFIX_MM, 2)
+                    if dowel_y <= depth_mm - 25.0:
+                        drills.append(
+                            DrillPoint(
+                                x_mm=conn_x,
+                                y_mm=dowel_y,
+                                diameter_mm=MC.DOWEL_DIAMETER_MM,
+                                depth_mm=MC.DOWEL_DEPTH_MM,
+                                layer=MC.LAYER_DOWEL,
+                                description=f"{label} Kavela Deliği",
+                            )
+                        )
 
         # Çekmece Rayı Sistem 32 Montaj Delikleri (DRILL_SLIDE_D5)
         drawer_zone_h = drawer_count * drawer_front_height_mm
@@ -184,26 +200,46 @@ class BOMEngine:
 
     @classmethod
     def _build_horizontal_panel_drills(
-        cls, inner_width_mm: float, depth_mm: float
+        cls,
+        inner_width_mm: float,
+        depth_mm: float,
+        fastener_type: FastenerType = FastenerType.MINIFIX_DOWEL,
     ) -> list[DrillPoint]:
-        """Alt ve üst tabla üzerindeki Ø15 mm Minifiks eksantrik gövde deliklerini üretir."""
+        """Alt ve üst tabla üzerindeki Ø15 mm Minifiks eksantrik veya Lamello Cabineo 12 yuvalarını üretir."""
         drills: list[DrillPoint] = []
         conn_y_coords = cls._connection_depth_coords(depth_mm)
-        left_cam_x = MC.MINIFIX_CAM_CENTER_FROM_EDGE_MM
-        right_cam_x = round(inner_width_mm - MC.MINIFIX_CAM_CENTER_FROM_EDGE_MM, 2)
+        offset_x = (
+            MC.CABINEO_POCKET_OFFSET_FROM_EDGE_MM
+            if fastener_type == FastenerType.CABINEO_12
+            else MC.MINIFIX_CAM_CENTER_FROM_EDGE_MM
+        )
+        left_cam_x = offset_x
+        right_cam_x = round(inner_width_mm - offset_x, 2)
 
         for cam_x, side_label in ((left_cam_x, "Sol"), (right_cam_x, "Sağ")):
             for y_pos in conn_y_coords:
-                drills.append(
-                    DrillPoint(
-                        x_mm=cam_x,
-                        y_mm=y_pos,
-                        diameter_mm=MC.MINIFIX_CAM_DIAMETER_MM,
-                        depth_mm=MC.MINIFIX_CAM_DEPTH_MM,
-                        layer=MC.LAYER_MINIFIX_CAM,
-                        description=f"{side_label} Yan Bağlantı Minifiks Gövde Yuvası",
+                if fastener_type == FastenerType.CABINEO_12:
+                    drills.append(
+                        DrillPoint(
+                            x_mm=cam_x,
+                            y_mm=y_pos,
+                            diameter_mm=MC.CABINEO_POCKET_DIAMETER_MM,
+                            depth_mm=MC.CABINEO_POCKET_DEPTH_MM,
+                            layer=MC.LAYER_CABINEO_POCKET,
+                            description=f"{side_label} Yan Bağlantı Lamello Cabineo 12 Cebi (Z=10.8mm)",
+                        )
                     )
-                )
+                else:
+                    drills.append(
+                        DrillPoint(
+                            x_mm=cam_x,
+                            y_mm=y_pos,
+                            diameter_mm=MC.MINIFIX_CAM_DIAMETER_MM,
+                            depth_mm=MC.MINIFIX_CAM_DEPTH_MM,
+                            layer=MC.LAYER_MINIFIX_CAM,
+                            description=f"{side_label} Yan Bağlantı Minifiks Gövde Yuvası",
+                        )
+                    )
         return drills
 
     @classmethod
@@ -300,7 +336,18 @@ class BOMEngine:
             h, d, side_edge
         )
         side_drills = cls._build_side_panel_drills(
-            h, d, base_offset_y, config.shelf_count, drawer_count, drawer_front_h
+            h,
+            d,
+            base_offset_y,
+            config.shelf_count,
+            drawer_count,
+            drawer_front_h,
+            fastener_type=config.fastener_type,
+        )
+        side_notch_str = (
+            f"Süpürgelik Kertmesi: {config.baseboard_notch_depth_mm:.0f}×{config.baseboard_notch_height_mm:.0f}mm"
+            if config.has_baseboard_notch
+            else ""
         )
 
         side_grooves: list[GroovePath] = []
@@ -340,6 +387,7 @@ class BOMEngine:
                 area_m2=round((h * d) / 1_000_000.0, 4),
                 drills=side_drills,
                 grooves=side_grooves,
+                notch_info=side_notch_str,
                 transform_3d=Box3DTransform(
                     center_x_mm=round(x_offset_mm - w / 2.0 + t / 2.0, 2),
                     center_y_mm=round(h / 2.0, 2),
@@ -372,6 +420,7 @@ class BOMEngine:
                 area_m2=round((h * d) / 1_000_000.0, 4),
                 drills=side_drills,
                 grooves=side_grooves,
+                notch_info=side_notch_str,
                 transform_3d=Box3DTransform(
                     center_x_mm=round(x_offset_mm + w / 2.0 - t / 2.0, 2),
                     center_y_mm=round(h / 2.0, 2),
@@ -396,7 +445,14 @@ class BOMEngine:
         horiz_cut_l, horiz_cut_w, horiz_ded_l, horiz_ded_w = cls.compute_cut_dimensions(
             inner_w, d, horiz_edge
         )
-        horiz_drills = cls._build_horizontal_panel_drills(inner_w, d)
+        horiz_drills = cls._build_horizontal_panel_drills(
+            inner_w, d, fastener_type=config.fastener_type
+        )
+        col_notch_str = (
+            f"Kolon Kertmesi: {config.column_notch_width_mm:.0f}×{config.column_notch_depth_mm:.0f}mm"
+            if config.has_column_notch
+            else ""
+        )
 
         horiz_grooves: list[GroovePath] = []
         if config.back_panel_type == BackPanelType.GROOVED_8MM:
@@ -429,6 +485,7 @@ class BOMEngine:
                 area_m2=round((inner_w * d) / 1_000_000.0, 4),
                 drills=horiz_drills,
                 grooves=horiz_grooves,
+                notch_info=col_notch_str,
                 transform_3d=Box3DTransform(
                     center_x_mm=x_offset_mm,
                     center_y_mm=round(h - t / 2.0, 2),
@@ -465,6 +522,7 @@ class BOMEngine:
                 area_m2=round((inner_w * d) / 1_000_000.0, 4),
                 drills=horiz_drills,
                 grooves=horiz_grooves,
+                notch_info=col_notch_str,
                 transform_3d=Box3DTransform(
                     center_x_mm=x_offset_mm,
                     center_y_mm=round(base_offset_y + t / 2.0, 2),
@@ -1035,6 +1093,62 @@ class BOMEngine:
                     )
                     part_counter += 1
 
+        # 8. Şantiye Rölöve Duvar Kapama Payları (Scribing Fillers / Kör Çıtalar)
+        filler_edge = EdgeBandSpec(
+            length_1_mm=config.front_pvc_thickness_mm,
+            length_2_mm=0.0,
+            width_1_mm=config.hidden_pvc_thickness_mm,
+            width_2_mm=config.hidden_pvc_thickness_mm,
+        )
+        for f_code, f_label, f_w, f_cx in (
+            (
+                "SOL",
+                "Sol Duvar Rölöve Kör Çıtası (Scribing Filler)",
+                config.left_filler_width_mm,
+                round(x_offset_mm - w / 2.0 - config.left_filler_width_mm / 2.0, 2),
+            ),
+            (
+                "SAG",
+                "Sağ Duvar Rölöve Kör Çıtası (Scribing Filler)",
+                config.right_filler_width_mm,
+                round(x_offset_mm + w / 2.0 + config.right_filler_width_mm / 2.0, 2),
+            ),
+        ):
+            if f_w >= 15.0:
+                fc_l, fc_w, fd_l, fd_w = cls.compute_cut_dimensions(h, f_w, filler_edge)
+                parts.append(
+                    PanelPart(
+                        part_id=f"P{part_counter:02d}",
+                        code=f"{prefix}KOR_CITA_{f_code}",
+                        name=f"{label_prefix}{f_label}",
+                        material=door_mat,
+                        thickness_mm=t,
+                        quantity=1,
+                        net_length_mm=h,
+                        net_width_mm=f_w,
+                        cut_length_mm=fc_l,
+                        cut_width_mm=fc_w,
+                        pvc_deduction_length_mm=fd_l,
+                        pvc_deduction_width_mm=fd_w,
+                        edge_band=filler_edge,
+                        area_m2=round((h * f_w) / 1_000_000.0, 4),
+                        drills=[],
+                        grooves=[],
+                        notch_info="Şantiye Duvar Alıştırma Payı (Scribing)",
+                        transform_3d=Box3DTransform(
+                            center_x_mm=f_cx,
+                            center_y_mm=round(h / 2.0, 2),
+                            center_z_mm=round(d / 2.0 - t / 2.0, 2),
+                            size_x_mm=f_w,
+                            size_y_mm=h,
+                            size_z_mm=t,
+                            color_hex=config.door_color_hex,
+                            module_index=module_idx,
+                        ),
+                    )
+                )
+                part_counter += 1
+
         conn_count_per_corner = len(cls._connection_depth_coords(d))
         minifix_sets = conn_count_per_corner * 4 + (drawer_count * 4)
         dowel_count = minifix_sets + (8 if config.has_plinth else 0)
@@ -1092,6 +1206,15 @@ class BOMEngine:
             total_shelf_pins += mod_cfg.shelf_count * 4
             total_drawer_slides += mod_cfg.drawer_count
 
+        # CNC Router Nesting modunda küçük parçalara vakum tutunma sekmesi (holding tabs) tanımla
+        if config.cutting_mode == CuttingMode.CNC_ROUTER:
+            for part in parts:
+                if (
+                    part.area_m2 < 0.15
+                    or min(part.cut_length_mm, part.cut_width_mm) < 180.0
+                ):
+                    part.holding_tabs_count = 4
+
         # PVC Metraj ve Alan Hesaplaması
         pvc_04_mm = 0.0
         pvc_10_mm = 0.0
@@ -1125,22 +1248,47 @@ class BOMEngine:
         pvc_10_m = round(pvc_10_mm / 1000.0, 2)
         pvc_20_m = round(pvc_20_mm / 1000.0, 2)
 
-        hardware: list[HardwareItem] = [
-            HardwareItem(
-                code="HRD-MNFX-15",
-                name="Minifiks Bağlantı Takımı (Ø15 Eksantrik + Mil)",
-                unit="Takım",
-                quantity=float(total_minifix),
-                note="Gövde ve çekmece kasa birleştirmeleri",
-            ),
-            HardwareItem(
-                code="HRD-KVLA-08",
-                name="Ahşap Kavela (Ø8x35mm)",
-                unit="Adet",
-                quantity=float(total_dowels),
-                note="Sistem 32 kavela delikleri ve baza kayıtları",
-            ),
-        ]
+        hardware: list[HardwareItem] = []
+        if config.fastener_type == FastenerType.CABINEO_12:
+            hardware.append(
+                HardwareItem(
+                    code="HRD-CBN-12",
+                    name="Lamello Cabineo 12 Bağlantı Elemanı (Saf Z-Ekseni 3-Eksen CNC)",
+                    unit="Adet",
+                    quantity=float(total_minifix),
+                    note="Cumbadan yatay delik gerektirmez; 3 eksen nesting CNC'de tek bağlamada işlenir (~900N çekme direnci)",
+                )
+            )
+        else:
+            hardware.extend(
+                [
+                    HardwareItem(
+                        code="HRD-MNFX-15",
+                        name="Minifiks Bağlantı Takımı (Ø15 Eksantrik + Mil)",
+                        unit="Takım",
+                        quantity=float(total_minifix),
+                        note="Gövde ve çekmece kasa birleştirmeleri",
+                    ),
+                    HardwareItem(
+                        code="HRD-KVLA-08",
+                        name="Ahşap Kavela (Ø8x35mm)",
+                        unit="Adet",
+                        quantity=float(total_dowels),
+                        note="Sistem 32 kavela delikleri ve baza kayıtları",
+                    ),
+                ]
+            )
+
+        if config.has_plinth and config.plinth_type == PlinthType.ADJUSTABLE_LEGS:
+            hardware.append(
+                HardwareItem(
+                    code=f"HRD-AYK-{int(config.plinth_height_mm)}",
+                    name=f"Ayarlanabilir Plastik Rotil Dolap Ayağı ({int(config.plinth_height_mm)}mm) + Baza Klipsi",
+                    unit="Adet",
+                    quantity=float(len(all_modules) * 4),
+                    note="Zemin eğriliği terazi ayarı ve klipsli baza montajı için",
+                )
+            )
 
         if total_shelf_pins > 0:
             hardware.append(

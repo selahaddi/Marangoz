@@ -21,6 +21,12 @@ export type BackPanelType = "grooved_8mm" | "nailed_3mm";
 
 export type SheetSizeOption = "2800x2100" | "3660x1830";
 
+export type FastenerType = "minifix_dowel" | "cabineo_12";
+
+export type CuttingMode = "panel_saw" | "cnc_router";
+
+export type PlinthType = "wood_plinth" | "adjustable_legs";
+
 export interface ApiResponse<T> {
   success: boolean;
   data: T | null;
@@ -56,6 +62,18 @@ export interface CabinetConfig {
   hidden_pvc_thickness_mm: number;
   back_panel_type: BackPanelType;
   sheet_size: SheetSizeOption;
+  fastener_type?: FastenerType;
+  cutting_mode?: CuttingMode;
+  router_bit_diameter_mm?: number;
+  left_filler_width_mm?: number;
+  right_filler_width_mm?: number;
+  has_baseboard_notch?: boolean;
+  baseboard_notch_height_mm?: number;
+  baseboard_notch_depth_mm?: number;
+  has_column_notch?: boolean;
+  column_notch_width_mm?: number;
+  column_notch_depth_mm?: number;
+  plinth_type?: PlinthType;
 }
 
 export type CatalogCategoryId =
@@ -134,6 +152,8 @@ export interface PanelPart {
   grain_direction: string;
   drills: DrillPoint[];
   grooves: GroovePath[];
+  holding_tabs_count?: number;
+  notch_info?: string;
   transform_3d: Box3DTransform;
 }
 
@@ -171,6 +191,20 @@ export interface NestedPartPlacement {
   rotated: boolean;
   cut_length_mm: number;
   cut_width_mm: number;
+  holding_tabs_count?: number;
+}
+
+export interface RemnantStockItem {
+  remnant_id: string;
+  sheet_index: number;
+  material: string;
+  thickness_mm: number;
+  x_mm: number;
+  y_mm: number;
+  width_mm: number;
+  height_mm: number;
+  area_m2: number;
+  reusable?: boolean;
 }
 
 export interface SheetLayout {
@@ -187,6 +221,7 @@ export interface SheetLayout {
   waste_area_m2: number;
   waste_percentage: number;
   placements: NestedPartPlacement[];
+  remnants?: RemnantStockItem[];
   svg_content: string;
 }
 
@@ -197,6 +232,9 @@ export interface NestingResult {
   total_sheets: number;
   overall_efficiency_percentage: number;
   overall_waste_percentage: number;
+  reusable_remnant_area_m2?: number;
+  effective_waste_percentage?: number;
+  remnants?: RemnantStockItem[];
   sheets: SheetLayout[];
   combined_svg: string;
 }
@@ -208,5 +246,6 @@ export interface ProductionPackageResponse {
   nesting: NestingResult;
   glb_base64: string;
   dxf_filenames: string[];
+  cix_filenames?: string[];
   zip_download_url: string;
 }

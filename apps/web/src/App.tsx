@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   Box,
+  Calculator,
   Check,
   Cpu,
   FileSpreadsheet,
   LayoutGrid,
   Loader2,
   Plus,
+  QrCode,
   Scissors,
   Sliders,
   Sparkles,
@@ -16,7 +18,9 @@ import {
 } from "lucide-react";
 import { BomTableView } from "./components/BomTableView";
 import { CabinetViewer3D } from "./components/CabinetViewer3D";
+import { CostQuoteView } from "./components/CostQuoteView";
 import { NestingView } from "./components/NestingView";
+import { PartLabelsView } from "./components/PartLabelsView";
 import {
   generateProductionPackage,
   parseNaturalLanguagePrompt,
@@ -32,7 +36,10 @@ import type {
   CabinetConfig,
   CabinetType,
   CatalogCategoryId,
+  CuttingMode,
   DoorType,
+  FastenerType,
+  PlinthType,
   ProductionPackageResponse,
   RoomLinePreset,
   SheetSizeOption,
@@ -50,6 +57,18 @@ const DEFAULT_CONFIG: CabinetConfig = {
   drawer_front_height_mm: 180,
   has_plinth: true,
   plinth_height_mm: 80,
+  plinth_type: "wood_plinth",
+  fastener_type: "minifix_dowel",
+  cutting_mode: "panel_saw",
+  router_bit_diameter_mm: 10,
+  left_filler_width_mm: 0,
+  right_filler_width_mm: 0,
+  has_baseboard_notch: false,
+  baseboard_notch_height_mm: 80,
+  baseboard_notch_depth_mm: 15,
+  has_column_notch: false,
+  column_notch_width_mm: 120,
+  column_notch_depth_mm: 120,
   body_material: "18mm Beyaz Suntalam",
   body_color_hex: "#F4F1EA",
   door_color_hex: "#C89F70",
@@ -68,7 +87,12 @@ const EXAMPLE_PROMPTS: readonly string[] = [
   "180 cm genişliğinde, 48 cm yüksekliğinde, 42 cm derinliğinde, 3 çekmeceli, çift kapaklı ceviz TV konsolu",
 ];
 
-type ActiveTab = "3d_and_bom" | "nesting" | "bom_only";
+type ActiveTab =
+  | "3d_and_bom"
+  | "nesting"
+  | "bom_only"
+  | "qr_labels"
+  | "cost_quote";
 
 export function App() {
   const [prompt, setPrompt] = useState<string>(EXAMPLE_PROMPTS[0]);
@@ -1039,6 +1063,173 @@ export function App() {
                 </div>
               </div>
 
+              {/* Paket A & C: Bağlantı Sistemi (Minifiks vs Cabineo 3-Eksen) ve Kesim Teknolojisi */}
+              <div className="space-y-2.5 rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-3">
+                <span className="block text-[11px] font-bold uppercase tracking-wider text-indigo-300">
+                  CNC Bağlantı &amp; Kesim Teknolojisi
+                </span>
+
+                <div>
+                  <label
+                    htmlFor="fastener-type"
+                    className="mb-1 block text-xs font-medium text-slate-300"
+                  >
+                    Gövde Bağlantı Sistemi
+                  </label>
+                  <select
+                    id="fastener-type"
+                    value={activeModule.fastener_type ?? "minifix_dowel"}
+                    onChange={(e) =>
+                      updateActiveModule({
+                        fastener_type: e.target.value as FastenerType,
+                      })
+                    }
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100"
+                  >
+                    <option value="minifix_dowel">
+                      Minifiks Ø15 + Kavela Ø8 (Yatay Delikli)
+                    </option>
+                    <option value="cabineo_12">
+                      Lamello Cabineo 12 (Saf Z-Ekseni 3-Eksen CNC)
+                    </option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="cutting-mode"
+                    className="mb-1 block text-xs font-medium text-slate-300"
+                  >
+                    Plaka Kesim Modu (Kerf / Vakum Sekmesi)
+                  </label>
+                  <select
+                    id="cutting-mode"
+                    value={config.cutting_mode ?? "panel_saw"}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        cutting_mode: e.target.value as CuttingMode,
+                      })
+                    }
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100"
+                  >
+                    <option value="panel_saw">
+                      Ebatlama Testeresi (4.0 mm Testere Kerf)
+                    </option>
+                    <option value="cnc_router">
+                      3-Eksen CNC Router Nesting (10 mm Çakı + 4×Sekme)
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Paket B: Şantiye Rölöve Toleransları (Kör Çıta, Süpürgelik & Kolon Kertmesi) */}
+              <div className="space-y-2.5 rounded-xl border border-amber-500/30 bg-amber-950/15 p-3">
+                <span className="block text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                  Şantiye &amp; Rölöve Tolerans Paketi
+                </span>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label
+                      htmlFor="left-filler-mm"
+                      className="block text-[11px] font-medium text-slate-300"
+                    >
+                      Sol Kör Çıta (mm)
+                    </label>
+                    <input
+                      id="left-filler-mm"
+                      type="number"
+                      min={0}
+                      max={250}
+                      value={activeModule.left_filler_width_mm ?? 0}
+                      onChange={(e) =>
+                        updateActiveModule({
+                          left_filler_width_mm: Number(e.target.value),
+                        })
+                      }
+                      className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="right-filler-mm"
+                      className="block text-[11px] font-medium text-slate-300"
+                    >
+                      Sağ Kör Çıta (mm)
+                    </label>
+                    <input
+                      id="right-filler-mm"
+                      type="number"
+                      min={0}
+                      max={250}
+                      value={activeModule.right_filler_width_mm ?? 0}
+                      onChange={(e) =>
+                        updateActiveModule({
+                          right_filler_width_mm: Number(e.target.value),
+                        })
+                      }
+                      className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="plinth-type"
+                    className="mb-1 block text-[11px] font-medium text-slate-300"
+                  >
+                    Alt Baza &amp; Terazi Sistemi
+                  </label>
+                  <select
+                    id="plinth-type"
+                    value={activeModule.plinth_type ?? "wood_plinth"}
+                    onChange={(e) =>
+                      updateActiveModule({
+                        plinth_type: e.target.value as PlinthType,
+                      })
+                    }
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100"
+                  >
+                    <option value="wood_plinth">
+                      Ahşap Ön/Arka Baza Kaydı (Standart)
+                    </option>
+                    <option value="adjustable_legs">
+                      4× Ayarlı Plastik Ayak + Klipsli Ön Baza
+                    </option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5 pt-1">
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={activeModule.has_baseboard_notch ?? false}
+                      onChange={(e) =>
+                        updateActiveModule({
+                          has_baseboard_notch: e.target.checked,
+                        })
+                      }
+                      className="rounded border-slate-700 bg-slate-950 text-amber-500"
+                    />
+                    Süpürgelik Kertmesi (Arka Alt 80×15 mm)
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={activeModule.has_column_notch ?? false}
+                      onChange={(e) =>
+                        updateActiveModule({
+                          has_column_notch: e.target.checked,
+                        })
+                      }
+                      className="rounded border-slate-700 bg-slate-950 text-amber-500"
+                    />
+                    Arka Kolon Kertmesi (120×120 mm Çentik)
+                  </label>
+                </div>
+              </div>
+
               {/* Baza ve Standart Plaka Ebadı */}
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
@@ -1160,7 +1351,7 @@ export function App() {
             </form>
           </aside>
 
-          {/* Sağ Sütun: 3D Görüntüleyici, BOM Tablosu, CNC DXF ve Nesting Şeması */}
+          {/* Sağ Sütun: 3D Görüntüleyici, BOM Tablosu, CNC DXF/CIX, Nesting, QR Etiket ve Maliyet */}
           <section className="space-y-4 lg:col-span-8 xl:col-span-9">
             {/* Görünüm Sekmeleri */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
@@ -1188,7 +1379,7 @@ export function App() {
                   }`}
                 >
                   <Scissors className="h-4 w-4" />
-                  Plaka Kesim Optimizasyonu (Nesting SVG)
+                  Plaka Nesting &amp; Artık Depo
                 </button>
 
                 <button
@@ -1201,7 +1392,33 @@ export function App() {
                   }`}
                 >
                   <FileSpreadsheet className="h-4 w-4" />
-                  Detaylı BOM &amp; CNC Delik Planı
+                  Detaylı BOM &amp; CNC (.DXF/.NC/.MPR/.CIX)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("qr_labels")}
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
+                    activeTab === "qr_labels"
+                      ? "bg-sky-600 text-white shadow-md shadow-sky-600/20"
+                      : "bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  }`}
+                >
+                  <QrCode className="h-4 w-4" />
+                  QR Parça Etiketleri &amp; PVC Şeması
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("cost_quote")}
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
+                    activeTab === "cost_quote"
+                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
+                      : "bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  }`}
+                >
+                  <Calculator className="h-4 w-4" />
+                  Maliyet, CNC Süresi &amp; Müşteri Teklifi
                 </button>
               </div>
             </div>
@@ -1235,6 +1452,22 @@ export function App() {
                     bom={pkg.bom}
                     selectedPartId={selectedPartId}
                     onSelectPart={(id) => setSelectedPartId(id)}
+                  />
+                )}
+
+                {activeTab === "qr_labels" && (
+                  <PartLabelsView
+                    jobId={pkg.job_id}
+                    bom={pkg.bom}
+                    onSelectPart={(id) => setSelectedPartId(id)}
+                  />
+                )}
+
+                {activeTab === "cost_quote" && (
+                  <CostQuoteView
+                    jobId={pkg.job_id}
+                    bom={pkg.bom}
+                    nesting={pkg.nesting}
                   />
                 )}
               </>

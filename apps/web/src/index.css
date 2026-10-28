@@ -111,6 +111,85 @@
   }
 }
 
+.quote-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  --qlabel-2: "Kategori";
+  --qlabel-3: "Açıklama";
+  --qlabel-4: "Miktar / Süre";
+  --qlabel-5: "Birim Fiyat";
+  --qlabel-6: "Toplam Tutar";
+}
+
+.quote-table thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+}
+
+.quote-table tbody th {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background-color: #0f172a;
+}
+
+@container (width < 640px) {
+  .quote-table,
+  .quote-table thead,
+  .quote-table tbody,
+  .quote-table tr,
+  .quote-table th,
+  .quote-table td {
+    display: block;
+  }
+
+  .quote-table thead {
+    display: none;
+  }
+
+  .quote-table tr {
+    margin-block-end: 1rem;
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  .quote-table tbody th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background-color: #1e293b;
+  }
+
+  .quote-table td:nth-child(2)::before {
+    content: var(--qlabel-2) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .quote-table td:nth-child(3)::before {
+    content: var(--qlabel-3) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .quote-table td:nth-child(4)::before {
+    content: var(--qlabel-4) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .quote-table td:nth-child(5)::before {
+    content: var(--qlabel-5) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .quote-table td:nth-child(6)::before {
+    content: var(--qlabel-6) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+}
+
 /* Modern Web Guidance: validate-input-after-interaction */
 .field-hint {
   display: block;

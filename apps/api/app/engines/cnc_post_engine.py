@@ -173,15 +173,91 @@ class CNCPostProcessorEngine:
         return "\n".join(lines)
 
     @classmethod
+    def export_part_cix_string(cls, part: PanelPart) -> str:
+        """Tek bir PanelPart nesnesi için Biesse bSolid / BiesseWorks (.cix) makro programı üretir."""
+        cut_l = part.cut_length_mm
+        cut_w = part.cut_width_mm
+        t = part.thickness_mm
+
+        lines: list[str] = [
+            "BEGIN ID CID3",
+            '  REL= 5.0',
+            "END ID",
+            "",
+            "BEGIN MAINDATA",
+            f"  LPX={cut_l:.2f}",
+            f"  LPY={cut_w:.2f}",
+            f"  LPZ={t:.2f}",
+            '  ORLST="1"',
+            "  SIMMETRY=1",
+            "  TLCHK=0",
+            '  TOOLING=""',
+            f'  CUSTSTR="{part.part_id}_{part.code}"',
+            "END MAINDATA",
+            "",
+        ]
+
+        # Kanal Makroları (ROUTG)
+        for idx, groove in enumerate(part.grooves, start=1):
+            gx0 = groove.x_start_mm
+            gy0 = groove.y_start_mm + (groove.length_mm / 2.0)
+            gx1 = groove.x_start_mm + groove.width_mm
+            lines.extend(
+                [
+                    "BEGIN MACRO",
+                    "  NAME=ROUTG",
+                    f'  PARAM,NAME=ID,VALUE="GRV_{idx}"',
+                    "  PARAM,NAME=SIDE,VALUE=0",
+                    f"  PARAM,NAME=X,VALUE={gx0:.2f}",
+                    f"  PARAM,NAME=Y,VALUE={gy0:.2f}",
+                    f"  PARAM,NAME=XE,VALUE={gx1:.2f}",
+                    f"  PARAM,NAME=YE,VALUE={gy0:.2f}",
+                    f"  PARAM,NAME=Z,VALUE={groove.depth_mm:.2f}",
+                    f"  PARAM,NAME=DIA,VALUE={groove.length_mm:.2f}",
+                    "END MACRO",
+                    "",
+                ]
+            )
+
+        # Dikey Delik ve Cabineo Cep Makroları (BG)
+        for idx, drill in enumerate(part.drills, start=1):
+            lines.extend(
+                [
+                    "BEGIN MACRO",
+                    "  NAME=BG",
+                    "  PARAM,NAME=SIDE,VALUE=0",
+                    '  PARAM,NAME=CRN,VALUE="1"',
+                    f"  PARAM,NAME=X,VALUE={drill.x_mm:.2f}",
+                    f"  PARAM,NAME=Y,VALUE={drill.y_mm:.2f}",
+                    "  PARAM,NAME=Z,VALUE=0",
+                    f"  PARAM,NAME=DP,VALUE={drill.depth_mm:.2f}",
+                    f"  PARAM,NAME=DIA,VALUE={drill.diameter_mm:.2f}",
+                    "  PARAM,NAME=THR,VALUE=0",
+                    f'  PARAM,NAME=LAY,VALUE="{drill.layer}_{idx}"',
+                    "END MACRO",
+                    "",
+                ]
+            )
+
+        return "\n".join(lines)
+
+    @classmethod
     def export_all_cnc_programs(
-        cls, bom: BOMReport, gcode_dir: Path, mpr_dir: Path
-    ) -> tuple[list[Path], list[Path]]:
-        """Tüm parçalar için .nc ve .mpr dosyalarını ilgili klasörlere yazar."""
+        cls,
+        bom: BOMReport,
+        gcode_dir: Path,
+        mpr_dir: Path,
+        cix_dir: Path | None = None,
+    ) -> tuple[list[Path], list[Path], list[Path]]:
+        """Tüm parçalar için .nc, .mpr ve .cix dosyalarını ilgili klasörlere yazar."""
         gcode_dir.mkdir(parents=True, exist_ok=True)
         mpr_dir.mkdir(parents=True, exist_ok=True)
+        if cix_dir is not None:
+            cix_dir.mkdir(parents=True, exist_ok=True)
 
         gcode_files: list[Path] = []
         mpr_files: list[Path] = []
+        cix_files: list[Path] = []
 
         for part in bom.parts:
             nc_path = gcode_dir / f"{part.part_id}_{part.code}.nc"
@@ -192,5 +268,10 @@ class CNCPostProcessorEngine:
             mpr_path.write_text(cls.export_part_mpr_string(part), encoding="utf-8")
             mpr_files.append(mpr_path)
 
-        return gcode_files, mpr_files
+            if cix_dir is not None:
+                cix_path = cix_dir / f"{part.part_id}_{part.code}.cix"
+                cix_path.write_text(cls.export_part_cix_string(part), encoding="utf-8")
+                cix_files.append(cix_path)
+
+        return gcode_files, mpr_files, cix_files
 

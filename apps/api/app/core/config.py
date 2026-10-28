@@ -81,12 +81,27 @@ class ManufacturingConstants:
     DRAWER_SLIDE_HOLE_DIAMETER_MM: Final[float] = 5.0
     DRAWER_SLIDE_HOLE_DEPTH_MM: Final[float] = 12.0
 
+    # Lamello Cabineo 12 (Saf Dikey Z-Ekseni 3-Eksen Nesting CNC Bağlantısı)
+    CABINEO_POCKET_DIAMETER_MM: Final[float] = 15.0
+    CABINEO_POCKET_DEPTH_MM: Final[float] = 10.8
+    CABINEO_POCKET_OFFSET_FROM_EDGE_MM: Final[float] = 16.0
+    CABINEO_SCREW_DIAMETER_MM: Final[float] = 5.0
+    CABINEO_SCREW_DEPTH_MM: Final[float] = 12.0
+
+    # CNC Router Nesting Çakı Çapı ve Artık Plaka (Remnant) Eşik Değerleri
+    CNC_ROUTER_BIT_DIAMETER_MM: Final[float] = 10.0
+    REMNANT_MIN_DIM_SHORT_MM: Final[float] = 400.0
+    REMNANT_MIN_DIM_LONG_MM: Final[float] = 600.0
+
     # DXF Katman İsimleri (R2010)
     LAYER_OUTLINE: Final[str] = "OUTLINE_CUT"
+    LAYER_NOTCH_CUT: Final[str] = "OUTLINE_NOTCH_CUT"
     LAYER_GROOVE_BACK: Final[str] = "GROOVE_BACK_8MM"
     LAYER_MINIFIX_CAM: Final[str] = "DRILL_MINIFIX_CAM_D15"
     LAYER_MINIFIX_BOLT: Final[str] = "DRILL_MINIFIX_BOLT_D8"
     LAYER_DOWEL: Final[str] = "DRILL_DOWEL_D8"
+    LAYER_CABINEO_POCKET: Final[str] = "LAYER_CABINEO_POCKET_Z108"
+    LAYER_CABINEO_SCREW: Final[str] = "DRILL_CABINEO_SCREW_D5"
     LAYER_SHELF_PIN: Final[str] = "DRILL_SHELF_PIN_D5"
     LAYER_HINGE_CUP: Final[str] = "DRILL_HINGE_CUP_D35"
     LAYER_DRAWER_SLIDE: Final[str] = "DRILL_SLIDE_D5"

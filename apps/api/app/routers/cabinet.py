@@ -145,14 +145,16 @@ async def generate_production_package(
         glb_path.write_bytes(glb_bytes)
         glb_base64 = base64.b64encode(glb_bytes).decode("ascii")
 
-        # 3. CNC Katmanlı DXF R2010, ISO G-Code (.nc) ve WoodWOP (.mpr) Dosyaları Üretimi
+        # 3. CNC Katmanlı DXF R2010, ISO G-Code (.nc), WoodWOP (.mpr) ve Biesse (.cix) Dosyaları Üretimi
         dxf_paths = DXFProductionEngine.export_all_dxf_files(bom, dxf_dir)
         dxf_filenames = [p.name for p in dxf_paths]
         gcode_dir = job_dir / "gcode"
         mpr_dir = job_dir / "mpr"
-        gcode_paths, mpr_paths = CNCPostProcessorEngine.export_all_cnc_programs(
-            bom, gcode_dir, mpr_dir
+        cix_dir = job_dir / "cix"
+        gcode_paths, mpr_paths, cix_paths = CNCPostProcessorEngine.export_all_cnc_programs(
+            bom, gcode_dir, mpr_dir, cix_dir
         )
+        cix_filenames = [p.name for p in cix_paths]
 
         # 4. 2D Giyotin Plaka Kesim Optimizasyonu (Nesting)
         nesting = NestingEngine.run_nesting(bom)
@@ -184,6 +186,8 @@ async def generate_production_package(
                 zf.write(nc_file, arcname=f"cnc_gcode/{nc_file.name}")
             for mpr_file in mpr_paths:
                 zf.write(mpr_file, arcname=f"cnc_mpr/{mpr_file.name}")
+            for cix_file in cix_paths:
+                zf.write(cix_file, arcname=f"cnc_cix/{cix_file.name}")
 
         package_response = ProductionPackageResponse(
             job_id=job_id,
@@ -192,6 +196,7 @@ async def generate_production_package(
             nesting=nesting,
             glb_base64=glb_base64,
             dxf_filenames=dxf_filenames,
+            cix_filenames=cix_filenames,
             zip_download_url=f"/api/v1/jobs/{job_id}/download-zip",
         )
         return ApiResponse(success=True, data=package_response, error=None)
@@ -275,6 +280,24 @@ async def download_single_mpr(job_id: str, filename: str) -> FileResponse:
 
     return FileResponse(
         path=mpr_path,
+        media_type="text/plain",
+        filename=filename,
+    )
+
+
+@router.get("/jobs/{job_id}/cix/{filename}")
+async def download_single_cix(job_id: str, filename: str) -> FileResponse:
+    """Tek bir parçaya ait Biesse bSolid / BiesseWorks (.cix) dosyasını indirir."""
+    if not job_id.isalnum() or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Geçersiz dosya isteği.")
+
+    settings = get_settings()
+    cix_path = Path(settings.artifacts_dir) / job_id / "cix" / filename
+    if not cix_path.is_file():
+        raise HTTPException(status_code=404, detail="Biesse (.cix) dosyası bulunamadı.")
+
+    return FileResponse(
+        path=cix_path,
         media_type="text/plain",
         filename=filename,
     )

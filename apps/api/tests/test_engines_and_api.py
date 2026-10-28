@@ -17,8 +17,11 @@ from app.main import app
 from app.schemas.cabinet import (
     BackPanelType,
     CabinetConfig,
+    CuttingMode,
     DoorType,
     EdgeBandSpec,
+    FastenerType,
+    PlinthType,
     SheetSizeOption,
 )
 
@@ -264,5 +267,58 @@ def test_refrigerator_enclosure_niche_and_flap_door() -> None:
     assert kapak.transform_3d.hinge_side == "top"
     assert kapak.material == "18mm Doğal Meşe MDF-Lam"
     assert any(h.code == "HRD-PSTN-100" and h.quantity == 2 for h in bom.hardware)
+
+
+def test_cabineo_3axis_rolove_fillers_and_remnants() -> None:
+    """Paket A (Lamello Cabineo + Biesse CIX), Paket B (Kör çıta, süpürgelik kertme, ayarlı ayak) ve Paket C (CNC Router + Remnants) doğrular."""
+    cfg = CabinetConfig(
+        name="Rölöve Uyumlu 3-Eksen Cabineo Gardırop",
+        width_mm=900.0,
+        height_mm=2100.0,
+        depth_mm=580.0,
+        shelf_count=3,
+        door_type=DoorType.DOUBLE,
+        fastener_type=FastenerType.CABINEO_12,
+        cutting_mode=CuttingMode.CNC_ROUTER,
+        router_bit_diameter_mm=10.0,
+        plinth_type=PlinthType.ADJUSTABLE_LEGS,
+        has_plinth=True,
+        plinth_height_mm=100.0,
+        left_filler_width_mm=40.0,
+        right_filler_width_mm=40.0,
+        has_baseboard_notch=True,
+        has_column_notch=True,
+    )
+    bom = BOMEngine.generate_bom(cfg)
+    parts_by_code = {p.code: p for p in bom.parts}
+
+    # Sol ve sağ rölöve kör çıtaları üretilmiş olmalı
+    assert "KOR_CITA_SOL" in parts_by_code
+    assert "KOR_CITA_SAG" in parts_by_code
+    assert parts_by_code["KOR_CITA_SOL"].net_width_mm == 40.0
+    assert parts_by_code["KOR_CITA_SOL"].holding_tabs_count == 4
+
+    # Cabineo 12 cepleri ve hırdavat kalemi kontrolü
+    tabla_ust = parts_by_code["TABLA_UST"]
+    assert any(d.layer == MC.LAYER_CABINEO_POCKET for d in tabla_ust.drills)
+    assert any(h.code == "HRD-CBN-12" for h in bom.hardware)
+    assert any(h.code == "HRD-AYK-100" for h in bom.hardware)
+
+    # Süpürgelik ve kolon kertme bilgileri
+    assert "Süpürgelik" in parts_by_code["YAN_SOL"].notch_info
+    assert "Kolon" in parts_by_code["TABLA_UST"].notch_info
+
+    # Biesse .cix post-processor kontrolü
+    cix_str = CNCPostProcessorEngine.export_part_cix_string(tabla_ust)
+    assert "BEGIN ID CID3" in cix_str
+    assert "NAME=BG" in cix_str
+
+    # CNC Router Nesting (10 mm çakı payı) ve Remnant (Artık Levha >= 400x600 mm) kontrolü
+    nesting = NestingEngine.run_nesting(bom)
+    assert nesting.kerf_mm == 10.0
+    assert len(nesting.remnants) >= 1
+    assert nesting.reusable_remnant_area_m2 > 0.0
+    assert "ARTIK DEPO" in nesting.combined_svg
+
 
 

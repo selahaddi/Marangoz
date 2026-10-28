@@ -21,15 +21,18 @@ class DXFProductionEngine:
     """ezdxf kullanarak katmanlı CNC DXF R2010 çizimleri üretir."""
 
     LAYER_DEFINITIONS: tuple[tuple[str, int], ...] = (
-        (MC.LAYER_OUTLINE, 7),       # Beyaz: Dış kesim konturu
-        (MC.LAYER_GROOVE_BACK, 3),   # Yeşil: 8 mm arkalık kanalı
-        (MC.LAYER_MINIFIX_CAM, 1),   # Kırmızı: Ø15 mm Minifiks eksantrik yuvası
-        (MC.LAYER_MINIFIX_BOLT, 2),  # Sarı: Ø8 mm Minifiks mil deliği
-        (MC.LAYER_DOWEL, 4),         # Camgöbeği: Ø8 mm Kavela deliği
-        (MC.LAYER_SHELF_PIN, 5),     # Mavi: Ø5 mm Sistem 32 raf pimi deliği
-        (MC.LAYER_HINGE_CUP, 6),     # Macenta: Ø35 mm Tas menteşe yuvası
-        (MC.LAYER_DRAWER_SLIDE, 30), # Turuncu: Ø5 mm Çekmece rayı montaj deliği
-        ("ANNOTATION_INFO", 8),      # Gri: Parça kimliği ve PVC etiketleri
+        (MC.LAYER_OUTLINE, 7),         # Beyaz: Dış kesim konturu
+        (MC.LAYER_NOTCH_CUT, 40),      # Altın: Süpürgelik / kolon kertme kesimi
+        (MC.LAYER_GROOVE_BACK, 3),     # Yeşil: 8 mm arkalık kanalı
+        (MC.LAYER_MINIFIX_CAM, 1),     # Kırmızı: Ø15 mm Minifiks eksantrik yuvası
+        (MC.LAYER_MINIFIX_BOLT, 2),    # Sarı: Ø8 mm Minifiks mil deliği
+        (MC.LAYER_DOWEL, 4),           # Camgöbeği: Ø8 mm Kavela deliği
+        (MC.LAYER_CABINEO_POCKET, 14), # Koyu Kırmızı: Lamello Cabineo 12 Z=10.8mm cep
+        (MC.LAYER_CABINEO_SCREW, 94),  # Açık Yeşil: Ø5 mm Cabineo vida deliği
+        (MC.LAYER_SHELF_PIN, 5),       # Mavi: Ø5 mm Sistem 32 raf pimi deliği
+        (MC.LAYER_HINGE_CUP, 6),       # Macenta: Ø35 mm Tas menteşe yuvası
+        (MC.LAYER_DRAWER_SLIDE, 30),   # Turuncu: Ø5 mm Çekmece rayı montaj deliği
+        ("ANNOTATION_INFO", 8),        # Gri: Parça kimliği ve PVC etiketleri
     )
 
     @classmethod

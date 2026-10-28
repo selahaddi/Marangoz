@@ -1,6 +1,6 @@
 /**
  * Tarayıcı İçi Deterministik Mühendislik Motoru
- * (BOM + Çekmece Kasa + Çoklu Modül Oda Hattı + DXF R2010 + G-Code .nc + WoodWOP .mpr + Nesting SVG + ZIP).
+ * (BOM + Çekmece Kasa + Çoklu Modül Oda Hattı + Cabineo 3-Eksen + Rölöve Kertme/Kör Çıta + DXF R2010 + G-Code .nc + WoodWOP .mpr + Biesse .cix + Nesting Artık Depo + QR Etiket + ZIP).
  */
 
 import type {
@@ -8,15 +8,19 @@ import type {
   CabinetConfig,
   CabinetType,
   CatalogCategoryMeta,
+  CuttingMode,
   DoorType,
   DrillPoint,
   EdgeBandSpec,
+  FastenerType,
   GroovePath,
   HardwareItem,
   NestedPartPlacement,
   NestingResult,
   PanelPart,
+  PlinthType,
   ProductionPackageResponse,
+  RemnantStockItem,
   RoomLinePreset,
   SheetLayout,
   SheetSizeOption,
@@ -28,6 +32,9 @@ const MC = {
   BACK_PANEL_NAILED_THICKNESS_MM: 3.0,
   SHEET_TRIM_MARGIN_MM: 10.0,
   SAW_KERF_MM: 4.0,
+  CNC_ROUTER_BIT_DIAMETER_MM: 10.0,
+  REMNANT_MIN_DIM_SHORT_MM: 400.0,
+  REMNANT_MIN_DIM_LONG_MM: 600.0,
   PVC_IGNORE_THRESHOLD_MM: 1.0,
   BACK_GROOVE_OFFSET_FROM_REAR_MM: 10.0,
   BACK_GROOVE_WIDTH_MM: 8.5,
@@ -46,6 +53,11 @@ const MC = {
   DOWEL_DIAMETER_MM: 8.0,
   DOWEL_DEPTH_MM: 12.0,
   DOWEL_OFFSET_FROM_MINIFIX_MM: 32.0,
+  CABINEO_POCKET_DIAMETER_MM: 15.0,
+  CABINEO_POCKET_DEPTH_MM: 10.8,
+  CABINEO_POCKET_OFFSET_FROM_EDGE_MM: 16.0,
+  CABINEO_SCREW_DIAMETER_MM: 5.0,
+  CABINEO_SCREW_DEPTH_MM: 12.0,
   SHELF_PIN_DIAMETER_MM: 5.0,
   SHELF_PIN_DEPTH_MM: 12.0,
   SHELF_PIN_FRONT_OFFSET_MM: 37.0,
@@ -60,10 +72,13 @@ const MC = {
   DRAWER_SLIDE_HOLE_DIAMETER_MM: 5.0,
   DRAWER_SLIDE_HOLE_DEPTH_MM: 12.0,
   LAYER_OUTLINE: "OUTLINE_CUT",
+  LAYER_NOTCH_CUT: "OUTLINE_NOTCH_CUT",
   LAYER_GROOVE_BACK: "GROOVE_BACK_8MM",
   LAYER_MINIFIX_CAM: "DRILL_MINIFIX_CAM_D15",
   LAYER_MINIFIX_BOLT: "DRILL_MINIFIX_BOLT_D8",
   LAYER_DOWEL: "DRILL_DOWEL_D8",
+  LAYER_CABINEO_POCKET: "LAYER_CABINEO_POCKET_Z108",
+  LAYER_CABINEO_SCREW: "DRILL_CABINEO_SCREW_D5",
   LAYER_SHELF_PIN: "DRILL_SHELF_PIN_D5",
   LAYER_HINGE_CUP: "DRILL_HINGE_CUP_D35",
   LAYER_DRAWER_SLIDE: "DRILL_SLIDE_D5",
@@ -1696,6 +1711,46 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     Math.min(heightMm - 260, applianceNicheHeightMm)
   );
 
+  // Paket A, B, C: Bağlantı sistemi, kesim modu, rölöve kertmesi ve kör çıta tespiti
+  const fastenerType: FastenerType =
+    text.includes("cabineo") ||
+    text.includes("lamello") ||
+    text.includes("3 eksen") ||
+    text.includes("3-eksen")
+      ? "cabineo_12"
+      : "minifix_dowel";
+
+  const cuttingMode: CuttingMode =
+    text.includes("cnc router") ||
+    text.includes("router kesim") ||
+    text.includes("vakum")
+      ? "cnc_router"
+      : "panel_saw";
+
+  const plinthType: PlinthType =
+    text.includes("ayarlı ayak") ||
+    text.includes("ayarli ayak") ||
+    text.includes("plastik ayak") ||
+    text.includes("rotilli ayak")
+      ? "adjustable_legs"
+      : "wood_plinth";
+
+  const hasBaseboardNotch =
+    text.includes("süpürgelik") || text.includes("supurgelik");
+  const hasColumnNotch =
+    text.includes("kolon kert") ||
+    text.includes("kiriş kert") ||
+    text.includes("kolon çentik");
+
+  let leftFillerWidthMm = 0.0;
+  let rightFillerWidthMm = 0.0;
+  if (text.includes("kör çıta") || text.includes("kor cita")) {
+    leftFillerWidthMm = 50.0;
+    if (text.includes("sağ") || text.includes("çift")) {
+      rightFillerWidthMm = 50.0;
+    }
+  }
+
   return {
     name,
     cabinet_type: cabinetType,
@@ -1710,6 +1765,18 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     additional_modules: [],
     has_plinth: hasPlinth,
     plinth_height_mm: plinthHeightMm,
+    plinth_type: plinthType,
+    fastener_type: fastenerType,
+    cutting_mode: cuttingMode,
+    router_bit_diameter_mm: 10.0,
+    left_filler_width_mm: leftFillerWidthMm,
+    right_filler_width_mm: rightFillerWidthMm,
+    has_baseboard_notch: hasBaseboardNotch,
+    baseboard_notch_height_mm: 80.0,
+    baseboard_notch_depth_mm: 15.0,
+    has_column_notch: hasColumnNotch,
+    column_notch_width_mm: 120.0,
+    column_notch_depth_mm: 120.0,
     body_material: bodyMaterial,
     door_material: doorMaterial,
     body_color_hex: bodyColorHex,
@@ -1781,6 +1848,8 @@ function generateSingleModuleParts(
   nextCounter: number;
   minifixSets: number;
   dowelCount: number;
+  cabineoCount: number;
+  adjustableLegsCount: number;
   totalHinges: number;
   totalHandles: number;
   totalGasStruts: number;
@@ -1806,6 +1875,9 @@ function generateSingleModuleParts(
       ? config.door_material.trim()
       : config.body_material;
 
+  const isCabineo = config.fastener_type === "cabineo_12";
+  const isAdjustableLegs = config.plinth_type === "adjustable_legs";
+
   const innerW = round2(w - 2.0 * t);
   const clearInnerH = round2(h - baseOffsetY - 2.0 * t);
 
@@ -1828,24 +1900,35 @@ function generateSingleModuleParts(
     [topConnX, "Üst Tabla"],
   ] as const) {
     for (const yPos of connYCoords) {
-      sideDrills.push({
-        x_mm: connX,
-        y_mm: yPos,
-        diameter_mm: MC.MINIFIX_BOLT_DIAMETER_MM,
-        depth_mm: MC.MINIFIX_BOLT_DEPTH_MM,
-        layer: MC.LAYER_MINIFIX_BOLT,
-        description: `${label} Minifiks Mil Deliği`,
-      });
-      const dowelY = round2(yPos + MC.DOWEL_OFFSET_FROM_MINIFIX_MM);
-      if (dowelY <= d - 25.0) {
+      if (isCabineo) {
         sideDrills.push({
           x_mm: connX,
-          y_mm: dowelY,
-          diameter_mm: MC.DOWEL_DIAMETER_MM,
-          depth_mm: MC.DOWEL_DEPTH_MM,
-          layer: MC.LAYER_DOWEL,
-          description: `${label} Kavela Deliği`,
+          y_mm: yPos,
+          diameter_mm: MC.CABINEO_SCREW_DIAMETER_MM,
+          depth_mm: MC.CABINEO_SCREW_DEPTH_MM,
+          layer: MC.LAYER_CABINEO_SCREW,
+          description: `${label} Lamello Cabineo Vida Karşılık Deliği (Saf Z-Ekseni Ø5mm)`,
         });
+      } else {
+        sideDrills.push({
+          x_mm: connX,
+          y_mm: yPos,
+          diameter_mm: MC.MINIFIX_BOLT_DIAMETER_MM,
+          depth_mm: MC.MINIFIX_BOLT_DEPTH_MM,
+          layer: MC.LAYER_MINIFIX_BOLT,
+          description: `${label} Minifiks Mil Deliği`,
+        });
+        const dowelY = round2(yPos + MC.DOWEL_OFFSET_FROM_MINIFIX_MM);
+        if (dowelY <= d - 25.0) {
+          sideDrills.push({
+            x_mm: connX,
+            y_mm: dowelY,
+            diameter_mm: MC.DOWEL_DIAMETER_MM,
+            depth_mm: MC.DOWEL_DEPTH_MM,
+            layer: MC.LAYER_DOWEL,
+            description: `${label} Kavela Deliği`,
+          });
+        }
       }
     }
   }
@@ -1925,6 +2008,19 @@ function generateSingleModuleParts(
     });
   }
 
+  const sideNotchNotes: string[] = [];
+  if (config.has_baseboard_notch) {
+    sideNotchNotes.push(
+      `Süpürgelik Kertmesi: ${config.baseboard_notch_height_mm ?? 80}×${config.baseboard_notch_depth_mm ?? 15}mm`
+    );
+  }
+  if (config.has_column_notch) {
+    sideNotchNotes.push(
+      `Arka Kolon Kertmesi: ${config.column_notch_width_mm ?? 120}×${config.column_notch_depth_mm ?? 120}mm`
+    );
+  }
+  const sideNotchInfo = sideNotchNotes.join(" | ");
+
   parts.push({
     part_id: padId(partCounter++),
     code: `${prefix}YAN_SOL`,
@@ -1943,6 +2039,7 @@ function generateSingleModuleParts(
     grain_direction: "length",
     drills: sideDrills,
     grooves: sideGrooves,
+    notch_info: sideNotchInfo,
     transform_3d: {
       center_x_mm: round2(xOffsetMm - w / 2.0 + t / 2.0),
       center_y_mm: round2(h / 2.0),
@@ -1976,6 +2073,7 @@ function generateSingleModuleParts(
     grain_direction: "length",
     drills: sideDrills,
     grooves: sideGrooves,
+    notch_info: sideNotchInfo,
     transform_3d: {
       center_x_mm: round2(xOffsetMm + w / 2.0 - t / 2.0),
       center_y_mm: round2(h / 2.0),
@@ -2004,19 +2102,33 @@ function generateSingleModuleParts(
     horizEdge
   );
   const horizDrills: DrillPoint[] = [];
+  const camOffset = isCabineo
+    ? MC.CABINEO_POCKET_OFFSET_FROM_EDGE_MM
+    : MC.MINIFIX_CAM_CENTER_FROM_EDGE_MM;
   for (const [camX, sideLabel] of [
-    [MC.MINIFIX_CAM_CENTER_FROM_EDGE_MM, "Sol"],
-    [round2(innerW - MC.MINIFIX_CAM_CENTER_FROM_EDGE_MM), "Sağ"],
+    [camOffset, "Sol"],
+    [round2(innerW - camOffset), "Sağ"],
   ] as const) {
     for (const yPos of connYCoords) {
-      horizDrills.push({
-        x_mm: camX,
-        y_mm: yPos,
-        diameter_mm: MC.MINIFIX_CAM_DIAMETER_MM,
-        depth_mm: MC.MINIFIX_CAM_DEPTH_MM,
-        layer: MC.LAYER_MINIFIX_CAM,
-        description: `${sideLabel} Yan Bağlantı Minifiks Gövde Yuvası`,
-      });
+      if (isCabineo) {
+        horizDrills.push({
+          x_mm: camX,
+          y_mm: yPos,
+          diameter_mm: MC.CABINEO_POCKET_DIAMETER_MM,
+          depth_mm: MC.CABINEO_POCKET_DEPTH_MM,
+          layer: MC.LAYER_CABINEO_POCKET,
+          description: `${sideLabel} Lamello Cabineo 12 Gövde Yuvası (Saf Z-Ekseni Ø15mm, Z=-10.8mm)`,
+        });
+      } else {
+        horizDrills.push({
+          x_mm: camX,
+          y_mm: yPos,
+          diameter_mm: MC.MINIFIX_CAM_DIAMETER_MM,
+          depth_mm: MC.MINIFIX_CAM_DEPTH_MM,
+          layer: MC.LAYER_MINIFIX_CAM,
+          description: `${sideLabel} Yan Bağlantı Minifiks Gövde Yuvası`,
+        });
+      }
     }
   }
 
@@ -2103,7 +2215,8 @@ function generateSingleModuleParts(
     },
   });
 
-  // Baza Kayıtları
+  // Baza Kayıtları (Ahşap Baza vs. Ayarlı Plastik Ayak + Klipsli Ön Baza)
+  let adjustableLegsCount = 0;
   if (config.has_plinth && plinthH > 0) {
     const plinthEdge: EdgeBandSpec = {
       length_1_mm: config.hidden_pvc_thickness_mm,
@@ -2116,10 +2229,16 @@ function generateSingleModuleParts(
       plinthH,
       plinthEdge
     );
-    for (const [suffix, label, zPos] of [
-      ["ON", "Ön", round2(d / 2.0 - 25.0)],
-      ["ARKA", "Arka", round2(-d / 2.0 + 25.0)],
-    ] as const) {
+    const plinthRecords: [string, string, number][] = isAdjustableLegs
+      ? [["ON", "Ön Klipsli (Ayarlı Ayak)", round2(d / 2.0 - 25.0)]]
+      : [
+          ["ON", "Ön", round2(d / 2.0 - 25.0)],
+          ["ARKA", "Arka", round2(-d / 2.0 + 25.0)],
+        ];
+    if (isAdjustableLegs) {
+      adjustableLegsCount = 4;
+    }
+    for (const [suffix, label, zPos] of plinthRecords) {
       parts.push({
         part_id: padId(partCounter++),
         code: `${prefix}BAZA_${suffix}`,
@@ -2712,14 +2831,78 @@ function generateSingleModuleParts(
     }
   }
 
-  const minifixSets = connectionDepthCoords(d).length * 4 + drawerCount * 4;
-  const dowelCount = minifixSets + (config.has_plinth && plinthH > 0 ? 8 : 0);
+  // 7. Şantiye ve Rölöve Kör Çıtaları (Sol / Sağ Duvar Alıştırma Payı)
+  for (const [fillerW, sideCode, sideLabel, sign] of [
+    [config.left_filler_width_mm ?? 0, "SOL", "Sol Duvar Kör Çıtası (Rölöve Payı)", -1.0],
+    [config.right_filler_width_mm ?? 0, "SAG", "Sağ Duvar Kör Çıtası (Rölöve Payı)", 1.0],
+  ] as const) {
+    if (fillerW && fillerW > 0) {
+      const fEdge: EdgeBandSpec = {
+        length_1_mm: config.front_pvc_thickness_mm,
+        length_2_mm: 0.0,
+        width_1_mm: config.hidden_pvc_thickness_mm,
+        width_2_mm: config.hidden_pvc_thickness_mm,
+      };
+      const [fCutL, fCutW, fDedL, fDedW] = computeCutDimensions(h, fillerW, fEdge);
+      parts.push({
+        part_id: padId(partCounter++),
+        code: `${prefix}KOR_CITA_${sideCode}`,
+        name: `${labelPrefix}${sideLabel}`,
+        material: doorMat,
+        thickness_mm: t,
+        quantity: 1,
+        net_length_mm: h,
+        net_width_mm: fillerW,
+        cut_length_mm: fCutL,
+        cut_width_mm: fCutW,
+        pvc_deduction_length_mm: fDedL,
+        pvc_deduction_width_mm: fDedW,
+        edge_band: fEdge,
+        area_m2: round4((h * fillerW) / 1_000_000.0),
+        grain_direction: "length",
+        drills: [],
+        grooves: [],
+        notch_info: "Şantiye Duvar Alıştırma Payı (Tıraşlanabilir)",
+        transform_3d: {
+          center_x_mm: round2(xOffsetMm + sign * (w / 2.0 + fillerW / 2.0)),
+          center_y_mm: round2(h / 2.0),
+          center_z_mm: round2(d / 2.0 - t / 2.0),
+          size_x_mm: fillerW,
+          size_y_mm: h,
+          size_z_mm: t,
+          color_hex: config.door_color_hex,
+          is_door: false,
+          is_drawer: false,
+          hinge_side: null,
+          module_index: moduleIdx,
+        },
+      });
+    }
+  }
+
+  // 8. 3-Eksen CNC Router Nesting Vakum Tutunma Sekmesi (Holding Tabs) Hesabı
+  if (config.cutting_mode === "cnc_router") {
+    for (const p of parts) {
+      if (p.area_m2 < 0.15 || Math.min(p.cut_length_mm, p.cut_width_mm) < 180.0) {
+        p.holding_tabs_count = 4;
+      }
+    }
+  }
+
+  const baseConnUnits = connYCoords.length * 4 + drawerCount * 4;
+  const minifixSets = isCabineo ? 0 : baseConnUnits;
+  const dowelCount = isCabineo
+    ? 0
+    : baseConnUnits + (config.has_plinth && plinthH > 0 && !isAdjustableLegs ? 8 : 0);
+  const cabineoCount = isCabineo ? baseConnUnits : 0;
 
   return {
     parts,
     nextCounter: partCounter,
     minifixSets,
     dowelCount,
+    cabineoCount,
+    adjustableLegsCount,
     totalHinges,
     totalHandles,
     totalGasStruts,
@@ -2739,6 +2922,8 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
   let partCounter = 1;
   let totalMinifix = 0;
   let totalDowels = 0;
+  let totalCabineo = 0;
+  let totalAdjustableLegs = 0;
   let totalHinges = 0;
   let totalHandles = 0;
   let totalGasStruts = 0;
@@ -2749,8 +2934,28 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     const centerXOffset = round2(currentLeftX + modCfg.width_mm / 2.0);
     currentLeftX += modCfg.width_mm;
 
+    const mergedModCfg: CabinetConfig = {
+      ...modCfg,
+      fastener_type: modCfg.fastener_type ?? config.fastener_type,
+      cutting_mode: modCfg.cutting_mode ?? config.cutting_mode,
+      router_bit_diameter_mm:
+        modCfg.router_bit_diameter_mm ?? config.router_bit_diameter_mm,
+      plinth_type: modCfg.plinth_type ?? config.plinth_type,
+      has_baseboard_notch:
+        modCfg.has_baseboard_notch ?? config.has_baseboard_notch,
+      baseboard_notch_height_mm:
+        modCfg.baseboard_notch_height_mm ?? config.baseboard_notch_height_mm,
+      baseboard_notch_depth_mm:
+        modCfg.baseboard_notch_depth_mm ?? config.baseboard_notch_depth_mm,
+      has_column_notch: modCfg.has_column_notch ?? config.has_column_notch,
+      column_notch_width_mm:
+        modCfg.column_notch_width_mm ?? config.column_notch_width_mm,
+      column_notch_depth_mm:
+        modCfg.column_notch_depth_mm ?? config.column_notch_depth_mm,
+    };
+
     const res = generateSingleModuleParts(
-      modCfg,
+      mergedModCfg,
       idx + 1,
       centerXOffset,
       partCounter,
@@ -2760,6 +2965,8 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     partCounter = res.nextCounter;
     totalMinifix += res.minifixSets;
     totalDowels += res.dowelCount;
+    totalCabineo += res.cabineoCount;
+    totalAdjustableLegs += res.adjustableLegsCount;
     totalHinges += res.totalHinges;
     totalHandles += res.totalHandles;
     totalGasStruts += res.totalGasStruts;
@@ -2796,22 +3003,43 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
   const pvc10M = round2(pvc10Mm / 1000.0);
   const pvc20M = round2(pvc20Mm / 1000.0);
 
-  const hardware: HardwareItem[] = [
-    {
+  const hardware: HardwareItem[] = [];
+  if (totalCabineo > 0) {
+    hardware.push({
+      code: "HRD-CBN-12",
+      name: "Lamello Cabineo 12 Tek Parça Gövde Bağlantısı (Saf Z-Ekseni CNC)",
+      unit: "Adet",
+      quantity: totalCabineo,
+      note: "Yan delik ve kavela gerektirmeyen 3-Eksen CNC üst yüzey cep bağlantısı",
+    });
+  }
+  if (totalMinifix > 0) {
+    hardware.push({
       code: "HRD-MNFX-15",
       name: "Minifiks Bağlantı Takımı (Ø15 Eksantrik + Mil)",
       unit: "Takım",
       quantity: totalMinifix,
       note: "Gövde ve çekmece kasa birleştirmeleri",
-    },
-    {
+    });
+  }
+  if (totalDowels > 0) {
+    hardware.push({
       code: "HRD-KVLA-08",
       name: "Ahşap Kavela (Ø8x35mm)",
       unit: "Adet",
       quantity: totalDowels,
       note: "Sistem 32 kavela delikleri ve baza kayıtları",
-    },
-  ];
+    });
+  }
+  if (totalAdjustableLegs > 0) {
+    hardware.push({
+      code: "HRD-AYK-100",
+      name: "Ayarlı Plastik Baza Ayağı (100mm) + Baza Klipsi",
+      unit: "Adet",
+      quantity: totalAdjustableLegs,
+      note: "Eğimli şantiye zeminlerinde teraziye alma ve klipsli ön baza montajı",
+    });
+  }
 
   if (totalShelfPins > 0) {
     hardware.push({
@@ -2918,7 +3146,11 @@ function packGuillotineSheet(
   remainingParts: PanelPart[],
   sheetIndex: number,
   trimMm: number
-): { placed: NestedPartPlacement[]; unplaced: PanelPart[] } {
+): {
+  placed: NestedPartPlacement[];
+  unplaced: PanelPart[];
+  freeRects: FreeRect[];
+} {
   const freeRects: FreeRect[] = [
     { x: 0, y: 0, w: usableW + kerfMm, h: usableH + kerfMm },
   ];
@@ -2980,6 +3212,7 @@ function packGuillotineSheet(
       rotated: bestRotated,
       cut_length_mm: part.cut_length_mm,
       cut_width_mm: part.cut_width_mm,
+      holding_tabs_count: part.holding_tabs_count ?? 0,
     });
 
     const remW = chosen.w - usedW;
@@ -3029,7 +3262,44 @@ function packGuillotineSheet(
     }
   }
 
-  return { placed, unplaced };
+  return { placed, unplaced, freeRects };
+}
+
+function detectUsableRemnants(
+  freeRects: FreeRect[],
+  sheetIndex: number,
+  material: string,
+  thicknessMm: number,
+  trimMm: number,
+  kerfMm: number
+): RemnantStockItem[] {
+  const remnants: RemnantStockItem[] = [];
+  let remCounter = 1;
+  for (const fr of freeRects) {
+    const netW = round2(Math.max(0.0, fr.w - kerfMm));
+    const netH = round2(Math.max(0.0, fr.h - kerfMm));
+    const shortSide = Math.min(netW, netH);
+    const longSide = Math.max(netW, netH);
+    if (
+      shortSide >= MC.REMNANT_MIN_DIM_SHORT_MM &&
+      longSide >= MC.REMNANT_MIN_DIM_LONG_MM
+    ) {
+      const areaM2 = round4((netW * netH) / 1_000_000.0);
+      remnants.push({
+        remnant_id: `REM-S${String(sheetIndex).padStart(2, "0")}-R${remCounter++}`,
+        sheet_index: sheetIndex,
+        material,
+        thickness_mm: thicknessMm,
+        x_mm: round2(fr.x + trimMm),
+        y_mm: round2(fr.y + trimMm),
+        width_mm: netW,
+        height_mm: netH,
+        area_m2: areaM2,
+        reusable: true,
+      });
+    }
+  }
+  return remnants;
 }
 
 function renderSheetSvg(
@@ -3038,8 +3308,10 @@ function renderSheetSvg(
   sheetW: number,
   sheetH: number,
   trimMm: number,
+  kerfMm: number,
   wastePct: number,
-  placements: NestedPartPlacement[]
+  placements: NestedPartPlacement[],
+  remnants: RemnantStockItem[]
 ): string {
   const viewW = 960;
   const scale = (viewW - 40) / sheetW;
@@ -3063,10 +3335,24 @@ function renderSheetSvg(
     `<rect width="100%" height="100%" fill="#0F172A" rx="8" />`,
     `<text x="${ox}" y="28" fill="#F8FAFC" font-size="14" font-weight="700">Plaka #${sheetIndex} — ${material} (${sheetW} × ${sheetH} mm)</text>`,
     `<text x="${viewW - ox}" y="28" text-anchor="end" fill="#38BDF8" font-size="13" font-weight="600">Verimlilik: %${(100 - wastePct).toFixed(1)} | Fire: %${wastePct.toFixed(1)}</text>`,
-    `<text x="${ox}" y="44" fill="#94A3B8" font-size="11">Net Kullanılabilir Alan: ${usableW} × ${usableH} mm (Kenar Temizlik: ${trimMm} mm | Testere Kerf: ${MC.SAW_KERF_MM.toFixed(1)} mm)</text>`,
+    `<text x="${ox}" y="44" fill="#94A3B8" font-size="11">Net Kullanılabilir Alan: ${usableW} × ${usableH} mm (Kenar Temizlik: ${trimMm} mm | Kerf / Çakı: ${kerfMm.toFixed(1)} mm)</text>`,
     `<rect x="${ox}" y="${oy}" width="${(sheetW * scale).toFixed(1)}" height="${(sheetH * scale).toFixed(1)}" fill="#1E293B" stroke="#475569" stroke-width="1.5" />`,
     `<rect x="${(ox + trimMm * scale).toFixed(1)}" y="${(oy + trimMm * scale).toFixed(1)}" width="${(usableW * scale).toFixed(1)}" height="${(usableH * scale).toFixed(1)}" fill="none" stroke="#64748B" stroke-width="1" stroke-dasharray="5,4" />`,
   ];
+
+  remnants.forEach((r) => {
+    const rx = ox + r.x_mm * scale;
+    const ry = oy + (sheetH - r.y_mm - r.height_mm) * scale;
+    const rw = r.width_mm * scale;
+    const rh = r.height_mm * scale;
+    const rcx = rx + rw / 2;
+    const rcy = ry + rh / 2;
+    lines.push(
+      `<g class="remnant-group"><rect x="${rx.toFixed(2)}" y="${ry.toFixed(2)}" width="${rw.toFixed(2)}" height="${rh.toFixed(2)}" fill="#10B981" fill-opacity="0.16" stroke="#10B981" stroke-width="1.5" stroke-dasharray="6,3" />`,
+      `<text x="${rcx.toFixed(1)}" y="${(rcy - 3).toFixed(1)}" text-anchor="middle" fill="#6EE7B7" font-size="9.5" font-weight="700">ARTIK DEPO: ${r.remnant_id}</text>`,
+      `<text x="${rcx.toFixed(1)}" y="${(rcy + 9).toFixed(1)}" text-anchor="middle" fill="#A7F3D0" font-size="8.5">${r.width_mm.toFixed(0)}×${r.height_mm.toFixed(0)} mm (${r.area_m2.toFixed(2)} m²)</text></g>`
+    );
+  });
 
   placements.forEach((p, idx) => {
     const [fillColor, textColor] = palette[idx % palette.length];
@@ -3082,8 +3368,12 @@ function renderSheetSvg(
       const cx = px + pw / 2;
       const cy = py + ph / 2;
       const rotTag = p.rotated ? " [90°]" : "";
+      const tabTag =
+        p.holding_tabs_count && p.holding_tabs_count > 0
+          ? ` [${p.holding_tabs_count}×TAB]`
+          : "";
       lines.push(
-        `<text x="${cx.toFixed(1)}" y="${(cy - 2).toFixed(1)}" text-anchor="middle" fill="${textColor}" font-size="9.5" font-weight="700">${p.part_id} ${p.code}${rotTag}</text>`
+        `<text x="${cx.toFixed(1)}" y="${(cy - 2).toFixed(1)}" text-anchor="middle" fill="${textColor}" font-size="9.5" font-weight="700">${p.part_id} ${p.code}${rotTag}${tabTag}</text>`
       );
       lines.push(
         `<text x="${cx.toFixed(1)}" y="${(cy + 9).toFixed(1)}" text-anchor="middle" fill="#E2E8F0" font-size="8.5">${p.cut_length_mm}×${p.cut_width_mm}</text>`
@@ -3101,7 +3391,10 @@ export function runNestingLocal(bom: BOMReport): NestingResult {
   const [sheetW, sheetH] =
     sheetSize === "3660x1830" ? [3660.0, 1830.0] : [2800.0, 2100.0];
   const trimMm = MC.SHEET_TRIM_MARGIN_MM;
-  const kerfMm = MC.SAW_KERF_MM;
+  const isRouter = bom.config.cutting_mode === "cnc_router";
+  const kerfMm = isRouter
+    ? bom.config.router_bit_diameter_mm ?? MC.CNC_ROUTER_BIT_DIAMETER_MM
+    : MC.SAW_KERF_MM;
   const usableW = round2(sheetW - 2.0 * trimMm);
   const usableH = round2(sheetH - 2.0 * trimMm);
   const sheetGrossAreaM2 = (sheetW * sheetH) / 1_000_000.0;
@@ -3125,7 +3418,7 @@ export function runNestingLocal(bom: BOMReport): NestingResult {
     let queue = [...groupParts];
 
     while (queue.length > 0) {
-      const { placed, unplaced } = packGuillotineSheet(
+      const { placed, unplaced, freeRects } = packGuillotineSheet(
         usableW,
         usableH,
         kerfMm,
@@ -3144,14 +3437,25 @@ export function runNestingLocal(bom: BOMReport): NestingResult {
       const wasteAreaM2 = round4(Math.max(0, sheetGrossAreaM2 - usedAreaM2));
       const wastePct = round2((wasteAreaM2 / sheetGrossAreaM2) * 100.0);
 
+      const remnants = detectUsableRemnants(
+        freeRects,
+        globalSheetIdx,
+        material,
+        thicknessMm,
+        trimMm,
+        kerfMm
+      );
+
       const svgContent = renderSheetSvg(
         globalSheetIdx,
         material,
         sheetW,
         sheetH,
         trimMm,
+        kerfMm,
         wastePct,
-        placed
+        placed,
+        remnants
       );
 
       allSheets.push({
@@ -3168,6 +3472,7 @@ export function runNestingLocal(bom: BOMReport): NestingResult {
         waste_area_m2: wasteAreaM2,
         waste_percentage: wastePct,
         placements: placed,
+        remnants,
         svg_content: svgContent,
       });
 
@@ -3179,8 +3484,26 @@ export function runNestingLocal(bom: BOMReport): NestingResult {
   const totalSheets = allSheets.length;
   const totalGrossM2 = totalSheets * sheetGrossAreaM2;
   const totalUsedM2 = allSheets.reduce((acc, s) => acc + s.used_area_m2, 0);
+  const totalRemnantM2 = round4(
+    allSheets.reduce(
+      (acc, s) =>
+        acc + (s.remnants ?? []).reduce((ra, r) => ra + r.area_m2, 0),
+      0
+    )
+  );
   const overallEff =
     totalGrossM2 > 0 ? round2((totalUsedM2 / totalGrossM2) * 100.0) : 0;
+  const overallWaste = round2(100.0 - overallEff);
+  const effectiveWaste =
+    totalGrossM2 > 0
+      ? round2(
+          Math.max(
+            0,
+            ((totalGrossM2 - totalUsedM2 - totalRemnantM2) / totalGrossM2) *
+              100.0
+          )
+        )
+      : 0;
 
   return {
     sheet_width_mm: sheetW,
@@ -3188,14 +3511,16 @@ export function runNestingLocal(bom: BOMReport): NestingResult {
     kerf_mm: kerfMm,
     total_sheets: totalSheets,
     overall_efficiency_percentage: overallEff,
-    overall_waste_percentage: round2(100.0 - overallEff),
+    overall_waste_percentage: overallWaste,
+    reusable_remnant_area_m2: totalRemnantM2,
+    effective_waste_percentage: effectiveWaste,
     sheets: allSheets,
     combined_svg: allSheets.map((s) => s.svg_content).join("\n"),
   };
 }
 
 /**
- * 4. CNC DXF (AutoCAD R2010), ISO G-Code (.nc) ve Homag WoodWOP (.mpr) Üretici
+ * 4. CNC DXF (AutoCAD R2010), ISO G-Code (.nc), Homag WoodWOP (.mpr) ve Biesse bSolid (.cix) Üretici
  */
 export function generatePartDxfString(part: PanelPart): string {
   const lines: string[] = [
@@ -3309,7 +3634,7 @@ export function generatePartGcodeString(part: PanelPart): string {
 
   if (part.drills.length > 0) {
     lines.push(
-      "(--- OP 2: SISTEM 32 CNC DELIK DELME ---)",
+      "(--- OP 2: SISTEM 32 / CABINEO CNC DELIK DELME ---)",
       "T2 M6 (COKLU DELIK UNITE / MATKAP)",
       "S6000 M3"
     );
@@ -3399,6 +3724,71 @@ export function generatePartMprString(part: PanelPart): string {
   }
 
   lines.push("!");
+  return lines.join("\n");
+}
+
+export function generatePartCixString(part: PanelPart): string {
+  const cutL = part.cut_length_mm;
+  const cutW = part.cut_width_mm;
+  const t = part.thickness_mm;
+
+  const lines: string[] = [
+    "BEGIN ID CID3",
+    "  REL=5.0",
+    "END ID",
+    "",
+    "BEGIN MAINDATA",
+    `  LPX=${cutL.toFixed(2)}`,
+    `  LPY=${cutW.toFixed(2)}`,
+    `  LPZ=${t.toFixed(2)}`,
+    '  ORLST="1"',
+    "  SIMMETRY=1",
+    '  MATERIAL="WOOD"',
+    "END MAINDATA",
+    "",
+  ];
+
+  part.grooves.forEach((g, idx) => {
+    const gx0 = g.x_start_mm;
+    const gy0 = g.y_start_mm + g.length_mm / 2.0;
+    const gx1 = g.x_start_mm + g.width_mm;
+    lines.push(
+      "BEGIN MACRO",
+      "  NAME=ROUTG",
+      `  PARAM,NAME=ID,VALUE="GRV_${idx + 1}"`,
+      "  PARAM,NAME=SIDE,VALUE=0",
+      '  PARAM,NAME=CRN,VALUE="1"',
+      `  PARAM,NAME=X,VALUE=${gx0.toFixed(2)}`,
+      `  PARAM,NAME=Y,VALUE=${gy0.toFixed(2)}`,
+      `  PARAM,NAME=XE,VALUE=${gx1.toFixed(2)}`,
+      `  PARAM,NAME=YE,VALUE=${gy0.toFixed(2)}`,
+      `  PARAM,NAME=Z,VALUE=${g.depth_mm.toFixed(2)}`,
+      `  PARAM,NAME=DIA,VALUE=${g.length_mm.toFixed(2)}`,
+      '  PARAM,NAME=TNM,VALUE="FREZE_8MM"',
+      "END MACRO",
+      ""
+    );
+  });
+
+  part.drills.forEach((d, idx) => {
+    lines.push(
+      "BEGIN MACRO",
+      "  NAME=BG",
+      `  PARAM,NAME=ID,VALUE="DRL_${idx + 1}"`,
+      "  PARAM,NAME=SIDE,VALUE=0",
+      '  PARAM,NAME=CRN,VALUE="1"',
+      `  PARAM,NAME=X,VALUE=${d.x_mm.toFixed(2)}`,
+      `  PARAM,NAME=Y,VALUE=${d.y_mm.toFixed(2)}`,
+      "  PARAM,NAME=Z,VALUE=0.00",
+      `  PARAM,NAME=DP,VALUE=${d.depth_mm.toFixed(2)}`,
+      `  PARAM,NAME=DIA,VALUE=${d.diameter_mm.toFixed(2)}`,
+      "  PARAM,NAME=THR,VALUE=0",
+      `  PARAM,NAME=LAY,VALUE="${d.layer}"`,
+      "END MACRO",
+      ""
+    );
+  });
+
   return lines.join("\n");
 }
 
@@ -3539,9 +3929,48 @@ function buildBomCsvString(bom: BOMReport): string {
   return [header, ...rows].join("\n");
 }
 
+function buildQrLabelsHtmlString(jobId: string, bom: BOMReport): string {
+  const cards = bom.parts
+    .map(
+      (p) => `
+    <div class="label-card">
+      <div class="hdr">
+        <strong>#${jobId} · ${p.part_id} · ${p.code}</strong>
+        <span>${p.thickness_mm}mm</span>
+      </div>
+      <div class="title">${p.name}</div>
+      <div class="dims">KESİM: <b>${p.cut_length_mm} × ${p.cut_width_mm} mm</b> | NET: ${p.net_length_mm} × ${p.net_width_mm} mm</div>
+      <div class="pvc">PVC (Ön/Arka/Üst/Alt): ${p.edge_band.length_1_mm} / ${p.edge_band.length_2_mm} / ${p.edge_band.width_1_mm} / ${p.edge_band.width_2_mm} mm</div>
+      <div class="cnc">CNC: ${p.drills.length} Delik | ${p.grooves.length} Kanal ${p.notch_info ? `| ${p.notch_info}` : ""}</div>
+    </div>`
+    )
+    .join("\n");
+
+  return `<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<title>Marangoz QR Parça Etiketleri - #${jobId}</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 16px; background: #f8fafc; color: #0f172a; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .label-card { border: 2px solid #0f172a; border-radius: 8px; padding: 10px; background: #fff; page-break-inside: avoid; }
+  .hdr { display: flex; justify-content: space-between; font-size: 12px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }
+  .title { font-size: 14px; font-weight: 700; margin-top: 6px; }
+  .dims, .pvc, .cnc { font-size: 11px; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <h2>Marangoz Atölye Barkod / QR Parça Etiketleri (#${jobId} — ${bom.config.name})</h2>
+  <div class="grid">${cards}</div>
+</body>
+</html>`;
+}
+
 const localDxfBlobUrls = new Map<string, string>();
 const localGcodeBlobUrls = new Map<string, string>();
 const localMprBlobUrls = new Map<string, string>();
+const localCixBlobUrls = new Map<string, string>();
 
 export function getLocalDxfBlobUrl(filename: string): string | undefined {
   return localDxfBlobUrls.get(filename);
@@ -3551,6 +3980,9 @@ export function getLocalGcodeBlobUrl(filename: string): string | undefined {
 }
 export function getLocalMprBlobUrl(filename: string): string | undefined {
   return localMprBlobUrls.get(filename);
+}
+export function getLocalCixBlobUrl(filename: string): string | undefined {
+  return localCixBlobUrls.get(filename);
 }
 
 export function generateProductionPackageLocal(
@@ -3569,6 +4001,10 @@ export function generateProductionPackageLocal(
       name: "bom/bom_report.json",
       content: JSON.stringify(bom, null, 2),
     },
+    {
+      name: "etiketler/parca_etiketleri_qr.html",
+      content: buildQrLabelsHtmlString(jobId, bom),
+    },
   ];
 
   for (const sheet of nesting.sheets) {
@@ -3579,21 +4015,26 @@ export function generateProductionPackageLocal(
   }
 
   const dxfFilenames: string[] = [];
+  const cixFilenames: string[] = [];
   for (const part of bom.parts) {
     const baseName = `${part.part_id}_${part.code}`;
     const dxfName = `${baseName}.dxf`;
     const ncName = `${baseName}.nc`;
     const mprName = `${baseName}.mpr`;
+    const cixName = `${baseName}.cix`;
 
     const dxfContent = generatePartDxfString(part);
     const ncContent = generatePartGcodeString(part);
     const mprContent = generatePartMprString(part);
+    const cixContent = generatePartCixString(part);
 
     dxfFilenames.push(dxfName);
+    cixFilenames.push(cixName);
     zipFiles.push(
       { name: `cnc_dxf/${dxfName}`, content: dxfContent },
       { name: `cnc_gcode/${ncName}`, content: ncContent },
-      { name: `cnc_mpr/${mprName}`, content: mprContent }
+      { name: `cnc_mpr/${mprName}`, content: mprContent },
+      { name: `cnc_cix/${cixName}`, content: cixContent }
     );
 
     localDxfBlobUrls.set(
@@ -3608,6 +4049,10 @@ export function generateProductionPackageLocal(
       mprName,
       URL.createObjectURL(new Blob([mprContent], { type: "text/plain" }))
     );
+    localCixBlobUrls.set(
+      cixName,
+      URL.createObjectURL(new Blob([cixContent], { type: "text/plain" }))
+    );
   }
 
   const zipBlob = createZipBlob(zipFiles);
@@ -3620,6 +4065,7 @@ export function generateProductionPackageLocal(
     nesting,
     glb_base64: "",
     dxf_filenames: dxfFilenames,
+    cix_filenames: cixFilenames,
     zip_download_url: zipBlobUrl,
   };
 }

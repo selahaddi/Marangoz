@@ -57,6 +57,27 @@ class SheetSizeOption(StrEnum):
     SHEET_3660_1830 = "3660x1830"
 
 
+class FastenerType(StrEnum):
+    """Gövde bağlantı elemanı mimarisi (Minifiks+Kavela veya 3-Eksen Lamello Cabineo)."""
+
+    MINIFIX_DOWEL = "minifix_dowel"
+    CABINEO_12 = "cabineo_12"
+
+
+class CuttingMode(StrEnum):
+    """Kesim teknolojisi modu (Yatar Daire/Ebatlama Testeresi veya 3-Eksen CNC Router Nesting)."""
+
+    PANEL_SAW = "panel_saw"
+    CNC_ROUTER = "cnc_router"
+
+
+class PlinthType(StrEnum):
+    """Alt baza ve terazi sistemi."""
+
+    WOOD_PLINTH = "wood_plinth"
+    ADJUSTABLE_LEGS = "adjustable_legs"
+
+
 class EdgeBandSpec(BaseModel):
     """Parçanın 4 kenarındaki PVC bant kalınlıkları (mm)."""
 
@@ -200,6 +221,68 @@ class CabinetConfig(BaseModel):
         default=SheetSizeOption.SHEET_2800_2100,
         description="Kesim optimizasyonu yapılacak standart plaka ebadı",
     )
+    fastener_type: FastenerType = Field(
+        default=FastenerType.MINIFIX_DOWEL,
+        description="Bağlantı elemanı sistemi (minifix_dowel veya 3-eksen cabineo_12)",
+    )
+    cutting_mode: CuttingMode = Field(
+        default=CuttingMode.PANEL_SAW,
+        description="Kesim modu (panel_saw: 4mm testere kerf, cnc_router: 10mm çakı + tutunma sekmesi)",
+    )
+    router_bit_diameter_mm: float = Field(
+        default=10.0,
+        ge=6.0,
+        le=16.0,
+        description="CNC Router nesting freze çakı çapı (mm)",
+    )
+    left_filler_width_mm: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=150.0,
+        description="Sol duvar rölöve kapama (kör çıta / scribing filler) payı (mm)",
+    )
+    right_filler_width_mm: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=150.0,
+        description="Sağ duvar rölöve kapama (kör çıta / scribing filler) payı (mm)",
+    )
+    has_baseboard_notch: bool = Field(
+        default=False,
+        description="Yan dikme arkasında süpürgelik kertmesi var mı?",
+    )
+    baseboard_notch_height_mm: float = Field(
+        default=80.0,
+        ge=30.0,
+        le=200.0,
+        description="Süpürgelik kertmesi yüksekliği (mm)",
+    )
+    baseboard_notch_depth_mm: float = Field(
+        default=15.0,
+        ge=5.0,
+        le=60.0,
+        description="Süpürgelik kertmesi derinliği (mm)",
+    )
+    has_column_notch: bool = Field(
+        default=False,
+        description="Arka köşede kolon/kiriş kertmesi var mı?",
+    )
+    column_notch_width_mm: float = Field(
+        default=120.0,
+        ge=30.0,
+        le=400.0,
+        description="Kolon kertmesi genişliği (X, mm)",
+    )
+    column_notch_depth_mm: float = Field(
+        default=120.0,
+        ge=30.0,
+        le=400.0,
+        description="Kolon kertmesi derinliği (Z, mm)",
+    )
+    plinth_type: PlinthType = Field(
+        default=PlinthType.WOOD_PLINTH,
+        description="Alt baza tipi (wood_plinth veya adjustable_legs)",
+    )
 
     @field_validator("front_pvc_thickness_mm", "hidden_pvc_thickness_mm")
     @classmethod
@@ -317,6 +400,15 @@ class PanelPart(BaseModel):
     grooves: list[GroovePath] = Field(
         default_factory=list, description="CNC kanal listesi"
     )
+    holding_tabs_count: int = Field(
+        default=0,
+        ge=0,
+        description="Küçük parça vakum tutunma sekmesi adedi (CNC Router Nesting)",
+    )
+    notch_info: str = Field(
+        default="",
+        description="Süpürgelik veya kolon kertme bilgisi",
+    )
     transform_3d: Box3DTransform = Field(description="3D sahne yerleşim verisi")
 
 
@@ -372,6 +464,27 @@ class NestedPartPlacement(BaseModel):
     rotated: bool = Field(default=False, description="90 derece döndürüldü mü?")
     cut_length_mm: float = Field(gt=0.0, description="Orijinal kesim boyu (mm)")
     cut_width_mm: float = Field(gt=0.0, description="Orijinal kesim eni (mm)")
+    holding_tabs_count: int = Field(
+        default=0,
+        ge=0,
+        description="Küçük parça vakum tutunma sekmesi adedi",
+    )
+
+
+class RemnantStockItem(BaseModel):
+    """Kesim sonrası arta kalan ve sanal depoya alınabilir (≥400×600 mm) sağlam levha parçası."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    remnant_id: str = Field(description="Artık levha kimliği (örn. REM-S1-01)")
+    sheet_index: int = Field(ge=1, description="Çıktığı plaka numarası")
+    material: str = Field(description="Malzeme cinsi")
+    thickness_mm: float = Field(gt=0.0, description="Kalınlık (mm)")
+    x_mm: float = Field(ge=0.0, description="Plaka sol alt X koordinatı (mm)")
+    y_mm: float = Field(ge=0.0, description="Plaka sol alt Y koordinatı (mm)")
+    width_mm: float = Field(gt=0.0, description="Artık levha X boyutu (mm)")
+    height_mm: float = Field(gt=0.0, description="Artık levha Y boyutu (mm)")
+    area_m2: float = Field(gt=0.0, description="Kullanılabilir artık levha alanı (m²)")
 
 
 class SheetLayout(BaseModel):
@@ -387,11 +500,15 @@ class SheetLayout(BaseModel):
     usable_width_mm: float = Field(gt=0.0, description="Temizlik payı düşülmüş net boy")
     usable_height_mm: float = Field(gt=0.0, description="Temizlik payı düşülmüş net en")
     trim_margin_mm: float = Field(ge=0.0, description="Kenar temizlik payı (mm)")
-    kerf_mm: float = Field(ge=0.0, description="Testere talaş payı (mm)")
+    kerf_mm: float = Field(ge=0.0, description="Testere veya CNC çakı talaş payı (mm)")
     used_area_m2: float = Field(ge=0.0, description="Kullanılan parça alanı (m²)")
     waste_area_m2: float = Field(ge=0.0, description="Fire alanı (m²)")
     waste_percentage: float = Field(ge=0.0, le=100.0, description="Fire yüzdesi (%)")
     placements: list[NestedPartPlacement] = Field(description="Yerleşen parçalar")
+    remnants: list[RemnantStockItem] = Field(
+        default_factory=list,
+        description="Plakadan çıkan kullanılabilir artık parçalar (≥400×600 mm)",
+    )
     svg_content: str = Field(description="Bu plakaya ait ölçekli SVG kesim şeması")
 
 
@@ -402,13 +519,28 @@ class NestingResult(BaseModel):
 
     sheet_width_mm: float = Field(gt=0.0, description="Standart plaka boyu (mm)")
     sheet_height_mm: float = Field(gt=0.0, description="Standart plaka eni (mm)")
-    kerf_mm: float = Field(ge=0.0, description="Testere talaş payı (mm)")
+    kerf_mm: float = Field(ge=0.0, description="Testere veya CNC çakı talaş payı (mm)")
     total_sheets: int = Field(ge=1, description="Harcanan toplam plaka sayısı")
     overall_efficiency_percentage: float = Field(
         ge=0.0, le=100.0, description="Genel plaka verimlilik oranı (%)"
     )
     overall_waste_percentage: float = Field(
         ge=0.0, le=100.0, description="Genel fire oranı (%)"
+    )
+    reusable_remnant_area_m2: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Stoka geri kazanılan kullanılabilir artık plaka alanı (m²)",
+    )
+    effective_waste_percentage: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="Kullanılabilir artıklar düşüldükten sonraki gerçek net fire oranı (%)",
+    )
+    remnants: list[RemnantStockItem] = Field(
+        default_factory=list,
+        description="Tüm plakalardan çıkan stoka alınabilir artık levhalar",
     )
     sheets: list[SheetLayout] = Field(description="Plaka bazlı yerleşim planları")
     combined_svg: str = Field(description="Tüm plakaları içeren birleşik SVG şeması")
@@ -437,5 +569,8 @@ class ProductionPackageResponse(BaseModel):
     nesting: NestingResult = Field(description="Kesim optimizasyonu ve SVG şeması")
     glb_base64: str = Field(description="Base64 kodlu GLB 3D katı model verisi")
     dxf_filenames: list[str] = Field(description="Üretilen CNC DXF dosya adları")
+    cix_filenames: list[str] = Field(
+        default_factory=list, description="Üretilen Biesse .cix dosya adları"
+    )
     zip_download_url: str = Field(description="Üretim paketi ZIP indirme adresi")
 

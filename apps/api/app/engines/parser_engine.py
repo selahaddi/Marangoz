@@ -19,7 +19,10 @@ from app.schemas.cabinet import (
     BackPanelType,
     CabinetConfig,
     CabinetType,
+    CuttingMode,
     DoorType,
+    FastenerType,
+    PlinthType,
     SheetSizeOption,
 )
 
@@ -348,7 +351,7 @@ class SemanticParserEngine:
                 if "kapak" not in text:
                     door_color_hex = hex_val
 
-        # 7. Arkalık ve Plaka Ebadı
+        # 7. Arkalık, Plaka Ebadı, Bağlantı Tipi ve Şantiye Rölöve Parametreleri
         back_panel_type = BackPanelType.GROOVED_8MM
         if "3 mm" in text or "3mm" in text or "duralit" in text or "çakma" in text:
             back_panel_type = BackPanelType.NAILED_3MM
@@ -356,6 +359,32 @@ class SemanticParserEngine:
         sheet_size = SheetSizeOption.SHEET_2800_2100
         if "3660" in text or "1830" in text:
             sheet_size = SheetSizeOption.SHEET_3660_1830
+
+        fastener_type = (
+            FastenerType.CABINEO_12
+            if any(k in text for k in ("cabineo", "lamello", "3 eksen", "3-eksen"))
+            else FastenerType.MINIFIX_DOWEL
+        )
+        cutting_mode = (
+            CuttingMode.CNC_ROUTER
+            if any(k in text for k in ("cnc router", "freze kesim", "nesting freze", "vakum"))
+            else CuttingMode.PANEL_SAW
+        )
+        plinth_type = (
+            PlinthType.ADJUSTABLE_LEGS
+            if any(k in text for k in ("ayarlı ayak", "ayarli ayak", "rotil ayak", "plastik ayak"))
+            else PlinthType.WOOD_PLINTH
+        )
+        has_baseboard_notch = any(
+            k in text for k in ("süpürgelik", "supurgelik", "süpürgelik kertme")
+        )
+        has_column_notch = any(
+            k in text for k in ("kolon kertme", "kiriş kertme", "kolon çıkıntı")
+        )
+        left_filler_width_mm = (
+            40.0 if any(k in text for k in ("kör çıta", "kor cita", "kapama payı", "duvar boşluk")) else 0.0
+        )
+        right_filler_width_mm = left_filler_width_mm
 
         # Sınır değerlerini güvenli aralığa kırp
         width_mm = max(300.0, min(2700.0, width_mm))
@@ -387,6 +416,13 @@ class SemanticParserEngine:
             hidden_pvc_thickness_mm=0.4,
             back_panel_type=back_panel_type,
             sheet_size=sheet_size,
+            fastener_type=fastener_type,
+            cutting_mode=cutting_mode,
+            plinth_type=plinth_type,
+            has_baseboard_notch=has_baseboard_notch,
+            has_column_notch=has_column_notch,
+            left_filler_width_mm=left_filler_width_mm,
+            right_filler_width_mm=right_filler_width_mm,
         )
 
     @classmethod
