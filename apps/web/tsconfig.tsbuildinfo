@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/components/BomTableView.tsx","./src/components/CabinetViewer3D.tsx","./src/components/NestingView.tsx","./src/services/api.ts","./src/types/cabinet.ts"],"version":"5.7.3"}

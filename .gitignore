@@ -1,0 +1,28 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+
+# Environment variables
+.env
+.env.local
+
+# Node & Frontend
+node_modules/
+apps/web/node_modules/
+dist/
+apps/web/dist/
+
+# Artifacts & Output
+artifacts/
+apps/api/artifacts/
+*.log
+
+# OS & IDE
+.DS_Store
+.vscode/
+.idea/

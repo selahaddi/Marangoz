@@ -1,0 +1,2 @@
+"""Marangoz Backend paket başlangıcı."""
+

@@ -1,0 +1,143 @@
+@import "tailwindcss";
+
+/* Modern Web Guidance: responsive-table */
+.table-wrapper {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(560px, 75vh);
+  container-type: inline-size;
+}
+
+.bom-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  --label-2: "Parça Adı";
+  --label-3: "Malzeme";
+  --label-4: "Kalınlık";
+  --label-5: "Net Ölçü (Boy×En)";
+  --label-6: "Kesim Ölçüsü (Boy×En)";
+  --label-7: "PVC Düşümü";
+  --label-8: "4 Kenar PVC";
+  --label-9: "CNC Delik";
+  --label-10: "DXF";
+}
+
+.bom-table thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+}
+
+.bom-table tbody th {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background-color: #0f172a;
+}
+
+@container (width < 640px) {
+  .bom-table,
+  .bom-table thead,
+  .bom-table tbody,
+  .bom-table tr,
+  .bom-table th,
+  .bom-table td {
+    display: block;
+  }
+
+  .bom-table thead {
+    display: none;
+  }
+
+  .bom-table tr {
+    margin-block-end: 1rem;
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  .bom-table tbody th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background-color: #1e293b;
+  }
+
+  .bom-table td:nth-child(2)::before {
+    content: var(--label-2) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .bom-table td:nth-child(3)::before {
+    content: var(--label-3) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .bom-table td:nth-child(4)::before {
+    content: var(--label-4) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .bom-table td:nth-child(5)::before {
+    content: var(--label-5) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .bom-table td:nth-child(6)::before {
+    content: var(--label-6) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .bom-table td:nth-child(7)::before {
+    content: var(--label-7) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .bom-table td:nth-child(8)::before {
+    content: var(--label-8) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .bom-table td:nth-child(9)::before {
+    content: var(--label-9) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .bom-table td:nth-child(10)::before {
+    content: var(--label-10) ": ";
+    font-weight: 600;
+    color: #94a3b8;
+  }
+}
+
+/* Modern Web Guidance: validate-input-after-interaction */
+.field-hint {
+  display: block;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  margin-bottom: 0.2rem;
+}
+
+.error-msg {
+  display: none;
+  color: #f87171;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+input.param-input:user-invalid,
+input.param-input.user-invalid-fallback {
+  border-color: #ef4444;
+  background-color: rgba(127, 29, 29, 0.25);
+}
+
+input.param-input:user-invalid + .error-msg,
+input.param-input.user-invalid-fallback + .error-msg {
+  display: block;
+}
+
+input.param-input:user-valid {
+  border-color: #334155;
+}
+
