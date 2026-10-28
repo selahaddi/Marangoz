@@ -1,0 +1,1571 @@
+/**
+ * Tarayıcı İçi Deterministik Mühendislik Motoru (Client-Side CAD/CAM/DXF/Nesting/ZIP).
+ *
+ * Vercel üzerinde statik dağıtım yapıldığında veya Python Serverless fonksiyonuna
+ * ulaşılamadığında (örn. HTTP 404/405), docs/02_MANUFACTURING_AND_CAD_RULES.md
+ * içerisindeki tüm kuralları birebir aynı matematikle tarayıcıda çalıştırır.
+ * Hiçbir mock veri içermez; gerçek BOM, gerçek DXF R2010, gerçek Giyotin Nesting SVG
+ * ve gerçek ZIP üretim paketi üretir.
+ */
+
+import type {
+  BOMReport,
+  CabinetConfig,
+  CabinetType,
+  DoorType,
+  DrillPoint,
+  EdgeBandSpec,
+  GroovePath,
+  HardwareItem,
+  NestedPartPlacement,
+  NestingResult,
+  PanelPart,
+  ProductionPackageResponse,
+  SheetLayout,
+  SheetSizeOption,
+} from "../types/cabinet";
+
+const MC = {
+  BODY_THICKNESS_MM: 18.0,
+  BACK_PANEL_GROOVED_THICKNESS_MM: 8.0,
+  BACK_PANEL_NAILED_THICKNESS_MM: 3.0,
+  SHEET_TRIM_MARGIN_MM: 10.0,
+  SAW_KERF_MM: 4.0,
+  PVC_IGNORE_THRESHOLD_MM: 1.0,
+  BACK_GROOVE_OFFSET_FROM_REAR_MM: 10.0,
+  BACK_GROOVE_WIDTH_MM: 8.5,
+  BACK_GROOVE_DEPTH_MM: 8.0,
+  BACK_PANEL_INSERTION_PER_SIDE_MM: 7.5,
+  SHELF_WIDTH_CLEARANCE_MM: 2.0,
+  SHELF_FRONT_SETBACK_MM: 20.0,
+  DOOR_OUTER_GAP_MM: 2.0,
+  DOOR_CENTER_GAP_MM: 2.0,
+  SYSTEM_32_PITCH_MM: 32.0,
+  MINIFIX_CAM_DIAMETER_MM: 15.0,
+  MINIFIX_CAM_DEPTH_MM: 13.5,
+  MINIFIX_CAM_CENTER_FROM_EDGE_MM: 34.0,
+  MINIFIX_BOLT_DIAMETER_MM: 8.0,
+  MINIFIX_BOLT_DEPTH_MM: 11.0,
+  DOWEL_DIAMETER_MM: 8.0,
+  DOWEL_DEPTH_MM: 12.0,
+  DOWEL_OFFSET_FROM_MINIFIX_MM: 32.0,
+  SHELF_PIN_DIAMETER_MM: 5.0,
+  SHELF_PIN_DEPTH_MM: 12.0,
+  SHELF_PIN_FRONT_OFFSET_MM: 37.0,
+  SHELF_PIN_REAR_OFFSET_MM: 50.0,
+  HINGE_CUP_DIAMETER_MM: 35.0,
+  HINGE_CUP_DEPTH_MM: 13.0,
+  HINGE_CUP_CENTER_FROM_EDGE_MM: 22.5,
+  HINGE_EDGE_OFFSET_TOP_BOTTOM_MM: 100.0,
+  LAYER_OUTLINE: "OUTLINE_CUT",
+  LAYER_GROOVE_BACK: "GROOVE_BACK_8MM",
+  LAYER_MINIFIX_CAM: "DRILL_MINIFIX_CAM_D15",
+  LAYER_MINIFIX_BOLT: "DRILL_MINIFIX_BOLT_D8",
+  LAYER_DOWEL: "DRILL_DOWEL_D8",
+  LAYER_SHELF_PIN: "DRILL_SHELF_PIN_D5",
+  LAYER_HINGE_CUP: "DRILL_HINGE_CUP_D35",
+} as const;
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+const round4 = (n: number): number => Math.round(n * 10000) / 10000;
+
+/**
+ * 1. Doğal Dil Ayrıştırıcı (Deterministic Semantic Parser)
+ */
+export function parsePromptDeterministic(prompt: string): CabinetConfig {
+  const text = prompt.toLowerCase();
+
+  let cabinetType: CabinetType = "wardrobe";
+  let name = "Parametrik Gardırop Modülü";
+  let widthMm = 900.0;
+  let heightMm = 2100.0;
+  let depthMm = 580.0;
+  let hasPlinth = true;
+  let plinthHeightMm = 80.0;
+
+  if (
+    text.includes("mutfak üst") ||
+    text.includes("üst modül") ||
+    text.includes("duvar dolab")
+  ) {
+    cabinetType = "kitchen_wall";
+    name = "Mutfak Üst Dolap Modülü";
+    widthMm = 800.0;
+    heightMm = 720.0;
+    depthMm = 350.0;
+    hasPlinth = false;
+    plinthHeightMm = 0.0;
+  } else if (
+    text.includes("mutfak alt") ||
+    text.includes("alt modül") ||
+    text.includes("tezgah altı")
+  ) {
+    cabinetType = "kitchen_base";
+    name = "Mutfak Alt Dolap Modülü";
+    widthMm = 800.0;
+    heightMm = 820.0;
+    depthMm = 560.0;
+    hasPlinth = true;
+    plinthHeightMm = 100.0;
+  } else if (text.includes("kitaplık") || text.includes("kitaplik")) {
+    cabinetType = "bookshelf";
+    name = "Parametrik Kitaplık Modülü";
+    widthMm = 800.0;
+    heightMm = 1800.0;
+    depthMm = 320.0;
+  } else if (
+    text.includes("ayakkabılık") ||
+    text.includes("ayakkabilik") ||
+    text.includes("portmanto")
+  ) {
+    cabinetType = "shoe_cabinet";
+    name = "Ayakkabılık / Portmanto Modülü";
+    widthMm = 900.0;
+    heightMm = 1200.0;
+    depthMm = 380.0;
+  } else if (
+    text.includes("tv") ||
+    text.includes("televizyon") ||
+    text.includes("konsol")
+  ) {
+    cabinetType = "tv_unit";
+    name = "TV Ünitesi / Konsol Modülü";
+    widthMm = 1600.0;
+    heightMm = 500.0;
+    depthMm = 420.0;
+  }
+
+  const toMm = (valStr: string, unitStr?: string): number => {
+    const val = parseFloat(valStr.replace(",", "."));
+    const unit = (unitStr ?? "").trim();
+    if (unit === "m" || (!unit && val < 4.0)) return Math.round(val * 1000);
+    if (unit === "cm" || (!unit && val >= 20 && val <= 275)) {
+      return Math.round(val * 10);
+    }
+    return Math.round(val);
+  };
+
+  const wMatch =
+    text.match(
+      /(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)/
+    ) ??
+    text.match(/(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
+  if (wMatch) widthMm = toMm(wMatch[1], wMatch[2]);
+
+  const hMatch =
+    text.match(
+      /(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)/
+    ) ??
+    text.match(/(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
+  if (hMatch) heightMm = toMm(hMatch[1], hMatch[2]);
+
+  const dMatch =
+    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)/) ??
+    text.match(/(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
+  if (dMatch) depthMm = toMm(dMatch[1], dMatch[2]);
+
+  let shelfCount = cabinetType === "kitchen_wall" ? 2 : 4;
+  if (text.includes("rafsız") || text.includes("rafsiz")) {
+    shelfCount = 0;
+  } else {
+    const sMatch = text.match(/(\d+)\s*(?:adet\s*)?(?:hareketli\s*)?raf/);
+    if (sMatch) shelfCount = parseInt(sMatch[1], 10);
+  }
+
+  let doorType: DoorType = cabinetType === "bookshelf" ? "none" : "double";
+  if (
+    text.includes("kapaksız") ||
+    text.includes("kapaksiz") ||
+    text.includes("açık raf")
+  ) {
+    doorType = "none";
+  } else if (
+    text.includes("çift kapak") ||
+    text.includes("cift kapak") ||
+    text.includes("iki kapak") ||
+    text.includes("2 kapak")
+  ) {
+    doorType = "double";
+  } else if (text.includes("sağ kapak") || text.includes("sag kapak")) {
+    doorType = "single_right";
+  } else if (
+    text.includes("tek kapak") ||
+    text.includes("sol kapak") ||
+    text.includes("1 kapak")
+  ) {
+    doorType = "single_left";
+  }
+
+  if (text.includes("bazasız") || text.includes("bazasiz")) {
+    hasPlinth = false;
+    plinthHeightMm = 0.0;
+  }
+
+  const colorMap: Record<string, [string, string]> = {
+    beyaz: ["#F4F1EA", "18mm Beyaz Suntalam"],
+    antrasit: ["#374151", "18mm Antrasit MDF-Lam"],
+    siyah: ["#1F2937", "18mm Siyah MDF-Lam"],
+    meşe: ["#C89F70", "18mm Doğal Meşe Suntalam"],
+    mese: ["#C89F70", "18mm Doğal Meşe Suntalam"],
+    ceviz: ["#6E472B", "18mm Koyu Ceviz MDF-Lam"],
+    gri: ["#9CA3AF", "18mm Açık Gri Suntalam"],
+    krem: ["#EFECE6", "18mm Krem MDF-Lam"],
+  };
+
+  let bodyColorHex = "#F4F1EA";
+  let doorColorHex = "#D7C4A3";
+  let bodyMaterial = "18mm Beyaz Suntalam";
+
+  for (const [word, [hex, mat]] of Object.entries(colorMap)) {
+    if (text.includes(`${word} kapak`)) {
+      doorColorHex = hex;
+    } else if (text.includes(`${word} gövde`) || text.includes(word)) {
+      bodyColorHex = hex;
+      bodyMaterial = mat;
+      if (!text.includes("kapak")) {
+        doorColorHex = hex;
+      }
+    }
+  }
+
+  widthMm = Math.max(300, Math.min(2700, widthMm));
+  heightMm = Math.max(300, Math.min(2750, heightMm));
+  depthMm = Math.max(200, Math.min(900, depthMm));
+  shelfCount = Math.max(0, Math.min(12, shelfCount));
+
+  return {
+    name,
+    cabinet_type: cabinetType,
+    width_mm: widthMm,
+    height_mm: heightMm,
+    depth_mm: depthMm,
+    shelf_count: shelfCount,
+    door_type: doorType,
+    has_plinth: hasPlinth,
+    plinth_height_mm: plinthHeightMm,
+    body_material: bodyMaterial,
+    body_color_hex: bodyColorHex,
+    door_color_hex: doorColorHex,
+    front_pvc_thickness_mm: 2.0,
+    hidden_pvc_thickness_mm: 0.4,
+    back_panel_type:
+      text.includes("3mm") || text.includes("duralit")
+        ? "nailed_3mm"
+        : "grooved_8mm",
+    sheet_size: text.includes("3660") ? "3660x1830" : "2800x2100",
+  };
+}
+
+/**
+ * 2. Deterministik BOM ve Sistem 32 Delik Motoru
+ */
+function pvcDeductionForEdge(pvcMm: number): number {
+  return pvcMm < MC.PVC_IGNORE_THRESHOLD_MM ? 0.0 : round2(pvcMm);
+}
+
+function computeCutDimensions(
+  netLength: number,
+  netWidth: number,
+  edge: EdgeBandSpec
+): [number, number, number, number] {
+  const dedL = round2(
+    pvcDeductionForEdge(edge.width_1_mm) + pvcDeductionForEdge(edge.width_2_mm)
+  );
+  const dedW = round2(
+    pvcDeductionForEdge(edge.length_1_mm) + pvcDeductionForEdge(edge.length_2_mm)
+  );
+  return [round2(netLength - dedL), round2(netWidth - dedW), dedL, dedW];
+}
+
+function connectionDepthCoords(depthMm: number): number[] {
+  const frontX = round2(depthMm - 50.0);
+  const rearX = 60.0;
+  if (depthMm >= 500.0) {
+    return [rearX, round2(depthMm / 2.0), frontX];
+  }
+  return [rearX, frontX];
+}
+
+function hingeCountForHeight(doorHeightMm: number): number {
+  if (doorHeightMm <= 900.0) return 2;
+  if (doorHeightMm <= 1600.0) return 3;
+  if (doorHeightMm <= 2100.0) return 4;
+  return 5;
+}
+
+export function generateBomLocal(config: CabinetConfig): BOMReport {
+  const parts: PanelPart[] = [];
+  const t = MC.BODY_THICKNESS_MM;
+  const w = config.width_mm;
+  const h = config.height_mm;
+  const d = config.depth_mm;
+  const plinthH = config.has_plinth ? config.plinth_height_mm : 0.0;
+
+  const innerW = round2(w - 2.0 * t);
+  const clearInnerH = round2(h - plinthH - 2.0 * t);
+
+  // Yan Dikme Delikleri
+  const sideDrills: DrillPoint[] = [];
+  const tHalf = t / 2.0;
+  const bottomConnX = round2(plinthH + tHalf);
+  const topConnX = round2(h - tHalf);
+  const connYCoords = connectionDepthCoords(d);
+
+  for (const [connX, label] of [
+    [bottomConnX, "Alt Tabla"],
+    [topConnX, "Üst Tabla"],
+  ] as const) {
+    for (const yPos of connYCoords) {
+      sideDrills.push({
+        x_mm: connX,
+        y_mm: yPos,
+        diameter_mm: MC.MINIFIX_BOLT_DIAMETER_MM,
+        depth_mm: MC.MINIFIX_BOLT_DEPTH_MM,
+        layer: MC.LAYER_MINIFIX_BOLT,
+        description: `${label} Minifiks Mil Deliği`,
+      });
+      const dowelY = round2(yPos + MC.DOWEL_OFFSET_FROM_MINIFIX_MM);
+      if (dowelY <= d - 25.0) {
+        sideDrills.push({
+          x_mm: connX,
+          y_mm: dowelY,
+          diameter_mm: MC.DOWEL_DIAMETER_MM,
+          depth_mm: MC.DOWEL_DEPTH_MM,
+          layer: MC.LAYER_DOWEL,
+          description: `${label} Kavela Deliği`,
+        });
+      }
+    }
+  }
+
+  if (config.shelf_count > 0) {
+    const stepH = clearInnerH / (config.shelf_count + 1);
+    const pinYRear = round2(
+      MC.BACK_GROOVE_OFFSET_FROM_REAR_MM +
+        MC.BACK_GROOVE_WIDTH_MM +
+        MC.SHELF_PIN_REAR_OFFSET_MM
+    );
+    const pinYFront = round2(d - MC.SHELF_PIN_FRONT_OFFSET_MM);
+
+    for (let idx = 1; idx <= config.shelf_count; idx += 1) {
+      const centerX = round2(plinthH + t + idx * stepH);
+      for (const offset of [-MC.SYSTEM_32_PITCH_MM, 0.0, MC.SYSTEM_32_PITCH_MM]) {
+        const holeX = round2(centerX + offset);
+        for (const holeY of [pinYRear, pinYFront]) {
+          sideDrills.push({
+            x_mm: holeX,
+            y_mm: holeY,
+            diameter_mm: MC.SHELF_PIN_DIAMETER_MM,
+            depth_mm: MC.SHELF_PIN_DEPTH_MM,
+            layer: MC.LAYER_SHELF_PIN,
+            description: `Raf ${idx} Sistem 32 Pim Deliği`,
+          });
+        }
+      }
+    }
+  }
+
+  const sideEdge: EdgeBandSpec = {
+    length_1_mm: config.front_pvc_thickness_mm,
+    length_2_mm: config.hidden_pvc_thickness_mm,
+    width_1_mm: config.hidden_pvc_thickness_mm,
+    width_2_mm: config.hidden_pvc_thickness_mm,
+  };
+  const [sideCutL, sideCutW, sideDedL, sideDedW] = computeCutDimensions(
+    h,
+    d,
+    sideEdge
+  );
+
+  const sideGrooves: GroovePath[] = [];
+  if (config.back_panel_type === "grooved_8mm") {
+    sideGrooves.push({
+      x_start_mm: round2(plinthH + t - MC.BACK_PANEL_INSERTION_PER_SIDE_MM),
+      y_start_mm: MC.BACK_GROOVE_OFFSET_FROM_REAR_MM,
+      width_mm: round2(clearInnerH + 2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM),
+      length_mm: MC.BACK_GROOVE_WIDTH_MM,
+      depth_mm: MC.BACK_GROOVE_DEPTH_MM,
+      layer: MC.LAYER_GROOVE_BACK,
+    });
+  }
+
+  parts.push({
+    part_id: "P01",
+    code: "YAN_SOL",
+    name: "Sol Yan Dikme",
+    material: config.body_material,
+    thickness_mm: t,
+    quantity: 1,
+    net_length_mm: h,
+    net_width_mm: d,
+    cut_length_mm: sideCutL,
+    cut_width_mm: sideCutW,
+    pvc_deduction_length_mm: sideDedL,
+    pvc_deduction_width_mm: sideDedW,
+    edge_band: sideEdge,
+    area_m2: round4((h * d) / 1_000_000.0),
+    grain_direction: "length",
+    drills: sideDrills,
+    grooves: sideGrooves,
+    transform_3d: {
+      center_x_mm: round2(-w / 2.0 + t / 2.0),
+      center_y_mm: round2(h / 2.0),
+      center_z_mm: 0.0,
+      size_x_mm: t,
+      size_y_mm: h,
+      size_z_mm: d,
+      color_hex: config.body_color_hex,
+      is_door: false,
+      hinge_side: null,
+    },
+  });
+
+  parts.push({
+    part_id: "P02",
+    code: "YAN_SAG",
+    name: "Sağ Yan Dikme",
+    material: config.body_material,
+    thickness_mm: t,
+    quantity: 1,
+    net_length_mm: h,
+    net_width_mm: d,
+    cut_length_mm: sideCutL,
+    cut_width_mm: sideCutW,
+    pvc_deduction_length_mm: sideDedL,
+    pvc_deduction_width_mm: sideDedW,
+    edge_band: sideEdge,
+    area_m2: round4((h * d) / 1_000_000.0),
+    grain_direction: "length",
+    drills: sideDrills,
+    grooves: sideGrooves,
+    transform_3d: {
+      center_x_mm: round2(w / 2.0 - t / 2.0),
+      center_y_mm: round2(h / 2.0),
+      center_z_mm: 0.0,
+      size_x_mm: t,
+      size_y_mm: h,
+      size_z_mm: d,
+      color_hex: config.body_color_hex,
+      is_door: false,
+      hinge_side: null,
+    },
+  });
+
+  // Üst ve Alt Tabla
+  const horizEdge: EdgeBandSpec = {
+    length_1_mm: config.front_pvc_thickness_mm,
+    length_2_mm: config.hidden_pvc_thickness_mm,
+    width_1_mm: 0.0,
+    width_2_mm: 0.0,
+  };
+  const [horizCutL, horizCutW, horizDedL, horizDedW] = computeCutDimensions(
+    innerW,
+    d,
+    horizEdge
+  );
+  const horizDrills: DrillPoint[] = [];
+  for (const [camX, sideLabel] of [
+    [MC.MINIFIX_CAM_CENTER_FROM_EDGE_MM, "Sol"],
+    [round2(innerW - MC.MINIFIX_CAM_CENTER_FROM_EDGE_MM), "Sağ"],
+  ] as const) {
+    for (const yPos of connYCoords) {
+      horizDrills.push({
+        x_mm: camX,
+        y_mm: yPos,
+        diameter_mm: MC.MINIFIX_CAM_DIAMETER_MM,
+        depth_mm: MC.MINIFIX_CAM_DEPTH_MM,
+        layer: MC.LAYER_MINIFIX_CAM,
+        description: `${sideLabel} Yan Bağlantı Minifiks Gövde Yuvası`,
+      });
+    }
+  }
+
+  const horizGrooves: GroovePath[] =
+    config.back_panel_type === "grooved_8mm"
+      ? [
+          {
+            x_start_mm: 0.0,
+            y_start_mm: MC.BACK_GROOVE_OFFSET_FROM_REAR_MM,
+            width_mm: innerW,
+            length_mm: MC.BACK_GROOVE_WIDTH_MM,
+            depth_mm: MC.BACK_GROOVE_DEPTH_MM,
+            layer: MC.LAYER_GROOVE_BACK,
+          },
+        ]
+      : [];
+
+  parts.push({
+    part_id: "P03",
+    code: "TABLA_UST",
+    name: "Üst Tabla",
+    material: config.body_material,
+    thickness_mm: t,
+    quantity: 1,
+    net_length_mm: innerW,
+    net_width_mm: d,
+    cut_length_mm: horizCutL,
+    cut_width_mm: horizCutW,
+    pvc_deduction_length_mm: horizDedL,
+    pvc_deduction_width_mm: horizDedW,
+    edge_band: horizEdge,
+    area_m2: round4((innerW * d) / 1_000_000.0),
+    grain_direction: "length",
+    drills: horizDrills,
+    grooves: horizGrooves,
+    transform_3d: {
+      center_x_mm: 0.0,
+      center_y_mm: round2(h - t / 2.0),
+      center_z_mm: 0.0,
+      size_x_mm: innerW,
+      size_y_mm: t,
+      size_z_mm: d,
+      color_hex: config.body_color_hex,
+      is_door: false,
+      hinge_side: null,
+    },
+  });
+
+  parts.push({
+    part_id: "P04",
+    code: "TABLA_ALT",
+    name: "Alt Tabla",
+    material: config.body_material,
+    thickness_mm: t,
+    quantity: 1,
+    net_length_mm: innerW,
+    net_width_mm: d,
+    cut_length_mm: horizCutL,
+    cut_width_mm: horizCutW,
+    pvc_deduction_length_mm: horizDedL,
+    pvc_deduction_width_mm: horizDedW,
+    edge_band: horizEdge,
+    area_m2: round4((innerW * d) / 1_000_000.0),
+    grain_direction: "length",
+    drills: horizDrills,
+    grooves: horizGrooves,
+    transform_3d: {
+      center_x_mm: 0.0,
+      center_y_mm: round2(plinthH + t / 2.0),
+      center_z_mm: 0.0,
+      size_x_mm: innerW,
+      size_y_mm: t,
+      size_z_mm: d,
+      color_hex: config.body_color_hex,
+      is_door: false,
+      hinge_side: null,
+    },
+  });
+
+  let partCounter = 5;
+  const padId = (n: number): string => `P${String(n).padStart(2, "0")}`;
+
+  // Baza Kayıtları
+  if (config.has_plinth && plinthH > 0) {
+    const plinthEdge: EdgeBandSpec = {
+      length_1_mm: config.hidden_pvc_thickness_mm,
+      length_2_mm: config.hidden_pvc_thickness_mm,
+      width_1_mm: 0.0,
+      width_2_mm: 0.0,
+    };
+    const [pCutL, pCutW, pDedL, pDedW] = computeCutDimensions(
+      innerW,
+      plinthH,
+      plinthEdge
+    );
+    for (const [suffix, label, zPos] of [
+      ["ON", "Ön", round2(d / 2.0 - 25.0)],
+      ["ARKA", "Arka", round2(-d / 2.0 + 25.0)],
+    ] as const) {
+      parts.push({
+        part_id: padId(partCounter++),
+        code: `BAZA_${suffix}`,
+        name: `${label} Baza Kaydı`,
+        material: config.body_material,
+        thickness_mm: t,
+        quantity: 1,
+        net_length_mm: innerW,
+        net_width_mm: plinthH,
+        cut_length_mm: pCutL,
+        cut_width_mm: pCutW,
+        pvc_deduction_length_mm: pDedL,
+        pvc_deduction_width_mm: pDedW,
+        edge_band: plinthEdge,
+        area_m2: round4((innerW * plinthH) / 1_000_000.0),
+        grain_direction: "length",
+        drills: [],
+        grooves: [],
+        transform_3d: {
+          center_x_mm: 0.0,
+          center_y_mm: round2(plinthH / 2.0),
+          center_z_mm: zPos,
+          size_x_mm: innerW,
+          size_y_mm: plinthH,
+          size_z_mm: t,
+          color_hex: config.body_color_hex,
+          is_door: false,
+          hinge_side: null,
+        },
+      });
+    }
+  }
+
+  // Hareketli Raflar
+  if (config.shelf_count > 0) {
+    const shelfNetL = round2(innerW - MC.SHELF_WIDTH_CLEARANCE_MM);
+    const rearLoss =
+      config.back_panel_type === "grooved_8mm"
+        ? MC.BACK_GROOVE_OFFSET_FROM_REAR_MM + MC.BACK_GROOVE_WIDTH_MM
+        : 0.0;
+    const shelfNetW = round2(d - rearLoss - MC.SHELF_FRONT_SETBACK_MM);
+    const shelfEdge: EdgeBandSpec = {
+      length_1_mm: config.front_pvc_thickness_mm,
+      length_2_mm: config.hidden_pvc_thickness_mm,
+      width_1_mm: config.hidden_pvc_thickness_mm,
+      width_2_mm: config.hidden_pvc_thickness_mm,
+    };
+    const [sCutL, sCutW, sDedL, sDedW] = computeCutDimensions(
+      shelfNetL,
+      shelfNetW,
+      shelfEdge
+    );
+    const stepH = clearInnerH / (config.shelf_count + 1);
+    const shelfZCenter = round2((rearLoss - MC.SHELF_FRONT_SETBACK_MM) / 2.0);
+
+    for (let sIdx = 1; sIdx <= config.shelf_count; sIdx += 1) {
+      parts.push({
+        part_id: padId(partCounter++),
+        code: `RAF_${String(sIdx).padStart(2, "0")}`,
+        name: `Hareketli Raf #${sIdx}`,
+        material: config.body_material,
+        thickness_mm: t,
+        quantity: 1,
+        net_length_mm: shelfNetL,
+        net_width_mm: shelfNetW,
+        cut_length_mm: sCutL,
+        cut_width_mm: sCutW,
+        pvc_deduction_length_mm: sDedL,
+        pvc_deduction_width_mm: sDedW,
+        edge_band: shelfEdge,
+        area_m2: round4((shelfNetL * shelfNetW) / 1_000_000.0),
+        grain_direction: "length",
+        drills: [],
+        grooves: [],
+        transform_3d: {
+          center_x_mm: 0.0,
+          center_y_mm: round2(plinthH + t + sIdx * stepH),
+          center_z_mm: shelfZCenter,
+          size_x_mm: shelfNetL,
+          size_y_mm: t,
+          size_z_mm: shelfNetW,
+          color_hex: config.body_color_hex,
+          is_door: false,
+          hinge_side: null,
+        },
+      });
+    }
+  }
+
+  // Arkalık
+  const noEdge: EdgeBandSpec = {
+    length_1_mm: 0.0,
+    length_2_mm: 0.0,
+    width_1_mm: 0.0,
+    width_2_mm: 0.0,
+  };
+  const isGrooved = config.back_panel_type === "grooved_8mm";
+  const backT = isGrooved
+    ? MC.BACK_PANEL_GROOVED_THICKNESS_MM
+    : MC.BACK_PANEL_NAILED_THICKNESS_MM;
+  const backMat = isGrooved
+    ? "8mm Beyaz MDF-Lam Arkalık"
+    : "3mm Beyaz Duralit Arkalık";
+  const backL = isGrooved
+    ? round2(clearInnerH + 2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM)
+    : round2(h - plinthH - 4.0);
+  const backW = isGrooved
+    ? round2(innerW + 2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM)
+    : round2(w - 4.0);
+  const backZ = isGrooved
+    ? round2(
+        -d / 2.0 +
+          MC.BACK_GROOVE_OFFSET_FROM_REAR_MM +
+          MC.BACK_GROOVE_WIDTH_MM / 2.0
+      )
+    : round2(-d / 2.0 - backT / 2.0);
+
+  parts.push({
+    part_id: padId(partCounter++),
+    code: "ARKALIK",
+    name: "Arkalık Paneli",
+    material: backMat,
+    thickness_mm: backT,
+    quantity: 1,
+    net_length_mm: backL,
+    net_width_mm: backW,
+    cut_length_mm: backL,
+    cut_width_mm: backW,
+    pvc_deduction_length_mm: 0.0,
+    pvc_deduction_width_mm: 0.0,
+    edge_band: noEdge,
+    area_m2: round4((backL * backW) / 1_000_000.0),
+    grain_direction: "length",
+    drills: [],
+    grooves: [],
+    transform_3d: {
+      center_x_mm: 0.0,
+      center_y_mm: round2(plinthH + (h - plinthH) / 2.0),
+      center_z_mm: backZ,
+      size_x_mm: backW,
+      size_y_mm: backL,
+      size_z_mm: backT,
+      color_hex: "#E5E0D5",
+      is_door: false,
+      hinge_side: null,
+    },
+  });
+
+  // Kapaklar
+  let totalHinges = 0;
+  let doorHandles = 0;
+  const buildDoorDrills = (
+    doorH: number,
+    doorW: number,
+    hingeOnLeft: boolean
+  ): DrillPoint[] => {
+    const count = hingeCountForHeight(doorH);
+    const hingeY = hingeOnLeft
+      ? MC.HINGE_CUP_CENTER_FROM_EDGE_MM
+      : round2(doorW - MC.HINGE_CUP_CENTER_FROM_EDGE_MM);
+    const topX = round2(doorH - MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM);
+    const bottomX = MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM;
+    const step = count > 2 ? (topX - bottomX) / (count - 1) : 0;
+    const drills: DrillPoint[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const xPos =
+        count === 2 ? (i === 0 ? bottomX : topX) : round2(bottomX + i * step);
+      drills.push({
+        x_mm: xPos,
+        y_mm: hingeY,
+        diameter_mm: MC.HINGE_CUP_DIAMETER_MM,
+        depth_mm: MC.HINGE_CUP_DEPTH_MM,
+        layer: MC.LAYER_HINGE_CUP,
+        description: `Tas Menteşe Yuvası #${i + 1} (Ø35mm)`,
+      });
+    }
+    return drills;
+  };
+
+  if (config.door_type !== "none") {
+    const doorNetH = round2(h - plinthH - 2.0 * MC.DOOR_OUTER_GAP_MM);
+    const doorEdge: EdgeBandSpec = {
+      length_1_mm: config.front_pvc_thickness_mm,
+      length_2_mm: config.front_pvc_thickness_mm,
+      width_1_mm: config.front_pvc_thickness_mm,
+      width_2_mm: config.front_pvc_thickness_mm,
+    };
+    const doorYCenter = round2(plinthH + (h - plinthH) / 2.0);
+    const doorZCenter = round2(d / 2.0 + t / 2.0 + 1.5);
+
+    if (
+      config.door_type === "single_left" ||
+      config.door_type === "single_right"
+    ) {
+      const doorNetW = round2(w - 2.0 * MC.DOOR_OUTER_GAP_MM);
+      const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(
+        doorNetH,
+        doorNetW,
+        doorEdge
+      );
+      const hingeLeft = config.door_type === "single_left";
+      const dDrills = buildDoorDrills(doorNetH, doorNetW, hingeLeft);
+      totalHinges += dDrills.length;
+      doorHandles += 1;
+
+      parts.push({
+        part_id: padId(partCounter++),
+        code: "KAPAK_TEK",
+        name: hingeLeft
+          ? "Tek Kapak (Sol Menteşeli)"
+          : "Tek Kapak (Sağ Menteşeli)",
+        material: config.body_material,
+        thickness_mm: t,
+        quantity: 1,
+        net_length_mm: doorNetH,
+        net_width_mm: doorNetW,
+        cut_length_mm: dCutL,
+        cut_width_mm: dCutW,
+        pvc_deduction_length_mm: dDedL,
+        pvc_deduction_width_mm: dDedW,
+        edge_band: doorEdge,
+        area_m2: round4((doorNetH * doorNetW) / 1_000_000.0),
+        grain_direction: "length",
+        drills: dDrills,
+        grooves: [],
+        transform_3d: {
+          center_x_mm: 0.0,
+          center_y_mm: doorYCenter,
+          center_z_mm: doorZCenter,
+          size_x_mm: doorNetW,
+          size_y_mm: doorNetH,
+          size_z_mm: t,
+          color_hex: config.door_color_hex,
+          is_door: true,
+          hinge_side: hingeLeft ? "left" : "right",
+        },
+      });
+    } else if (config.door_type === "double") {
+      const doorNetW = round2(
+        (w - 2.0 * MC.DOOR_OUTER_GAP_MM - MC.DOOR_CENTER_GAP_MM) / 2.0
+      );
+      const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(
+        doorNetH,
+        doorNetW,
+        doorEdge
+      );
+      for (const [sideCode, sideLabel, isLeft, centerX] of [
+        [
+          "SOL",
+          "Sol Kapak",
+          true,
+          round2(-(doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0)),
+        ],
+        [
+          "SAG",
+          "Sağ Kapak",
+          false,
+          round2(doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0),
+        ],
+      ] as const) {
+        const dDrills = buildDoorDrills(doorNetH, doorNetW, isLeft);
+        totalHinges += dDrills.length;
+        doorHandles += 1;
+        parts.push({
+          part_id: padId(partCounter++),
+          code: `KAPAK_${sideCode}`,
+          name: sideLabel,
+          material: config.body_material,
+          thickness_mm: t,
+          quantity: 1,
+          net_length_mm: doorNetH,
+          net_width_mm: doorNetW,
+          cut_length_mm: dCutL,
+          cut_width_mm: dCutW,
+          pvc_deduction_length_mm: dDedL,
+          pvc_deduction_width_mm: dDedW,
+          edge_band: doorEdge,
+          area_m2: round4((doorNetH * doorNetW) / 1_000_000.0),
+          grain_direction: "length",
+          drills: dDrills,
+          grooves: [],
+          transform_3d: {
+            center_x_mm: centerX,
+            center_y_mm: doorYCenter,
+            center_z_mm: doorZCenter,
+            size_x_mm: doorNetW,
+            size_y_mm: doorNetH,
+            size_z_mm: t,
+            color_hex: config.door_color_hex,
+            is_door: true,
+            hinge_side: isLeft ? "left" : "right",
+          },
+        });
+      }
+    }
+  }
+
+  let pvc04Mm = 0;
+  let pvc10Mm = 0;
+  let pvc20Mm = 0;
+  let totalNetArea = 0;
+  let totalCutArea = 0;
+  let totalDrills = 0;
+
+  for (const part of parts) {
+    totalNetArea += part.area_m2 * part.quantity;
+    totalCutArea +=
+      ((part.cut_length_mm * part.cut_width_mm) / 1_000_000.0) * part.quantity;
+    totalDrills += part.drills.length * part.quantity;
+    const edges: [number, number][] = [
+      [part.edge_band.length_1_mm, part.net_length_mm],
+      [part.edge_band.length_2_mm, part.net_length_mm],
+      [part.edge_band.width_1_mm, part.net_width_mm],
+      [part.edge_band.width_2_mm, part.net_width_mm],
+    ];
+    for (const [pvcT, len] of edges) {
+      if (Math.abs(pvcT - 0.4) < 0.05) pvc04Mm += len * part.quantity;
+      else if (Math.abs(pvcT - 1.0) < 0.05) pvc10Mm += len * part.quantity;
+      else if (Math.abs(pvcT - 2.0) < 0.05) pvc20Mm += len * part.quantity;
+    }
+  }
+
+  const pvc04M = round2(pvc04Mm / 1000.0);
+  const pvc10M = round2(pvc10Mm / 1000.0);
+  const pvc20M = round2(pvc20Mm / 1000.0);
+
+  const minifixSets = connectionDepthCoords(d).length * 4;
+  const dowelCount = minifixSets + (config.has_plinth ? 8 : 0);
+  const shelfPins = config.shelf_count * 4;
+
+  const hardware: HardwareItem[] = [
+    {
+      code: "HRD-MNFX-15",
+      name: "Minifiks Bağlantı Takımı (Ø15 Eksantrik + Mil)",
+      unit: "Takım",
+      quantity: minifixSets,
+      note: "Alt ve üst tabla gövde birleştirmeleri",
+    },
+    {
+      code: "HRD-KVLA-08",
+      name: "Ahşap Kavela (Ø8x35mm)",
+      unit: "Adet",
+      quantity: dowelCount,
+      note: "Sistem 32 kavela delikleri ve baza kayıtları",
+    },
+  ];
+
+  if (shelfPins > 0) {
+    hardware.push({
+      code: "HRD-RAFP-05",
+      name: "Çelik Raf Pimi (Ø5mm)",
+      unit: "Adet",
+      quantity: shelfPins,
+      note: `${config.shelf_count} adet hareketli raf için (raf başı 4 adet)`,
+    });
+  }
+  if (totalHinges > 0) {
+    hardware.push({
+      code: "HRD-MNTS-35",
+      name: "Frenli Düz Tas Menteşe (Ø35mm)",
+      unit: "Adet",
+      quantity: totalHinges,
+      note: "Kapak bağlantıları için",
+    });
+    hardware.push({
+      code: "HRD-KULP-160",
+      name: "Alüminyum Mobilya Kulpu (160mm)",
+      unit: "Adet",
+      quantity: doorHandles,
+      note: "Kapak kulpları",
+    });
+  }
+  if (pvc20M > 0) {
+    hardware.push({
+      code: "PVC-20-22",
+      name: "2.0 mm × 22 mm PVC Kenar Bandı",
+      unit: "Metre",
+      quantity: pvc20M,
+      note: "Görünen ön kenarlar ve kapaklar",
+    });
+  }
+  if (pvc10M > 0) {
+    hardware.push({
+      code: "PVC-10-22",
+      name: "1.0 mm × 22 mm PVC Kenar Bandı",
+      unit: "Metre",
+      quantity: pvc10M,
+      note: "Ara kenarlar",
+    });
+  }
+  if (pvc04M > 0) {
+    hardware.push({
+      code: "PVC-04-22",
+      name: "0.4 mm × 22 mm PVC Kenar Bandı",
+      unit: "Metre",
+      quantity: pvc04M,
+      note: "Gizli / arka kenarlar",
+    });
+  }
+
+  return {
+    config,
+    parts,
+    hardware,
+    total_net_area_m2: round4(totalNetArea),
+    total_cut_area_m2: round4(totalCutArea),
+    total_pvc_04_meters: pvc04M,
+    total_pvc_10_meters: pvc10M,
+    total_pvc_20_meters: pvc20M,
+    total_parts_count: parts.reduce((acc, p) => acc + p.quantity, 0),
+    total_drill_count: totalDrills,
+  };
+}
+
+/**
+ * 3. 2D Giyotin Plaka Kesim Optimizasyonu (Nesting) ve SVG Üretici
+ */
+interface FreeRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+function packGuillotineSheet(
+  usableW: number,
+  usableH: number,
+  kerfMm: number,
+  remainingParts: PanelPart[],
+  sheetIndex: number,
+  trimMm: number
+): { placed: NestedPartPlacement[]; unplaced: PanelPart[] } {
+  const freeRects: FreeRect[] = [
+    { x: 0, y: 0, w: usableW + kerfMm, h: usableH + kerfMm },
+  ];
+  const placed: NestedPartPlacement[] = [];
+  const unplaced: PanelPart[] = [];
+
+  const sorted = [...remainingParts].sort(
+    (a, b) =>
+      b.cut_length_mm * b.cut_width_mm - a.cut_length_mm * a.cut_width_mm
+  );
+
+  for (const part of sorted) {
+    const rw = part.cut_length_mm + kerfMm;
+    const rh = part.cut_width_mm + kerfMm;
+
+    let bestIdx = -1;
+    let bestShortSide = Number.POSITIVE_INFINITY;
+    let bestRotated = false;
+
+    for (let i = 0; i < freeRects.length; i += 1) {
+      const fr = freeRects[i];
+      if (rw <= fr.w && rh <= fr.h) {
+        const shortSide = Math.min(fr.w - rw, fr.h - rh);
+        if (shortSide < bestShortSide) {
+          bestShortSide = shortSide;
+          bestIdx = i;
+          bestRotated = false;
+        }
+      }
+      if (rh <= fr.w && rw <= fr.h) {
+        const shortSide = Math.min(fr.w - rh, fr.h - rw);
+        if (shortSide < bestShortSide) {
+          bestShortSide = shortSide;
+          bestIdx = i;
+          bestRotated = true;
+        }
+      }
+    }
+
+    if (bestIdx === -1) {
+      unplaced.push(part);
+      continue;
+    }
+
+    const chosen = freeRects.splice(bestIdx, 1)[0];
+    const usedW = bestRotated ? rh : rw;
+    const usedH = bestRotated ? rw : rh;
+
+    placed.push({
+      part_id: part.part_id,
+      code: part.code,
+      name: part.name,
+      thickness_mm: part.thickness_mm,
+      sheet_index: sheetIndex,
+      x_mm: round2(chosen.x + trimMm),
+      y_mm: round2(chosen.y + trimMm),
+      width_mm: round2(usedW - kerfMm),
+      height_mm: round2(usedH - kerfMm),
+      rotated: bestRotated,
+      cut_length_mm: part.cut_length_mm,
+      cut_width_mm: part.cut_width_mm,
+    });
+
+    const remW = chosen.w - usedW;
+    const remH = chosen.h - usedH;
+    if (remW > 0 && remH > 0) {
+      if (remW < remH) {
+        freeRects.push({
+          x: chosen.x + usedW,
+          y: chosen.y,
+          w: remW,
+          h: usedH,
+        });
+        freeRects.push({
+          x: chosen.x,
+          y: chosen.y + usedH,
+          w: chosen.w,
+          h: remH,
+        });
+      } else {
+        freeRects.push({
+          x: chosen.x,
+          y: chosen.y + usedH,
+          w: usedW,
+          h: remH,
+        });
+        freeRects.push({
+          x: chosen.x + usedW,
+          y: chosen.y,
+          w: remW,
+          h: chosen.h,
+        });
+      }
+    } else if (remW > 0) {
+      freeRects.push({
+        x: chosen.x + usedW,
+        y: chosen.y,
+        w: remW,
+        h: chosen.h,
+      });
+    } else if (remH > 0) {
+      freeRects.push({
+        x: chosen.x,
+        y: chosen.y + usedH,
+        w: chosen.w,
+        h: remH,
+      });
+    }
+  }
+
+  return { placed, unplaced };
+}
+
+function renderSheetSvg(
+  sheetIndex: number,
+  material: string,
+  sheetW: number,
+  sheetH: number,
+  trimMm: number,
+  wastePct: number,
+  placements: NestedPartPlacement[]
+): string {
+  const viewW = 960;
+  const scale = (viewW - 40) / sheetW;
+  const viewH = Math.round(sheetH * scale) + 80;
+  const ox = 20;
+  const oy = 55;
+  const usableW = sheetW - 2 * trimMm;
+  const usableH = sheetH - 2 * trimMm;
+
+  const palette: [string, string][] = [
+    ["#0284C7", "#E0F2FE"],
+    ["#0D9488", "#CCFBF1"],
+    ["#4F46E5", "#E0E7FF"],
+    ["#D97706", "#FEF3C7"],
+    ["#7C3AED", "#EDE9FE"],
+    ["#059669", "#D1FAE5"],
+  ];
+
+  const lines: string[] = [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewW} ${viewH}" width="100%" height="100%" font-family="Inter, system-ui, sans-serif">`,
+    `<rect width="100%" height="100%" fill="#0F172A" rx="8" />`,
+    `<text x="${ox}" y="28" fill="#F8FAFC" font-size="14" font-weight="700">Plaka #${sheetIndex} — ${material} (${sheetW} × ${sheetH} mm)</text>`,
+    `<text x="${viewW - ox}" y="28" text-anchor="end" fill="#38BDF8" font-size="13" font-weight="600">Verimlilik: %${(100 - wastePct).toFixed(1)} | Fire: %${wastePct.toFixed(1)}</text>`,
+    `<text x="${ox}" y="44" fill="#94A3B8" font-size="11">Net Kullanılabilir Alan: ${usableW} × ${usableH} mm (Kenar Temizlik: ${trimMm} mm | Testere Kerf: ${MC.SAW_KERF_MM.toFixed(1)} mm)</text>`,
+    `<rect x="${ox}" y="${oy}" width="${(sheetW * scale).toFixed(1)}" height="${(sheetH * scale).toFixed(1)}" fill="#1E293B" stroke="#475569" stroke-width="1.5" />`,
+    `<rect x="${(ox + trimMm * scale).toFixed(1)}" y="${(oy + trimMm * scale).toFixed(1)}" width="${(usableW * scale).toFixed(1)}" height="${(usableH * scale).toFixed(1)}" fill="none" stroke="#64748B" stroke-width="1" stroke-dasharray="5,4" />`,
+  ];
+
+  placements.forEach((p, idx) => {
+    const [fillColor, textColor] = palette[idx % palette.length];
+    const px = ox + p.x_mm * scale;
+    const py = oy + (sheetH - p.y_mm - p.height_mm) * scale;
+    const pw = p.width_mm * scale;
+    const ph = p.height_mm * scale;
+
+    lines.push(
+      `<g class="part-group"><rect x="${px.toFixed(2)}" y="${py.toFixed(2)}" width="${pw.toFixed(2)}" height="${ph.toFixed(2)}" fill="${fillColor}" fill-opacity="0.85" stroke="#F8FAFC" stroke-width="1.2" />`
+    );
+    if (pw > 42 && ph > 22) {
+      const cx = px + pw / 2;
+      const cy = py + ph / 2;
+      const rotTag = p.rotated ? " [90°]" : "";
+      lines.push(
+        `<text x="${cx.toFixed(1)}" y="${(cy - 3).toFixed(1)}" text-anchor="middle" fill="${textColor}" font-size="10" font-weight="700">${p.part_id} ${p.code}${rotTag}</text>`
+      );
+      lines.push(
+        `<text x="${cx.toFixed(1)}" y="${(cy + 10).toFixed(1)}" text-anchor="middle" fill="#E2E8F0" font-size="9">${p.cut_length_mm}×${p.cut_width_mm} mm</text>`
+      );
+    }
+    lines.push(`</g>`);
+  });
+
+  lines.push(`</svg>`);
+  return lines.join("\n");
+}
+
+export function runNestingLocal(bom: BOMReport): NestingResult {
+  const sheetSize: SheetSizeOption = bom.config.sheet_size;
+  const [sheetW, sheetH] =
+    sheetSize === "3660x1830" ? [3660.0, 1830.0] : [2800.0, 2100.0];
+  const trimMm = MC.SHEET_TRIM_MARGIN_MM;
+  const kerfMm = MC.SAW_KERF_MM;
+  const usableW = round2(sheetW - 2.0 * trimMm);
+  const usableH = round2(sheetH - 2.0 * trimMm);
+  const sheetGrossAreaM2 = (sheetW * sheetH) / 1_000_000.0;
+
+  const groups = new Map<string, PanelPart[]>();
+  for (const part of bom.parts) {
+    const key = `${part.thickness_mm}__${part.material}`;
+    const list = groups.get(key) ?? [];
+    for (let q = 0; q < part.quantity; q += 1) {
+      list.push(part);
+    }
+    groups.set(key, list);
+  }
+
+  const allSheets: SheetLayout[] = [];
+  let globalSheetIdx = 1;
+
+  for (const [key, groupParts] of groups.entries()) {
+    const [thickStr, material] = key.split("__");
+    const thicknessMm = parseFloat(thickStr);
+    let queue = [...groupParts];
+
+    while (queue.length > 0) {
+      const { placed, unplaced } = packGuillotineSheet(
+        usableW,
+        usableH,
+        kerfMm,
+        queue,
+        globalSheetIdx,
+        trimMm
+      );
+      if (placed.length === 0) break;
+
+      const usedAreaM2 = round4(
+        placed.reduce(
+          (acc, p) => acc + (p.width_mm * p.height_mm) / 1_000_000.0,
+          0
+        )
+      );
+      const wasteAreaM2 = round4(Math.max(0, sheetGrossAreaM2 - usedAreaM2));
+      const wastePct = round2((wasteAreaM2 / sheetGrossAreaM2) * 100.0);
+
+      const svgContent = renderSheetSvg(
+        globalSheetIdx,
+        material,
+        sheetW,
+        sheetH,
+        trimMm,
+        wastePct,
+        placed
+      );
+
+      allSheets.push({
+        sheet_index: globalSheetIdx,
+        material,
+        thickness_mm: thicknessMm,
+        sheet_width_mm: sheetW,
+        sheet_height_mm: sheetH,
+        usable_width_mm: usableW,
+        usable_height_mm: usableH,
+        trim_margin_mm: trimMm,
+        kerf_mm: kerfMm,
+        used_area_m2: usedAreaM2,
+        waste_area_m2: wasteAreaM2,
+        waste_percentage: wastePct,
+        placements: placed,
+        svg_content: svgContent,
+      });
+
+      globalSheetIdx += 1;
+      queue = unplaced;
+    }
+  }
+
+  const totalSheets = allSheets.length;
+  const totalGrossM2 = totalSheets * sheetGrossAreaM2;
+  const totalUsedM2 = allSheets.reduce((acc, s) => acc + s.used_area_m2, 0);
+  const overallEff =
+    totalGrossM2 > 0 ? round2((totalUsedM2 / totalGrossM2) * 100.0) : 0;
+
+  return {
+    sheet_width_mm: sheetW,
+    sheet_height_mm: sheetH,
+    kerf_mm: kerfMm,
+    total_sheets: totalSheets,
+    overall_efficiency_percentage: overallEff,
+    overall_waste_percentage: round2(100.0 - overallEff),
+    sheets: allSheets,
+    combined_svg: allSheets.map((s) => s.svg_content).join("\n"),
+  };
+}
+
+/**
+ * 4. CNC DXF (AutoCAD R2010 / AC1024) Dosya Üretici
+ */
+export function generatePartDxfString(part: PanelPart): string {
+  const lines: string[] = [
+    "0",
+    "SECTION",
+    "2",
+    "HEADER",
+    "9",
+    "$ACADVER",
+    "1",
+    "AC1024",
+    "9",
+    "$INSUNITS",
+    "70",
+    "4",
+    "0",
+    "ENDSEC",
+    "0",
+    "SECTION",
+    "2",
+    "ENTITIES",
+  ];
+
+  const addRectLwPolyline = (
+    x0: number,
+    y0: number,
+    w: number,
+    h: number,
+    layer: string
+  ) => {
+    const coords: [number, number][] = [
+      [x0, y0],
+      [x0 + w, y0],
+      [x0 + w, y0 + h],
+      [x0, y0 + h],
+    ];
+    lines.push(
+      "0",
+      "LWPOLYLINE",
+      "8",
+      layer,
+      "90",
+      "4",
+      "70",
+      "1"
+    );
+    for (const [cx, cy] of coords) {
+      lines.push("10", cx.toFixed(2), "20", cy.toFixed(2));
+    }
+  };
+
+  // Dış kesim konturu
+  addRectLwPolyline(0, 0, part.cut_length_mm, part.cut_width_mm, MC.LAYER_OUTLINE);
+
+  // Arkalık kanalları
+  for (const g of part.grooves) {
+    addRectLwPolyline(
+      g.x_start_mm,
+      g.y_start_mm,
+      g.width_mm,
+      g.length_mm,
+      g.layer
+    );
+  }
+
+  // Sistem 32 CNC Delikleri
+  for (const d of part.drills) {
+    const r = d.diameter_mm / 2.0;
+    lines.push(
+      "0",
+      "CIRCLE",
+      "8",
+      d.layer,
+      "10",
+      d.x_mm.toFixed(2),
+      "20",
+      d.y_mm.toFixed(2),
+      "30",
+      "0.0",
+      "40",
+      r.toFixed(2)
+    );
+  }
+
+  lines.push("0", "ENDSEC", "0", "EOF");
+  return lines.join("\n");
+}
+
+/**
+ * 5. Standart ZIP Arşivi Oluşturucu (Pure TypeScript CRC32 + Store ZIP)
+ */
+function crc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i += 1) {
+    c ^= bytes[i];
+    for (let k = 0; k < 8; k += 1) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+export function createZipBlob(
+  files: { name: string; content: string | Uint8Array }[]
+): Blob {
+  const encoder = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const dataBytes =
+      typeof file.content === "string"
+        ? encoder.encode(file.content)
+        : file.content;
+    const crc = crc32(dataBytes);
+    const size = dataBytes.length;
+
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(localHeader.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0, true);
+    lv.setUint16(8, 0, true);
+    lv.setUint16(10, 0, true);
+    lv.setUint16(12, 0, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, size, true);
+    lv.setUint32(22, size, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    localHeader.set(nameBytes, 30);
+
+    localParts.push(localHeader, dataBytes);
+
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(centralHeader.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, 0, true);
+    cv.setUint16(14, 0, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, size, true);
+    cv.setUint32(24, size, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, 0, true);
+    cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true);
+    cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);
+    centralHeader.set(nameBytes, 46);
+
+    centralParts.push(centralHeader);
+    offset += localHeader.length + size;
+  }
+
+  const centralSize = centralParts.reduce((acc, p) => acc + p.length, 0);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(4, 0, true);
+  ev.setUint16(6, 0, true);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);
+  ev.setUint16(20, 0, true);
+
+  return new Blob([...localParts, ...centralParts, eocd], {
+    type: "application/zip",
+  });
+}
+
+function buildBomCsvString(bom: BOMReport): string {
+  const header = [
+    "Parca_ID",
+    "Kod",
+    "Parca_Adi",
+    "Malzeme",
+    "Kalinlik_mm",
+    "Adet",
+    "Net_Boy_mm",
+    "Net_En_mm",
+    "Kesim_Boy_mm",
+    "Kesim_En_mm",
+    "PVC_Boy_Dusum_mm",
+    "PVC_En_Dusum_mm",
+    "PVC_On_mm",
+    "PVC_Arka_mm",
+    "PVC_Ust_mm",
+    "PVC_Alt_mm",
+    "Alan_m2",
+    "CNC_Delik_Sayisi",
+  ].join(",");
+
+  const rows = bom.parts.map((p) =>
+    [
+      p.part_id,
+      p.code,
+      `"${p.name}"`,
+      `"${p.material}"`,
+      p.thickness_mm,
+      p.quantity,
+      p.net_length_mm,
+      p.net_width_mm,
+      p.cut_length_mm,
+      p.cut_width_mm,
+      p.pvc_deduction_length_mm,
+      p.pvc_deduction_width_mm,
+      p.edge_band.length_1_mm,
+      p.edge_band.length_2_mm,
+      p.edge_band.width_1_mm,
+      p.edge_band.width_2_mm,
+      p.area_m2,
+      p.drills.length,
+    ].join(",")
+  );
+  return [header, ...rows].join("\n");
+}
+
+// Tarayıcıda üretilen DXF içeriklerini parça dosya adına göre saklar
+const localDxfBlobUrls = new Map<string, string>();
+
+export function getLocalDxfBlobUrl(filename: string): string | undefined {
+  return localDxfBlobUrls.get(filename);
+}
+
+export function generateProductionPackageLocal(
+  config: CabinetConfig
+): ProductionPackageResponse {
+  const jobId = Math.random().toString(16).slice(2, 14);
+  const bom = generateBomLocal(config);
+  const nesting = runNestingLocal(bom);
+
+  const zipFiles: { name: string; content: string | Uint8Array }[] = [
+    {
+      name: "bom/kesim_ve_malzeme_listesi.csv",
+      content: buildBomCsvString(bom),
+    },
+    {
+      name: "bom/bom_report.json",
+      content: JSON.stringify(bom, null, 2),
+    },
+  ];
+
+  for (const sheet of nesting.sheets) {
+    zipFiles.push({
+      name: `nesting/plaka_${String(sheet.sheet_index).padStart(2, "0")}_kesim_semasi.svg`,
+      content: sheet.svg_content,
+    });
+  }
+
+  const dxfFilenames: string[] = [];
+  for (const part of bom.parts) {
+    const fname = `${part.part_id}_${part.code}.dxf`;
+    const dxfContent = generatePartDxfString(part);
+    dxfFilenames.push(fname);
+    zipFiles.push({
+      name: `cnc_dxf/${fname}`,
+      content: dxfContent,
+    });
+
+    const dxfBlob = new Blob([dxfContent], { type: "application/dxf" });
+    localDxfBlobUrls.set(fname, URL.createObjectURL(dxfBlob));
+  }
+
+  const zipBlob = createZipBlob(zipFiles);
+  const zipBlobUrl = URL.createObjectURL(zipBlob);
+
+  return {
+    job_id: jobId,
+    config,
+    bom,
+    nesting,
+    glb_base64: "",
+    dxf_filenames: dxfFilenames,
+    zip_download_url: zipBlobUrl,
+  };
+}

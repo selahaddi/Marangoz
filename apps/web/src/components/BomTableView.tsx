@@ -1,4 +1,5 @@
 import { Download, FileCode2, Wrench } from "lucide-react";
+import { getLocalDxfBlobUrl } from "../services/clientEngine";
 import type { BOMReport, PanelPart } from "../types/cabinet";
 
 interface BomTableViewProps {
@@ -29,6 +30,9 @@ function PartCncCadPreview({
   };
 
   const dxfFilename = `${part.part_id}_${part.code}.dxf`;
+  const dxfHref =
+    getLocalDxfBlobUrl(dxfFilename) ??
+    `/api/v1/jobs/${jobId}/dxf/${dxfFilename}`;
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
@@ -47,7 +51,7 @@ function PartCncCadPreview({
         </div>
 
         <a
-          href={`/api/v1/jobs/${jobId}/dxf/${dxfFilename}`}
+          href={dxfHref}
           download={dxfFilename}
           className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-500"
         >
@@ -241,6 +245,9 @@ export function BomTableView({
             {bom.parts.map((part) => {
               const isSelected = activePart?.part_id === part.part_id;
               const dxfFile = `${part.part_id}_${part.code}.dxf`;
+              const rowDxfHref =
+                getLocalDxfBlobUrl(dxfFile) ??
+                `/api/v1/jobs/${jobId}/dxf/${dxfFile}`;
               return (
                 <tr
                   key={part.part_id}
@@ -279,7 +286,7 @@ export function BomTableView({
                   </td>
                   <td className="px-3 py-2.5">
                     <a
-                      href={`/api/v1/jobs/${jobId}/dxf/${dxfFile}`}
+                      href={rowDxfHref}
                       download={dxfFile}
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs font-medium text-sky-300 hover:border-sky-500"
