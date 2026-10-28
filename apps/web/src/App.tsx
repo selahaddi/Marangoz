@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   Box,
@@ -22,7 +22,7 @@ import {
   parseNaturalLanguagePrompt,
   type ParseResult,
 } from "./services/api";
-import { ROOM_LINE_PRESETS } from "./services/clientEngine";
+import { CATALOG_CATEGORIES, ROOM_LINE_PRESETS } from "./services/clientEngine";
 import {
   getStoredGeminiApiKey,
   setStoredGeminiApiKey,
@@ -31,6 +31,7 @@ import type {
   BackPanelType,
   CabinetConfig,
   CabinetType,
+  CatalogCategoryId,
   DoorType,
   ProductionPackageResponse,
   RoomLinePreset,
@@ -84,6 +85,40 @@ export function App() {
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
   const [tempApiKey, setTempApiKey] = useState<string>("");
   const [parseInfo, setParseInfo] = useState<ParseResult | null>(null);
+  const [activeCategory, setActiveCategory] = useState<
+    CatalogCategoryId | "all"
+  >("all");
+  const [scopeFilter, setScopeFilter] = useState<"all" | "single" | "multi">(
+    "all"
+  );
+  const [supportsUntilFound] = useState<boolean>(
+    () =>
+      typeof HTMLElement !== "undefined" &&
+      "onbeforematch" in HTMLElement.prototype
+  );
+  const catalogContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const container = catalogContainerRef.current;
+    if (!container) return;
+
+    const handleBeforeMatch = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const panel = target.closest<HTMLElement>("[data-category-id]");
+      const matchedCategory = panel?.dataset.categoryId as
+        | CatalogCategoryId
+        | undefined;
+      if (matchedCategory) {
+        setActiveCategory(matchedCategory);
+      }
+    };
+
+    container.addEventListener("beforematch", handleBeforeMatch);
+    return () => {
+      container.removeEventListener("beforematch", handleBeforeMatch);
+    };
+  }, []);
 
   const allModules: CabinetConfig[] = [
     config,
@@ -153,9 +188,15 @@ export function App() {
     ) as CabinetConfig;
     setActivePresetId(preset.id);
     setActiveModuleIndex(0);
+    setPrompt(preset.prompt);
     setConfig(clonedPrimary);
     void runGeneration(clonedPrimary);
   };
+
+  const singleModuleCount = ROOM_LINE_PRESETS.filter(
+    (p) => (p.config.additional_modules?.length ?? 0) === 0
+  ).length;
+  const multiModuleCount = ROOM_LINE_PRESETS.length - singleModuleCount;
 
   const runGeneration = async (targetConfig: CabinetConfig) => {
     setIsGenerating(true);
@@ -367,54 +408,244 @@ export function App() {
           )}
         </section>
 
-        {/* Çoklu Modül Oda & Kategori Hatları (6 Farklı Oda/Kategori Hattı) */}
+        {/* Kategorize Mobilya, Cihaz Nişi ve Çoklu Modül Oda Üretim Kataloğu (6 Kategori · 29 Şablon) */}
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-lg">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <LayoutGrid className="h-4 w-4 text-indigo-400" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                Çoklu Modül Oda &amp; Kategori Üretim Hatları (Tek Tıkla Tüm Oda
-                Nesting &amp; CNC)
-              </h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <LayoutGrid className="h-4 w-4 text-indigo-400" />
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-100 sm:text-sm">
+                  Kategorize Mobilya, Cihaz Nişi ve Çoklu Modül Oda Üretim Kataloğu
+                  ({CATALOG_CATEGORIES.length} Kategori · {ROOM_LINE_PRESETS.length}{" "}
+                  Üretim Şablonu)
+                </h2>
+              </div>
+              <p className="mt-0.5 text-[11px] text-slate-400">
+                Bu sitede üretilebilecek tüm tekil modüller, solo cihaz sarmalama
+                (buzdolabı / çamaşır makinesi / robot süpürge) nişleri ve çoklu modül
+                oda hatları. Tek tıkla 3D, BOM, CNC (DXF / G-Code .NC / WoodWOP .MPR)
+                ve ortak plaka Nesting çıktısını yükleyin.
+              </p>
             </div>
-            <span className="text-[11px] text-slate-400">
-              Yan yana dizili modüller ortak plaka optimizasyonuna (Nesting) girer
-            </span>
+
+            {/* Kapsam Filtresi: Tümü / Tekil Modül / Çoklu Modül Oda Hattı */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setScopeFilter("all")}
+                className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                  scopeFilter === "all"
+                    ? "border-sky-500 bg-sky-500/20 text-sky-200"
+                    : "border-slate-800 bg-slate-950/80 text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Tümü ({ROOM_LINE_PRESETS.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setScopeFilter("single")}
+                className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                  scopeFilter === "single"
+                    ? "border-sky-500 bg-sky-500/20 text-sky-200"
+                    : "border-slate-800 bg-slate-950/80 text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Tekil Modül &amp; Cihaz Nişi ({singleModuleCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setScopeFilter("multi")}
+                className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                  scopeFilter === "multi"
+                    ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
+                    : "border-slate-800 bg-slate-950/80 text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Çoklu Modül Oda Hatları ({multiModuleCount})
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-            {ROOM_LINE_PRESETS.map((preset) => {
-              const isSelected = activePresetId === preset.id;
-              const moduleCount =
-                1 + (preset.config.additional_modules?.length ?? 0);
+          {/* 6 Ana Kategori Sekmesi */}
+          <div className="mb-4 flex flex-wrap items-center gap-1.5 border-b border-slate-800/90 pb-3">
+            <button
+              type="button"
+              onClick={() => setActiveCategory("all")}
+              className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${
+                activeCategory === "all"
+                  ? "border-indigo-500 bg-indigo-600/25 text-white shadow-sm shadow-indigo-500/20"
+                  : "border-slate-800 bg-slate-950/80 text-slate-300 hover:border-indigo-500/40 hover:text-white"
+              }`}
+            >
+              Tüm Kategoriler ({CATALOG_CATEGORIES.length})
+            </button>
+            {CATALOG_CATEGORIES.map((cat) => {
+              const countInCat = ROOM_LINE_PRESETS.filter(
+                (p) => p.categoryId === cat.id
+              ).length;
+              const isCatActive = activeCategory === cat.id;
+              const isExpanded = activeCategory === "all" || isCatActive;
               return (
                 <button
-                  key={preset.id}
+                  key={cat.id}
                   type="button"
-                  onClick={() => handleSelectRoomPreset(preset)}
-                  className={`flex flex-col justify-between rounded-xl border p-3 text-left transition ${
-                    isSelected
-                      ? "border-indigo-500 bg-indigo-950/50 text-white shadow-md shadow-indigo-500/10"
-                      : "border-slate-800 bg-slate-950/70 text-slate-300 hover:border-indigo-500/50 hover:bg-slate-900"
+                  aria-expanded={isExpanded}
+                  aria-controls={`category-panel-${cat.id}`}
+                  onClick={() => setActiveCategory(cat.id)}
+                  className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                    isCatActive
+                      ? "border-indigo-500 bg-indigo-600/25 text-white shadow-sm shadow-indigo-500/20"
+                      : "border-slate-800 bg-slate-950/80 text-slate-300 hover:border-indigo-500/40 hover:text-white"
                   }`}
                 >
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="rounded bg-indigo-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-300">
-                        {preset.category}
-                      </span>
-                      <span className="font-mono text-[11px] font-semibold text-emerald-400">
-                        {moduleCount} Modül · {preset.totalWidthMm} mm
-                      </span>
-                    </div>
-                    <p className="mt-1.5 text-xs font-bold text-slate-100">
-                      {preset.title}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">
-                      {preset.subtitle}
-                    </p>
-                  </div>
+                  <span>{cat.label}</span>
+                  <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-sky-300">
+                    {countInCat}
+                  </span>
                 </button>
+              );
+            })}
+          </div>
+
+          {/* Kategorilere Göre Gruplanmış Üretim Şablonları */}
+          <div ref={catalogContainerRef} className="space-y-5">
+            {CATALOG_CATEGORIES.map((cat) => {
+              const presetsForCategory = ROOM_LINE_PRESETS.filter((preset) => {
+                if (preset.categoryId !== cat.id) return false;
+                const modCount =
+                  1 + (preset.config.additional_modules?.length ?? 0);
+                if (scopeFilter === "single") return modCount === 1;
+                if (scopeFilter === "multi") return modCount > 1;
+                return true;
+              });
+
+              if (presetsForCategory.length === 0) return null;
+
+              const isVisible =
+                activeCategory === "all" || activeCategory === cat.id;
+              const hiddenProps: Record<string, string | boolean> = isVisible
+                ? {}
+                : supportsUntilFound
+                ? { hidden: "until-found" }
+                : { hidden: true };
+
+              return (
+                <div
+                  key={cat.id}
+                  id={`category-panel-${cat.id}`}
+                  data-category-id={cat.id}
+                  {...hiddenProps}
+                >
+                  <div className="rounded-xl border border-slate-800/90 bg-slate-950/40 p-3.5">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-md bg-indigo-500/20 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-indigo-300">
+                            {cat.id}
+                          </span>
+                          <h3 className="text-xs font-bold text-white sm:text-sm">
+                            {cat.label}
+                          </h3>
+                          <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-300">
+                            {presetsForCategory.length} Şablon
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          {cat.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {presetsForCategory.map((preset) => {
+                        const isSelected = activePresetId === preset.id;
+                        const moduleCount =
+                          1 + (preset.config.additional_modules?.length ?? 0);
+                        const isMulti = moduleCount > 1;
+
+                        return (
+                          <div
+                            key={preset.id}
+                            className={`flex flex-col justify-between rounded-xl border p-3.5 transition ${
+                              isSelected
+                                ? "border-indigo-500 bg-indigo-950/45 text-white shadow-md shadow-indigo-500/10"
+                                : "border-slate-800 bg-slate-950/85 text-slate-300 hover:border-indigo-500/50 hover:bg-slate-900"
+                            }`}
+                          >
+                            <div>
+                              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                                <span
+                                  className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                                    isMulti
+                                      ? "bg-indigo-500/20 text-indigo-300"
+                                      : "bg-sky-500/20 text-sky-300"
+                                  }`}
+                                >
+                                  {isMulti
+                                    ? `${moduleCount} Modül Oda Hattı`
+                                    : "Tekil Modül / Cihaz Nişi"}
+                                </span>
+                                <span className="font-mono text-[11px] font-semibold text-emerald-400">
+                                  {isMulti
+                                    ? `Toplam ${preset.totalWidthMm}×${preset.config.height_mm}×${preset.config.depth_mm} mm`
+                                    : `${preset.config.width_mm}×${preset.config.height_mm}×${preset.config.depth_mm} mm`}
+                                </span>
+                              </div>
+
+                              <h4 className="mt-2 text-xs font-bold text-slate-100 sm:text-[13px]">
+                                {preset.title}
+                              </h4>
+                              <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+                                {preset.subtitle}
+                              </p>
+
+                              {/* Mühendislik Özellik Etiketleri */}
+                              <div className="mt-2.5 flex flex-wrap gap-1">
+                                {preset.highlights.map((chip, chipIdx) => (
+                                  <span
+                                    key={chipIdx}
+                                    className="rounded-md border border-slate-800 bg-slate-900/90 px-1.5 py-0.5 text-[10px] font-medium text-slate-300"
+                                  >
+                                    {chip}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="mt-3 flex items-center gap-2 border-t border-slate-800/80 pt-2.5">
+                              <button
+                                type="button"
+                                onClick={() => handleSelectRoomPreset(preset)}
+                                className={`flex-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition ${
+                                  isSelected
+                                    ? "bg-indigo-600 text-white"
+                                    : "bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600 hover:text-white"
+                                }`}
+                              >
+                                {isSelected
+                                  ? "✓ Aktif Üretim Şablonu"
+                                  : "3D, BOM & CNC Yükle"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isParsing || isGenerating}
+                                onClick={() => {
+                                  setPrompt(preset.prompt);
+                                  void handleParseAndGenerate(preset.prompt);
+                                }}
+                                title="Bu şablonun doğal dil istemini AI ayrıştırıcıdan geçir"
+                                className="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-sky-300 transition hover:bg-sky-500/25 disabled:opacity-50"
+                              >
+                                <Sparkles className="h-3 w-3" />
+                                AI İstem
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               );
             })}
           </div>

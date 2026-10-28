@@ -7,6 +7,7 @@ import type {
   BOMReport,
   CabinetConfig,
   CabinetType,
+  CatalogCategoryMeta,
   DoorType,
   DrillPoint,
   EdgeBandSpec,
@@ -72,16 +73,269 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 const round4 = (n: number): number => Math.round(n * 10000) / 10000;
 
 /**
- * Fabrika Oda ve Kategori Hatları (Çoklu Modül Hazır Hat Şablonları)
+ * Üretim Kataloğu Kategori Tanımları (6 Ana Mobilya & Oda Kategorisi)
+ */
+export const CATALOG_CATEGORIES: readonly CatalogCategoryMeta[] = [
+  {
+    id: "kitchen",
+    label: "Mutfak & Ankastre Sistemleri",
+    description:
+      "Solo buzdolabı çevreleme nişi, evye altı, teleskopik çekmeceli kaşıklık/tencere, gazlı pistonlu üst dolap, boy kiler ve komple mutfak hatları",
+  },
+  {
+    id: "bedroom",
+    label: "Yatak Odası & Gardırop",
+    description:
+      "Çift kapaklı gardırop, tavandan tabana yüklük, 4 çekmeceli şifonyer, komodin ve 270 cm 6 kapaklı master gardırop hatları",
+  },
+  {
+    id: "bathroom",
+    label: "Banyo & Çamaşır Odası",
+    description:
+      "Çamaşır makinesi üstü nişli dolap kulesi, asma çekmeceli lavabo altı dolabı, banyo boy dolabı ve komple banyo setleri",
+  },
+  {
+    id: "living",
+    label: "Salon, TV Ünitesi & Kitaplık",
+    description:
+      "Geniş TV medya konsolu, kalkar kapaklı duvar modülü, 5 raflı Sistem 32 kitaplık, çekmeceli vitrin kulesi ve 280 cm salon duvar hattı",
+  },
+  {
+    id: "hallway",
+    label: "Antre, Vestiyer & Portmanto",
+    description:
+      "Çekmeceli yüksek ayakkabılık, oturma banklı antre modülü, robot süpürge nişli boy portmanto ve komple vestiyer hatları",
+  },
+  {
+    id: "office",
+    label: "Ofis, Çalışma & Arşiv",
+    description:
+      "Tam boy çift kapaklı klasör arşiv dolabı, 3 çekmeceli masa altı keson ve ikili kurumsal ofis arşiv duvarı",
+  },
+];
+
+/**
+ * Fabrika Oda ve Kategori Hatları (29 Hazır Mühendislik Şablonu: Tekil Modüller + Çoklu Modül Oda Hatları)
  */
 export const ROOM_LINE_PRESETS: readonly RoomLinePreset[] = [
+  // ============================================================================
+  // 1. MUTFAK & ANKASTRE SİSTEMLERİ (7 Şablon)
+  // ============================================================================
+  {
+    id: "kitchen_fridge_enclosure",
+    categoryId: "kitchen",
+    category: "Mutfak & Ankastre",
+    title: "Solo Buzdolabı Çevreleme (Gömme) Modülü (85×235×65 cm)",
+    subtitle:
+      "Alt 185 cm açık buzdolabı nişi (arkalıksız) + Üst 50 cm gazlı pistonlu kalkar kapaklı meşe MDF-Lam depolama dolabı",
+    totalWidthMm: 850,
+    prompt:
+      "Mutfakta solo buzdolabımızın etrafını saracak bir buzdolabı çevreleme (gömme) dolap modülü tasarlamak istiyorum. Dolabın toplam dış ölçüleri: Yükseklik 235 cm, genişlik 85 cm, derinlik 65 cm olsun. Alt kısımda buzdolabının rahat oturması ve hava sirkülasyonu için net 80 cm genişliğinde ve 185 cm yüksekliğinde açık bir niş (boşluk) bırakılsın; buzdolabının arkasına arkalık konmasın, açık kalsın. Buzdolabının üstünde kalan boşluğa ise yukarı doğru açılan (gazlı pistonlu) tek parça kalkar kapaklı derin bir üst depolama dolabı yerleştirilsin. Yan dikmeler tavandan tabana kadar yekpare 18 mm gövde malzemesi olarak insin. Gövde 18 mm beyaz suntalam, üst kapak 18 mm meşe desen MDF-Lam olsun. Üst dolabın arkalığı 8 mm kanala geçme yapılsın. Birleşimler minifix ve kavela ile System 32 standardında delinsin.",
+    highlights: ["1850mm Açık Niş", "Gazlı Piston Kalkar Kapak", "Bazasız Yekpare Yan", "8mm Kanallı Üst Arkalık"],
+    config: {
+      name: "Buzdolabı Çevreleme (Gömme) Modülü",
+      cabinet_type: "kitchen_tall",
+      width_mm: 850,
+      height_mm: 2350,
+      depth_mm: 650,
+      shelf_count: 0,
+      door_type: "flap_up",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      appliance_niche_height_mm: 1850,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Beyaz Suntalam",
+      door_material: "18mm Doğal Meşe MDF-Lam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#C89F70",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "kitchen_sink_base_80",
+    categoryId: "kitchen",
+    category: "Mutfak & Ankastre",
+    title: "Çift Kapaklı Mutfak Evye Altı Modülü (80×82×56 cm)",
+    subtitle:
+      "10 cm bazalı, çift kapaklı, 1 hareketli raflı standart tezgah altı mutfak modülü",
+    totalWidthMm: 800,
+    prompt:
+      "80 cm genişliğinde, 82 cm yüksekliğinde, 56 cm derinliğinde, 1 hareketli raflı, çift kapaklı, 10 cm bazalı, beyaz gövdeli antrasit kapaklı mutfak evye altı dolabı",
+    highlights: ["Çift Kapak (Ø35mm)", "100mm Alt Baza", "1 Hareketli Raf", "2.0mm Ön PVC"],
+    config: {
+      name: "Mutfak Evye Altı Modülü",
+      cabinet_type: "kitchen_base",
+      width_mm: 800,
+      height_mm: 820,
+      depth_mm: 560,
+      shelf_count: 1,
+      door_type: "double",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      has_plinth: true,
+      plinth_height_mm: 100,
+      body_material: "18mm Beyaz MDF-Lam",
+      door_material: "18mm Antrasit MDF-Lam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#374151",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "kitchen_drawer_base_60",
+    categoryId: "kitchen",
+    category: "Mutfak & Ankastre",
+    title: "3 Çekmeceli Mutfak Kaşıklık & Tencere Modülü (60×82×56 cm)",
+    subtitle:
+      "500 mm frenli teleskopik raylı 3 adet tam boy çekmece kasası, kapaksız tezgah altı modülü",
+    totalWidthMm: 600,
+    prompt:
+      "60 cm genişliğinde, 82 cm yüksekliğinde, 56 cm derinliğinde, rafsız, kapaksız, 3 çekmeceli, beyaz gövdeli meşe kapaklı mutfak alt dolap modülü",
+    highlights: ["3 Çekmece Kasası (15 Parça)", "500mm Teleskopik Ray", "26mm Ray Boşluğu", "8mm Çekmece Tabanı"],
+    config: {
+      name: "3 Çekmeceli Mutfak Alt Modülü",
+      cabinet_type: "kitchen_base",
+      width_mm: 600,
+      height_mm: 820,
+      depth_mm: 560,
+      shelf_count: 0,
+      door_type: "none",
+      drawer_count: 3,
+      drawer_front_height_mm: 228,
+      has_plinth: true,
+      plinth_height_mm: 100,
+      body_material: "18mm Beyaz MDF-Lam",
+      door_material: "18mm Doğal Meşe MDF-Lam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#C89F70",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "kitchen_wall_flap_80",
+    categoryId: "kitchen",
+    category: "Mutfak & Ankastre",
+    title: "Gazlı Pistonlu Kalkar Kapaklı Mutfak Üst Dolabı (80×72×35 cm)",
+    subtitle:
+      "Duvara asma (bazasız), 100N gazlı pistonlu yukarı açılır kalkar kapak ve 2 hareketli raf",
+    totalWidthMm: 800,
+    prompt:
+      "80 cm genişliğinde, 72 cm yüksekliğinde, 35 cm derinliğinde, 2 hareketli raflı, gazlı pistonlu kalkar kapaklı, bazasız beyaz gövdeli meşe kapaklı mutfak üst duvar dolabı",
+    highlights: ["Gazlı Piston Kalkar Kapak", "2 Hareketli Raf", "Duvara Asma (Bazasız)", "350mm Üst Derinlik"],
+    config: {
+      name: "Kalkar Kapaklı Mutfak Üst Dolabı",
+      cabinet_type: "kitchen_wall",
+      width_mm: 800,
+      height_mm: 720,
+      depth_mm: 350,
+      shelf_count: 2,
+      door_type: "flap_up",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Beyaz Suntalam",
+      door_material: "18mm Doğal Meşe MDF-Lam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#C89F70",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "kitchen_wall_double_90",
+    categoryId: "kitchen",
+    category: "Mutfak & Ankastre",
+    title: "Çift Kapaklı Mutfak Üst Duvar Modülü (90×72×35 cm)",
+    subtitle:
+      "Duvara asma (bazasız), çift kapaklı, Sistem 32 raf pimi delikli 2 hareketli raflı üst modül",
+    totalWidthMm: 900,
+    prompt:
+      "90 cm genişliğinde, 72 cm yüksekliğinde, 35 cm derinliğinde, 2 hareketli raflı, çift kapaklı, bazasız beyaz mutfak üst dolabı",
+    highlights: ["Çift Kapak", "Sistem 32 Raf Delikleri", "Bazasız Asma Gövde", "8mm Kanallı Arkalık"],
+    config: {
+      name: "Çift Kapaklı Mutfak Üst Modülü",
+      cabinet_type: "kitchen_wall",
+      width_mm: 900,
+      height_mm: 720,
+      depth_mm: 350,
+      shelf_count: 2,
+      door_type: "double",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Beyaz Suntalam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#F4F1EA",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "kitchen_tall_pantry_60",
+    categoryId: "kitchen",
+    category: "Mutfak & Ankastre",
+    title: "2 Çekmeceli & Tek Kapaklı Mutfak Boy Kiler Kulesi (60×210×58 cm)",
+    subtitle:
+      "Altta 2 derin erzak çekmecesi, üstte 4 hareketli raflı sağdan menteşeli boy kiler dolabı",
+    totalWidthMm: 600,
+    prompt:
+      "60 cm genişliğinde, 210 cm yüksekliğinde, 58 cm derinliğinde, 4 hareketli raflı, 2 çekmeceli, sağ kapaklı, bazalı antrasit kapaklı mutfak boy kiler dolabı",
+    highlights: ["2 Derin Erzak Çekmecesi", "4 Hareketli Raf", "Sağ Menteşe Tek Kapak", "2100mm Boy Kule"],
+    config: {
+      name: "Mutfak Boy Kiler Kulesi",
+      cabinet_type: "kitchen_tall",
+      width_mm: 600,
+      height_mm: 2100,
+      depth_mm: 580,
+      shelf_count: 4,
+      door_type: "single_right",
+      drawer_count: 2,
+      drawer_front_height_mm: 200,
+      has_plinth: true,
+      plinth_height_mm: 100,
+      body_material: "18mm Beyaz MDF-Lam",
+      door_material: "18mm Antrasit MDF-Lam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#374151",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
   {
     id: "kitchen_full_line",
-    category: "Mutfak Hattı",
+    categoryId: "kitchen",
+    category: "Mutfak & Ankastre",
     title: "Komple Mutfak Alt + Ankastre Kiler Hattı (3 Modül — 200 cm)",
     subtitle:
       "Modül 1: 80cm Evye Altı + Modül 2: 60cm 3 Çekmeceli Kaşıklık/Tencere + Modül 3: 60cm Boy Kiler",
     totalWidthMm: 2000,
+    prompt:
+      "80 cm genişliğinde, 82 cm yüksekliğinde, 56 cm derinliğinde, 1 raflı, çift kapaklı mutfak evye altı dolabı",
+    highlights: ["3 Modül Ortak Nesting", "Toplam 5 Çekmece Kasası", "2000mm Hat Genişliği", "Tek ZIP CNC Paketi"],
     config: {
       name: "Mutfak Evye Altı Modülü",
       cabinet_type: "kitchen_base",
@@ -145,13 +399,155 @@ export const ROOM_LINE_PRESETS: readonly RoomLinePreset[] = [
       ],
     },
   },
+
+  // ============================================================================
+  // 2. YATAK ODASI & GARDIROP SİSTEMLERİ (6 Şablon)
+  // ============================================================================
+  {
+    id: "bedroom_wardrobe_2drawer_90",
+    categoryId: "bedroom",
+    category: "Yatak Odası & Gardırop",
+    title: "2 Çekmeceli & Çift Kapaklı Gardırop (90×210×58 cm)",
+    subtitle:
+      "Altta 2 dış çekmece, üstte çift kapaklı ve 3 hareketli raflı yatak odası gardırobu",
+    totalWidthMm: 900,
+    prompt:
+      "210 cm yüksekliğinde, 90 cm genişliğinde, 58 cm derinliğinde, 3 hareketli raflı, 2 çekmeceli, çift kapaklı, beyaz gövdeli meşe kapaklı gardırop",
+    highlights: ["Çift Kapak", "2 Dış Çekmece", "3 Hareketli Raf", "500mm Teleskopik Ray"],
+    config: {
+      name: "2 Çekmeceli & Çift Kapaklı Gardırop",
+      cabinet_type: "wardrobe",
+      width_mm: 900,
+      height_mm: 2100,
+      depth_mm: 580,
+      shelf_count: 3,
+      door_type: "double",
+      drawer_count: 2,
+      drawer_front_height_mm: 180,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Beyaz Suntalam",
+      door_material: "18mm Doğal Meşe Suntalam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#C89F70",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "bedroom_tall_linen_60",
+    categoryId: "bedroom",
+    category: "Yatak Odası & Gardırop",
+    title: "Tavandan Tabana Tek Kapaklı Yüklük / Elbise Dolabı (60×240×60 cm)",
+    subtitle:
+      "Bazasız, 5 hareketli raflı, sol menteşeli maksimum depolama kapasiteli boy yüklük",
+    totalWidthMm: 600,
+    prompt:
+      "60 cm genişliğinde, 240 cm yüksekliğinde, 60 cm derinliğinde, 5 hareketli raflı, tek kapaklı, tavandan tabana bazasız beyaz gardırop yüklük",
+    highlights: ["2400mm Tam Boy", "5 Hareketli Raf", "5 Adet Ø35mm Menteşe", "Bazasız Gövde"],
+    config: {
+      name: "Tavandan Tabana Tek Kapaklı Yüklük",
+      cabinet_type: "wardrobe",
+      width_mm: 600,
+      height_mm: 2400,
+      depth_mm: 600,
+      shelf_count: 5,
+      door_type: "single_left",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Beyaz Suntalam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#F4F1EA",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "bedroom_dresser_4drawer_90",
+    categoryId: "bedroom",
+    category: "Yatak Odası & Gardırop",
+    title: "4 Çekmeceli Yatak Odası Şifonyeri (90×86×48 cm)",
+    subtitle:
+      "4 adet frenli teleskopik raylı derin çekmece kasası, 6 cm bazalı meşe yatak odası şifonyeri",
+    totalWidthMm: 900,
+    prompt:
+      "90 cm genişliğinde, 86 cm yüksekliğinde, 48 cm derinliğinde, 4 çekmeceli, kapaksız meşe yatak odası şifonyeri",
+    highlights: ["4 Çekmece Kasası (20 Parça)", "400mm Teleskopik Ray", "Simetrik Klapa Boşluğu", "8mm Kanallı Arkalık"],
+    config: {
+      name: "4 Çekmeceli Yatak Odası Şifonyeri",
+      cabinet_type: "dresser",
+      width_mm: 900,
+      height_mm: 860,
+      depth_mm: 480,
+      shelf_count: 0,
+      door_type: "none",
+      drawer_count: 4,
+      drawer_front_height_mm: 185,
+      has_plinth: true,
+      plinth_height_mm: 60,
+      body_material: "18mm Doğal Meşe Suntalam",
+      body_color_hex: "#C89F70",
+      door_color_hex: "#C89F70",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "bedroom_nightstand_50",
+    categoryId: "bedroom",
+    category: "Yatak Odası & Gardırop",
+    title: "2 Çekmeceli Yatak Başı Komodini (50×52×45 cm)",
+    subtitle:
+      "2 adet frenli çekmeceli, ceviz gövdeli ve krem klapalı kompakt yatak başı komodini",
+    totalWidthMm: 500,
+    prompt:
+      "50 cm genişliğinde, 52 cm yüksekliğinde, 45 cm derinliğinde, 2 çekmeceli, kapaksız ceviz gövdeli krem kapaklı komodin",
+    highlights: ["2 Çekmece Kasası", "400mm Teleskopik Ray", "Kompakt 500×520mm", "Ceviz & Krem Kombin"],
+    config: {
+      name: "2 Çekmeceli Yatak Başı Komodini",
+      cabinet_type: "dresser",
+      width_mm: 500,
+      height_mm: 520,
+      depth_mm: 450,
+      shelf_count: 0,
+      door_type: "none",
+      drawer_count: 2,
+      drawer_front_height_mm: 200,
+      has_plinth: true,
+      plinth_height_mm: 60,
+      body_material: "18mm Koyu Ceviz MDF-Lam",
+      door_material: "18mm Krem MDF-Lam",
+      body_color_hex: "#6E472B",
+      door_color_hex: "#EFECE6",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
   {
     id: "bedroom_master_wardrobe",
-    category: "Yatak Odası Hattı",
+    categoryId: "bedroom",
+    category: "Yatak Odası & Gardırop",
     title: "6 Kapaklı & 3 Çekmeceli Master Gardırop Hattı (3 Modül — 270 cm)",
     subtitle:
       "Sol 90cm Gardırop + Orta 90cm 3 Çekmeceli & Kapaklı Modül + Sağ 90cm Gardırop",
     totalWidthMm: 2700,
+    prompt:
+      "90 cm genişliğinde, 210 cm yüksekliğinde, 58 cm derinliğinde, 3 raflı, 3 çekmeceli, çift kapaklı meşe gardırop",
+    highlights: ["3 Modül (2700mm Duvar)", "Toplam 6 Kapak + 3 Çekmece", "11 Hareketli Raf", "Ortak Plaka Nesting"],
     config: {
       name: "Sol Gardırop Modülü",
       cabinet_type: "wardrobe",
@@ -217,11 +613,15 @@ export const ROOM_LINE_PRESETS: readonly RoomLinePreset[] = [
   },
   {
     id: "bedroom_dresser_set",
-    category: "Yatak Odası Çekmece Seti",
-    title: "4 Çekmeceli Şifonyer & Çift Komodin Hattı (3 Modül — 190 cm)",
+    categoryId: "bedroom",
+    category: "Yatak Odası & Gardırop",
+    title: "4 Çekmeceli Şifonyer & Çift Komodin Takımı (3 Modül — 190 cm)",
     subtitle:
       "Sol 50cm 2 Çekmeceli Komodin + Orta 90cm 4 Çekmeceli Şifonyer + Sağ 50cm 2 Çekmeceli Komodin",
     totalWidthMm: 1900,
+    prompt:
+      "90 cm genişliğinde, 86 cm yüksekliğinde, 48 cm derinliğinde, 4 çekmeceli, kapaksız ceviz yatak odası şifonyeri",
+    highlights: ["3 Modül Takım", "Toplam 8 Çekmece (40 Kutu Parçası)", "Ceviz & Krem", "Tek Tıkla Takım CNC"],
     config: {
       name: "Sol 2 Çekmeceli Komodin",
       cabinet_type: "dresser",
@@ -285,13 +685,124 @@ export const ROOM_LINE_PRESETS: readonly RoomLinePreset[] = [
       ],
     },
   },
+
+  // ============================================================================
+  // 3. BANYO & ÇAMAŞIR ODASI SİSTEMLERİ (4 Şablon)
+  // ============================================================================
+  {
+    id: "bathroom_washing_machine_tower",
+    categoryId: "bathroom",
+    category: "Banyo & Çamaşır Odası",
+    title: "Çamaşır Makinesi Üstü Dolap Kulesi (70×220×65 cm)",
+    subtitle:
+      "Alt 90 cm açık çamaşır makinesi nişi (arkalıksız, bazasız) + Üst 130 cm çift kapaklı ve 3 raflı deterjan/havlu dolabı",
+    totalWidthMm: 700,
+    prompt:
+      "Banyoda çamaşır makinesinin etrafını saracak dolap kulesi tasarlamak istiyorum. Toplam dış ölçüleri: Yükseklik 220 cm, genişlik 70 cm, derinlik 65 cm olsun. Alt kısımda çamaşır makinesi için 90 cm yüksekliğinde açık bir niş bırakılsın; üst kısımda 3 adet hareketli raflı ve çift kapaklı dolap olsun. Gövde 18 mm beyaz MDF-Lam, kapak antrasit MDF-Lam olsun.",
+    highlights: ["900mm Çamaşır Makinesi Nişi", "Üstte 3 Raf + Çift Kapak", "Bazasız Yekpare Dikme", "Üst Bölge Kanallı Arkalık"],
+    config: {
+      name: "Çamaşır Makinesi Üstü Dolap Kulesi",
+      cabinet_type: "bathroom_tall",
+      width_mm: 700,
+      height_mm: 2200,
+      depth_mm: 650,
+      shelf_count: 3,
+      door_type: "double",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      appliance_niche_height_mm: 900,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Beyaz MDF-Lam",
+      door_material: "18mm Antrasit MDF-Lam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#374151",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "bathroom_vanity_2drawer_80",
+    categoryId: "bathroom",
+    category: "Banyo & Çamaşır Odası",
+    title: "2 Derin Çekmeceli Asma Banyo Lavabo Altı Dolabı (80×65×48 cm)",
+    subtitle:
+      "Duvara asma (bazasız), 2 adet 28 cm yüksekliğinde derin çekmeceli antrasit MDF-Lam lavabo altı modülü",
+    totalWidthMm: 800,
+    prompt:
+      "80 cm genişliğinde, 65 cm yüksekliğinde, 48 cm derinliğinde, 2 çekmeceli, kapaksız, bazasız antrasit gövdeli beyaz kapaklı banyo lavabo altı dolabı",
+    highlights: ["2 Derin Çekmece (280mm Klapa)", "Duvara Asma (Bazasız)", "Neme Dayanıklı MDF-Lam", "400mm Frenli Ray"],
+    config: {
+      name: "Banyo Lavabo Altı Çekmeceli Modül",
+      cabinet_type: "bathroom_vanity",
+      width_mm: 800,
+      height_mm: 650,
+      depth_mm: 480,
+      shelf_count: 0,
+      door_type: "none",
+      drawer_count: 2,
+      drawer_front_height_mm: 280,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Antrasit MDF-Lam",
+      door_material: "18mm Beyaz MDF-Lam",
+      body_color_hex: "#374151",
+      door_color_hex: "#F4F1EA",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "bathroom_tall_45",
+    categoryId: "bathroom",
+    category: "Banyo & Çamaşır Odası",
+    title: "Çekmeceli & Tek Kapaklı Banyo Boy Kulesi (45×180×38 cm)",
+    subtitle:
+      "Altta 1 derin çekmece, üstte 4 hareketli raflı ve sağdan menteşeli tek kapaklı banyo havlu kulesi",
+    totalWidthMm: 450,
+    prompt:
+      "45 cm genişliğinde, 180 cm yüksekliğinde, 38 cm derinliğinde, 4 hareketli raflı, 1 çekmeceli, sağ kapaklı, bazasız antrasit banyo boy dolabı",
+    highlights: ["1 Alt Çekmece + 4 Raf", "Sağ Menteşe Tek Kapak", "380mm Dar Banyo Derinliği", "Asma Gövde"],
+    config: {
+      name: "Banyo Boy ve Havlu Dolabı",
+      cabinet_type: "bathroom_tall",
+      width_mm: 450,
+      height_mm: 1800,
+      depth_mm: 380,
+      shelf_count: 4,
+      door_type: "single_right",
+      drawer_count: 1,
+      drawer_front_height_mm: 260,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Antrasit MDF-Lam",
+      door_material: "18mm Beyaz MDF-Lam",
+      body_color_hex: "#374151",
+      door_color_hex: "#F4F1EA",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
   {
     id: "bathroom_vanity_line",
-    category: "Banyo Mobilyası Hattı",
-    title: "Banyo Lavabo Altı & Boy Dolabı Hattı (2 Modül — 125 cm)",
+    categoryId: "bathroom",
+    category: "Banyo & Çamaşır Odası",
+    title: "Banyo Lavabo Altı & Boy Dolabı Komple Seti (2 Modül — 125 cm)",
     subtitle:
       "80cm 2 Derin Çekmeceli Lavabo Altı Modülü + 45cm Banyo Boy/Havlu Dolabı",
     totalWidthMm: 1250,
+    prompt:
+      "80 cm genişliğinde, 65 cm yüksekliğinde, 48 cm derinliğinde, 2 çekmeceli banyo lavabo altı dolabı",
+    highlights: ["2 Modül Banyo Seti", "Toplam 3 Çekmece + 1 Boy Kapak", "1250mm Toplam En", "Ortak Plaka Nesting"],
     config: {
       name: "Banyo Lavabo Altı Çekmeceli Modül",
       cabinet_type: "bathroom_vanity",
@@ -335,63 +846,156 @@ export const ROOM_LINE_PRESETS: readonly RoomLinePreset[] = [
       ],
     },
   },
+
+  // ============================================================================
+  // 4. SALON, TV ÜNİTESİ & KİTAPLIK SİSTEMLERİ (5 Şablon)
+  // ============================================================================
   {
-    id: "hallway_vestiyer_line",
-    category: "Antre & Vestiyer Hattı",
-    title: "Komple Antre Vestiyer & Oturma Banklı Portmanto (2 Modül — 180 cm)",
+    id: "living_tv_console_180",
+    categoryId: "living",
+    category: "Salon, TV & Kitaplık",
+    title: "2 Çekmeceli & Çift Kapaklı Geniş TV Medya Konsolu (180×52×42 cm)",
     subtitle:
-      "90cm Çekmeceli Ayakkabılık/Oturma Bankı + 90cm Çift Kapaklı & Çekmeceli Portmanto",
+      "8 cm bazalı, koyu ceviz MDF-Lam gövdeli, 2 çekmeceli ve çift kapaklı salon TV sehpası",
     totalWidthMm: 1800,
+    prompt:
+      "180 cm genişliğinde, 52 cm yüksekliğinde, 42 cm derinliğinde, rafsız, 2 çekmeceli, çift kapaklı, ceviz gövdeli antrasit kapaklı TV konsolu",
+    highlights: ["1800mm Geniş Gövde", "2 Çekmece + Çift Kapak", "350mm Teleskopik Ray", "Ceviz & Antrasit"],
     config: {
-      name: "Antre Oturma Banklı Ayakkabılık",
-      cabinet_type: "shoe_cabinet",
-      width_mm: 900,
-      height_mm: 550,
-      depth_mm: 400,
+      name: "Geniş TV Medya Konsolu",
+      cabinet_type: "tv_unit",
+      width_mm: 1800,
+      height_mm: 520,
+      depth_mm: 420,
       shelf_count: 0,
+      door_type: "double",
+      drawer_count: 2,
+      drawer_front_height_mm: 180,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Koyu Ceviz MDF-Lam",
+      door_material: "18mm Antrasit MDF-Lam",
+      body_color_hex: "#6E472B",
+      door_color_hex: "#374151",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "living_tv_wall_flap_120",
+    categoryId: "living",
+    category: "Salon, TV & Kitaplık",
+    title: "Gazlı Pistonlu Kalkar Kapaklı TV Üst Duvar Modülü (120×40×32 cm)",
+    subtitle:
+      "Duvara asma (bazasız), yukarı açılır gazlı pistonlu tek parça kalkar kapaklı medya üst dolabı",
+    totalWidthMm: 1200,
+    prompt:
+      "120 cm genişliğinde, 40 cm yüksekliğinde, 32 cm derinliğinde, rafsız, gazlı pistonlu kalkar kapaklı, bazasız ceviz gövdeli krem kapaklı TV üst duvar dolabı",
+    highlights: ["1200mm Yatay Kalkar Kapak", "2 Adet 100N Gazlı Piston", "Bazasız Duvar Modülü", "320mm İnce Derinlik"],
+    config: {
+      name: "Kalkar Kapaklı TV Üst Duvar Modülü",
+      cabinet_type: "kitchen_wall",
+      width_mm: 1200,
+      height_mm: 400,
+      depth_mm: 320,
+      shelf_count: 0,
+      door_type: "flap_up",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Koyu Ceviz MDF-Lam",
+      door_material: "18mm Krem MDF-Lam",
+      body_color_hex: "#6E472B",
+      door_color_hex: "#EFECE6",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "living_bookshelf_5shelf_80",
+    categoryId: "living",
+    category: "Salon, TV & Kitaplık",
+    title: "5 Raflı Açık Salon & Çalışma Odası Kitaplığı (80×195×35 cm)",
+    subtitle:
+      "Kapaksız, Sistem 32 raf pimi delikli 5 hareketli raflı, 8 mm kanallı arkalıklı kitaplık",
+    totalWidthMm: 800,
+    prompt:
+      "80 cm genişliğinde, 195 cm yüksekliğinde, 35 cm derinliğinde, 5 hareketli raflı, kapaksız doğal meşe kitaplık",
+    highlights: ["5 Hareketli Raf (20 Raf Pimi)", "Sistem 32 Delik Matrisi", "8mm Kanallı Arkalık", "2.0mm Ön PVC"],
+    config: {
+      name: "5 Raflı Açık Kitaplık Modülü",
+      cabinet_type: "bookshelf",
+      width_mm: 800,
+      height_mm: 1950,
+      depth_mm: 350,
+      shelf_count: 5,
+      door_type: "none",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Doğal Meşe Suntalam",
+      body_color_hex: "#C89F70",
+      door_color_hex: "#C89F70",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "living_vitrine_tower_60",
+    categoryId: "living",
+    category: "Salon, TV & Kitaplık",
+    title: "Altta 2 Çekmeceli & Üstü 4 Açık Raflı Vitrin Kulesi (60×195×38 cm)",
+    subtitle:
+      "Altta 2 frenli çekmece, üstte 4 açık sergileme rafı bulunan hibrit salon kitaplık kulesi",
+    totalWidthMm: 600,
+    prompt:
+      "60 cm genişliğinde, 195 cm yüksekliğinde, 38 cm derinliğinde, 4 hareketli raflı, 2 çekmeceli, kapaksız ceviz kitaplık kulesi",
+    highlights: ["2 Alt Çekmece + 4 Açık Raf", "Hibrit Vitrin Tasarımı", "300mm Teleskopik Ray", "1950mm Kule Boyu"],
+    config: {
+      name: "Çekmeceli Kitaplık / Vitrin Kulesi",
+      cabinet_type: "bookshelf",
+      width_mm: 600,
+      height_mm: 1950,
+      depth_mm: 380,
+      shelf_count: 4,
       door_type: "none",
       drawer_count: 2,
       drawer_front_height_mm: 200,
       has_plinth: true,
       plinth_height_mm: 80,
-      body_material: "18mm Doğal Meşe Suntalam",
-      body_color_hex: "#C89F70",
-      door_color_hex: "#F4F1EA",
+      body_material: "18mm Koyu Ceviz MDF-Lam",
+      door_material: "18mm Antrasit MDF-Lam",
+      body_color_hex: "#6E472B",
+      door_color_hex: "#374151",
       front_pvc_thickness_mm: 2.0,
       hidden_pvc_thickness_mm: 0.4,
       back_panel_type: "grooved_8mm",
       sheet_size: "2800x2100",
-      additional_modules: [
-        {
-          name: "Boy Vestiyer / Portmanto Dolabı",
-          cabinet_type: "shoe_cabinet",
-          width_mm: 900,
-          height_mm: 2100,
-          depth_mm: 400,
-          shelf_count: 4,
-          door_type: "double",
-          drawer_count: 2,
-          drawer_front_height_mm: 180,
-          has_plinth: true,
-          plinth_height_mm: 80,
-          body_material: "18mm Doğal Meşe Suntalam",
-          body_color_hex: "#C89F70",
-          door_color_hex: "#F4F1EA",
-          front_pvc_thickness_mm: 2.0,
-          hidden_pvc_thickness_mm: 0.4,
-          back_panel_type: "grooved_8mm",
-          sheet_size: "2800x2100",
-        },
-      ],
+      additional_modules: [],
     },
   },
   {
     id: "living_tv_media_line",
-    category: "Salon & Ofis Hattı",
-    title: "TV Medya Konsolu & Çift Kitaplık Kulesi (3 Modül — 280 cm)",
+    categoryId: "living",
+    category: "Salon, TV & Kitaplık",
+    title: "TV Medya Konsolu & Çift Kitaplık Kulesi Salon Hattı (3 Modül — 280 cm)",
     subtitle:
       "Sol 60cm Kitaplık Kulesi + Orta 160cm Çekmeceli TV Konsolu + Sağ 60cm Kitaplık Kulesi",
     totalWidthMm: 2800,
+    prompt:
+      "160 cm genişliğinde, 52 cm yüksekliğinde, 42 cm derinliğinde, 2 çekmeceli, kapaksız ceviz TV medya konsolu",
+    highlights: ["3 Modül Salon Duvarı (2800mm)", "8 Açık Raf + 4 Çekmece", "Simetrik Çift Kule", "Ortak Plaka Nesting"],
     config: {
       name: "Sol Kitaplık / Vitrin Kulesi",
       cabinet_type: "bookshelf",
@@ -446,6 +1050,294 @@ export const ROOM_LINE_PRESETS: readonly RoomLinePreset[] = [
           plinth_height_mm: 80,
           body_material: "18mm Koyu Ceviz MDF-Lam",
           body_color_hex: "#6E472B",
+          door_color_hex: "#374151",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+      ],
+    },
+  },
+
+  // ============================================================================
+  // 5. ANTRE, VESTİYER & PORTMANTO SİSTEMLERİ (4 Şablon)
+  // ============================================================================
+  {
+    id: "hallway_shoe_cabinet_90",
+    categoryId: "hallway",
+    category: "Antre & Vestiyer",
+    title: "2 Çekmeceli & Çift Kapaklı Yüksek Ayakkabılık (90×120×38 cm)",
+    subtitle:
+      "Altta 2 çekmece, üstte 4 hareketli raflı çift kapaklı geniş kapasiteli antre ayakkabılığı",
+    totalWidthMm: 900,
+    prompt:
+      "90 cm genişliğinde, 120 cm yüksekliğinde, 38 cm derinliğinde, 4 hareketli raflı, 2 çekmeceli, çift kapaklı meşe gövdeli beyaz kapaklı ayakkabılık",
+    highlights: ["4 Ayakkabı Rafı + 2 Çekmece", "Çift Kapak", "380mm Antre Derinliği", "80mm Alt Baza"],
+    config: {
+      name: "Çekmeceli Yüksek Ayakkabılık",
+      cabinet_type: "shoe_cabinet",
+      width_mm: 900,
+      height_mm: 1200,
+      depth_mm: 380,
+      shelf_count: 4,
+      door_type: "double",
+      drawer_count: 2,
+      drawer_front_height_mm: 160,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Doğal Meşe Suntalam",
+      door_material: "18mm Beyaz Suntalam",
+      body_color_hex: "#C89F70",
+      door_color_hex: "#F4F1EA",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "hallway_bench_90",
+    categoryId: "hallway",
+    category: "Antre & Vestiyer",
+    title: "Oturma Banklı & 2 Çekmeceli Antre Ayakkabılığı (90×55×40 cm)",
+    subtitle:
+      "Üzerine oturulabilir 55 cm ergonomik yükseklikte, 2 derin çekmeceli antre giyinme bankı",
+    totalWidthMm: 900,
+    prompt:
+      "90 cm genişliğinde, 55 cm yüksekliğinde, 40 cm derinliğinde, rafsız, kapaksız, 2 çekmeceli meşe gövdeli beyaz kapaklı antre ayakkabılık bankı",
+    highlights: ["550mm Oturma Yüksekliği", "2 Derin Çekmece Kasası", "350mm Teleskopik Ray", "Sağlam 18mm Gövde"],
+    config: {
+      name: "Antre Oturma Banklı Ayakkabılık",
+      cabinet_type: "shoe_cabinet",
+      width_mm: 900,
+      height_mm: 550,
+      depth_mm: 400,
+      shelf_count: 0,
+      door_type: "none",
+      drawer_count: 2,
+      drawer_front_height_mm: 200,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Doğal Meşe Suntalam",
+      door_material: "18mm Beyaz Suntalam",
+      body_color_hex: "#C89F70",
+      door_color_hex: "#F4F1EA",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "hallway_robot_vac_portmanto",
+    categoryId: "hallway",
+    category: "Antre & Vestiyer",
+    title: "Robot Süpürge Nişli Boy Portmanto / Vestiyer (90×215×45 cm)",
+    subtitle:
+      "Alt 22 cm açık robot süpürge istasyonu nişi (bazasız) + Üst 4 raflı ve çift kapaklı boy portmanto",
+    totalWidthMm: 900,
+    prompt:
+      "Antre için toplam dış ölçüleri yükseklik 215 cm, genişlik 90 cm, derinlik 45 cm olan bir portmanto tasarlamak istiyorum. Alt kısımda robot süpürge istasyonu için 22 cm yüksekliğinde açık bir niş bırakılsın. Üst kısımda 4 adet hareketli raflı ve çift kapaklı dolap olsun. Gövde meşe suntalam, kapaklar beyaz MDF-Lam olsun.",
+    highlights: ["220mm Robot Süpürge Nişi", "Çift Kapak + 4 Raf", "Bazasız Yekpare Yan Dikme", "Akıllı Ev Uyumlu"],
+    config: {
+      name: "Robot Süpürge Nişli Boy Portmanto",
+      cabinet_type: "shoe_cabinet",
+      width_mm: 900,
+      height_mm: 2150,
+      depth_mm: 450,
+      shelf_count: 4,
+      door_type: "double",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      appliance_niche_height_mm: 220,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Doğal Meşe Suntalam",
+      door_material: "18mm Beyaz MDF-Lam",
+      body_color_hex: "#C89F70",
+      door_color_hex: "#F4F1EA",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "hallway_vestiyer_line",
+    categoryId: "hallway",
+    category: "Antre & Vestiyer",
+    title: "Komple Antre Vestiyer & Oturma Banklı Portmanto (2 Modül — 180 cm)",
+    subtitle:
+      "90cm Çekmeceli Ayakkabılık/Oturma Bankı + 90cm Çift Kapaklı & Çekmeceli Boy Portmanto",
+    totalWidthMm: 1800,
+    prompt:
+      "90 cm genişliğinde, 210 cm yüksekliğinde, 40 cm derinliğinde, 4 raflı, 2 çekmeceli, çift kapaklı meşe portmanto",
+    highlights: ["2 Modül Antre Hattı (1800mm)", "Oturma Bankı + Boy Portmanto", "Toplam 4 Çekmece + 2 Kapak", "Ortak Plaka Nesting"],
+    config: {
+      name: "Antre Oturma Banklı Ayakkabılık",
+      cabinet_type: "shoe_cabinet",
+      width_mm: 900,
+      height_mm: 550,
+      depth_mm: 400,
+      shelf_count: 0,
+      door_type: "none",
+      drawer_count: 2,
+      drawer_front_height_mm: 200,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Doğal Meşe Suntalam",
+      body_color_hex: "#C89F70",
+      door_color_hex: "#F4F1EA",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [
+        {
+          name: "Boy Vestiyer / Portmanto Dolabı",
+          cabinet_type: "shoe_cabinet",
+          width_mm: 900,
+          height_mm: 2100,
+          depth_mm: 400,
+          shelf_count: 4,
+          door_type: "double",
+          drawer_count: 2,
+          drawer_front_height_mm: 180,
+          has_plinth: true,
+          plinth_height_mm: 80,
+          body_material: "18mm Doğal Meşe Suntalam",
+          body_color_hex: "#C89F70",
+          door_color_hex: "#F4F1EA",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+      ],
+    },
+  },
+
+  // ============================================================================
+  // 6. OFİS, ÇALIŞMA & ARŞİV DOLAPLARI (3 Şablon)
+  // ============================================================================
+  {
+    id: "office_archive_cabinet_80",
+    categoryId: "office",
+    category: "Ofis & Arşiv",
+    title: "Çift Kapaklı & 4 Raflı Tam Boy Klasör Arşiv Dolabı (80×200×40 cm)",
+    subtitle:
+      "Standart A4 klasör derinliğine (40 cm) uygun, 4 hareketli raflı ve çift kapaklı kurumsal ofis dolabı",
+    totalWidthMm: 800,
+    prompt:
+      "80 cm genişliğinde, 200 cm yüksekliğinde, 40 cm derinliğinde, 4 hareketli raflı, çift kapaklı, gri gövdeli antrasit kapaklı ofis klasör arşiv dolabı",
+    highlights: ["5 Klasör Katı (4 Raf)", "Çift Kapak (8 Menteşe)", "400mm Klasör Derinliği", "Sistem 32 Raf Pimi"],
+    config: {
+      name: "Çift Kapaklı Ofis Klasör Arşiv Dolabı",
+      cabinet_type: "bookshelf",
+      width_mm: 800,
+      height_mm: 2000,
+      depth_mm: 400,
+      shelf_count: 4,
+      door_type: "double",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Açık Gri Suntalam",
+      door_material: "18mm Antrasit MDF-Lam",
+      body_color_hex: "#9CA3AF",
+      door_color_hex: "#374151",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "office_pedestal_keson_45",
+    categoryId: "office",
+    category: "Ofis & Arşiv",
+    title: "3 Çekmeceli Masa Altı Ofis Keson Modülü (45×62×50 cm)",
+    subtitle:
+      "Çalışma masası altına sığan, 3 adet 450 mm teleskopik raylı çekmeceli kompakt ofis kesonu",
+    totalWidthMm: 450,
+    prompt:
+      "45 cm genişliğinde, 62 cm yüksekliğinde, 50 cm derinliğinde, 3 çekmeceli, kapaksız, bazasız antrasit gövdeli meşe kapaklı masa altı keson",
+    highlights: ["3 Çekmece Kasası (15 Parça)", "450mm Teleskopik Ray", "Masa Altı 620mm Boy", "Bazasız Kompakt"],
+    config: {
+      name: "3 Çekmeceli Masa Altı Ofis Kesonu",
+      cabinet_type: "dresser",
+      width_mm: 450,
+      height_mm: 620,
+      depth_mm: 500,
+      shelf_count: 0,
+      door_type: "none",
+      drawer_count: 3,
+      drawer_front_height_mm: 185,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Antrasit MDF-Lam",
+      door_material: "18mm Doğal Meşe MDF-Lam",
+      body_color_hex: "#374151",
+      door_color_hex: "#C89F70",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [],
+    },
+  },
+  {
+    id: "office_double_archive_line",
+    categoryId: "office",
+    category: "Ofis & Arşiv",
+    title: "İkili Ofis Klasör & Arşiv Dolabı Duvar Hattı (2 Modül — 160 cm)",
+    subtitle:
+      "Sol 80cm 2 Çekmeceli & Çift Kapaklı Arşiv Dolabı + Sağ 80cm 5 Raflı Açık Klasör Kitaplığı",
+    totalWidthMm: 1600,
+    prompt:
+      "80 cm genişliğinde, 200 cm yüksekliğinde, 40 cm derinliğinde, 3 hareketli raflı, 2 çekmeceli, çift kapaklı ofis arşiv dolabı",
+    highlights: ["2 Modül Ofis Hattı (1600mm)", "Kapaklı Arşiv + Açık Kitaplık", "Toplam 8 Raf + 2 Çekmece", "Ortak Plaka Nesting"],
+    config: {
+      name: "Sol Çekmeceli & Kapaklı Arşiv Dolabı",
+      cabinet_type: "bookshelf",
+      width_mm: 800,
+      height_mm: 2000,
+      depth_mm: 400,
+      shelf_count: 3,
+      door_type: "double",
+      drawer_count: 2,
+      drawer_front_height_mm: 190,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Doğal Meşe Suntalam",
+      door_material: "18mm Antrasit MDF-Lam",
+      body_color_hex: "#C89F70",
+      door_color_hex: "#374151",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [
+        {
+          name: "Sağ 5 Raflı Açık Klasör Kitaplığı",
+          cabinet_type: "bookshelf",
+          width_mm: 800,
+          height_mm: 2000,
+          depth_mm: 400,
+          shelf_count: 5,
+          door_type: "none",
+          drawer_count: 0,
+          drawer_front_height_mm: 180,
+          has_plinth: true,
+          plinth_height_mm: 80,
+          body_material: "18mm Doğal Meşe Suntalam",
+          body_color_hex: "#C89F70",
           door_color_hex: "#374151",
           front_pvc_thickness_mm: 2.0,
           hidden_pvc_thickness_mm: 0.4,
@@ -522,9 +1414,13 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     depthMm = 560.0;
     hasPlinth = true;
     plinthHeightMm = 100.0;
-  } else if (text.includes("banyo boy")) {
+  } else if (
+    text.includes("banyo boy") ||
+    text.includes("çamaşır") ||
+    text.includes("camasir")
+  ) {
     cabinetType = "bathroom_tall";
-    name = "Banyo Boy Dolabı Modülü";
+    name = "Banyo Boy / Çamaşır Makinesi Dolabı";
     widthMm = 450.0;
     heightMm = 1800.0;
     depthMm = 380.0;
@@ -540,10 +1436,11 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   } else if (
     text.includes("şifonyer") ||
     text.includes("sifonyer") ||
-    text.includes("komodin")
+    text.includes("komodin") ||
+    text.includes("keson")
   ) {
     cabinetType = "dresser";
-    name = "Şifonyer / Komodin Modülü";
+    name = "Şifonyer / Komodin / Keson Modülü";
     widthMm = 900.0;
     heightMm = 860.0;
     depthMm = 480.0;
@@ -551,10 +1448,13 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   } else if (
     text.includes("kitaplık") ||
     text.includes("kitaplik") ||
-    text.includes("dosya")
+    text.includes("dosya") ||
+    text.includes("klasör") ||
+    text.includes("arşiv") ||
+    text.includes("arsiv")
   ) {
     cabinetType = "bookshelf";
-    name = "Parametrik Kitaplık / Ofis Modülü";
+    name = "Parametrik Kitaplık / Ofis Arşiv Modülü";
     widthMm = 800.0;
     heightMm = 1800.0;
     depthMm = 350.0;

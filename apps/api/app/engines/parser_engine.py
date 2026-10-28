@@ -126,9 +126,9 @@ class SemanticParserEngine:
             width_mm, height_mm, depth_mm = 800.0, 820.0, 560.0
             has_plinth = True
             plinth_height_mm = 100.0
-        elif any(k in text for k in ("banyo boy", "kirli sepet")):
+        elif any(k in text for k in ("banyo boy", "kirli sepet", "çamaşır", "camasir")):
             cabinet_type = CabinetType.BATHROOM_TALL
-            name = "Banyo Boy Dolabı Modülü"
+            name = "Banyo Boy / Çamaşır Makinesi Dolabı"
             width_mm, height_mm, depth_mm = 450.0, 1800.0, 380.0
         elif any(k in text for k in ("banyo", "lavabo")):
             cabinet_type = CabinetType.BATHROOM_VANITY
@@ -137,14 +137,14 @@ class SemanticParserEngine:
             has_plinth = False
             plinth_height_mm = 0.0
             drawer_count = 2
-        elif any(k in text for k in ("şifonyer", "sifonyer", "komodin")):
+        elif any(k in text for k in ("şifonyer", "sifonyer", "komodin", "keson")):
             cabinet_type = CabinetType.DRESSER
-            name = "Şifonyer / Komodin Modülü"
+            name = "Şifonyer / Komodin / Keson Modülü"
             width_mm, height_mm, depth_mm = 900.0, 860.0, 480.0
             drawer_count = 4
-        elif any(k in text for k in ("kitaplık", "kitaplik", "dosya", "klasör")):
+        elif any(k in text for k in ("kitaplık", "kitaplik", "dosya", "klasör", "arşiv", "arsiv")):
             cabinet_type = CabinetType.BOOKSHELF
-            name = "Parametrik Kitaplık / Ofis Modülü"
+            name = "Parametrik Kitaplık / Ofis Arşiv Modülü"
             width_mm, height_mm, depth_mm = 800.0, 1800.0, 350.0
         elif any(k in text for k in ("ayakkabılık", "ayakkabilik", "portmanto", "vestiyer")):
             cabinet_type = CabinetType.SHOE_CABINET

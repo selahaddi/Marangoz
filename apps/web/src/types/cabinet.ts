@@ -58,12 +58,29 @@ export interface CabinetConfig {
   sheet_size: SheetSizeOption;
 }
 
+export type CatalogCategoryId =
+  | "kitchen"
+  | "bedroom"
+  | "bathroom"
+  | "living"
+  | "hallway"
+  | "office";
+
+export interface CatalogCategoryMeta {
+  id: CatalogCategoryId;
+  label: string;
+  description: string;
+}
+
 export interface RoomLinePreset {
   id: string;
+  categoryId: CatalogCategoryId;
   category: string;
   title: string;
   subtitle: string;
   totalWidthMm: number;
+  prompt: string;
+  highlights: string[];
   config: CabinetConfig;
 }
 
