@@ -473,6 +473,19 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   let drawerCount = 0;
 
   if (
+    text.includes("buzdolab") ||
+    text.includes("kiler") ||
+    text.includes("boy kiler") ||
+    text.includes("ankastre kule")
+  ) {
+    cabinetType = "kitchen_tall";
+    name = "Buzdolabı / Kiler Dolabı Modülü";
+    widthMm = 850.0;
+    heightMm = 2350.0;
+    depthMm = 650.0;
+    hasPlinth = false;
+    plinthHeightMm = 0.0;
+  } else if (
     text.includes("mutfak üst") ||
     text.includes("üst modül") ||
     text.includes("duvar dolab")
@@ -579,24 +592,44 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     return Math.round(val);
   };
 
+  // 1. Önce 'dış ölçü' veya 'toplam dış ölçü' kapsamı var mı kontrol et (iç niş/boşluk ölçüleriyle karışmaması için)
+  const outerScopeMatch = text.match(
+    /(?:dış\s*ölçü|dış\s*ebat|toplam\s*ölçü)[^.]*?(?:\.|$)/i
+  );
+  const searchScope = outerScopeMatch ? outerScopeMatch[0] : text;
+
   const wMatch =
-    text.match(
-      /(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)/
-    ) ??
-    text.match(/(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
-  if (wMatch) widthMm = toMm(wMatch[1], wMatch[2]);
+    searchScope.match(/(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
+    searchScope.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)/i) ??
+    text.match(/(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
+    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)/i);
+  if (wMatch) {
+    const rawVal = wMatch[1] && !isNaN(parseFloat(wMatch[1])) ? wMatch[1] : wMatch[2];
+    const rawUnit = wMatch[2] && isNaN(parseFloat(wMatch[2])) ? wMatch[2] : wMatch[1];
+    widthMm = toMm(rawVal, rawUnit);
+  }
 
   const hMatch =
-    text.match(
-      /(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)/
-    ) ??
-    text.match(/(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
-  if (hMatch) heightMm = toMm(hMatch[1], hMatch[2]);
+    searchScope.match(/(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
+    searchScope.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)/i) ??
+    text.match(/(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
+    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)/i);
+  if (hMatch) {
+    const rawVal = hMatch[1] && !isNaN(parseFloat(hMatch[1])) ? hMatch[1] : hMatch[2];
+    const rawUnit = hMatch[2] && isNaN(parseFloat(hMatch[2])) ? hMatch[2] : hMatch[1];
+    heightMm = toMm(rawVal, rawUnit);
+  }
 
   const dMatch =
-    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)/) ??
-    text.match(/(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
-  if (dMatch) depthMm = toMm(dMatch[1], dMatch[2]);
+    searchScope.match(/(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
+    searchScope.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)/i) ??
+    text.match(/(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
+    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)/i);
+  if (dMatch) {
+    const rawVal = dMatch[1] && !isNaN(parseFloat(dMatch[1])) ? dMatch[1] : dMatch[2];
+    const rawUnit = dMatch[2] && isNaN(parseFloat(dMatch[2])) ? dMatch[2] : dMatch[1];
+    depthMm = toMm(rawVal, rawUnit);
+  }
 
   let shelfCount =
     cabinetType === "dresser" || cabinetType === "bathroom_vanity"
@@ -642,12 +675,19 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   } else if (
     text.includes("tek kapak") ||
     text.includes("sol kapak") ||
-    text.includes("1 kapak")
+    text.includes("1 kapak") ||
+    text.includes("kalkar kapak") ||
+    text.includes("kalkar") ||
+    text.includes("tek parça")
   ) {
     doorType = "single_left";
   }
 
-  if (text.includes("bazasız") || text.includes("bazasiz")) {
+  if (
+    text.includes("bazasız") ||
+    text.includes("bazasiz") ||
+    text.includes("tavandan tabana")
+  ) {
     hasPlinth = false;
     plinthHeightMm = 0.0;
   }

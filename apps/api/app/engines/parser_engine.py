@@ -98,18 +98,18 @@ class SemanticParserEngine:
         plinth_height_mm = 80.0
         drawer_count = 0
 
-        if any(k in text for k in ("mutfak üst", "üst modül", "duvar dolab")):
+        if any(k in text for k in ("buzdolab", "kiler", "boy kiler", "ankastre kule")):
+            cabinet_type = CabinetType.KITCHEN_TALL
+            name = "Buzdolabı / Kiler Dolabı Modülü"
+            width_mm, height_mm, depth_mm = 850.0, 2350.0, 650.0
+            has_plinth = False
+            plinth_height_mm = 0.0
+        elif any(k in text for k in ("mutfak üst", "üst modül", "duvar dolab")):
             cabinet_type = CabinetType.KITCHEN_WALL
             name = "Mutfak Üst Dolap Modülü"
             width_mm, height_mm, depth_mm = 800.0, 720.0, 350.0
             has_plinth = False
             plinth_height_mm = 0.0
-        elif any(k in text for k in ("boy kiler", "ankastre kule", "kiler dolab")):
-            cabinet_type = CabinetType.KITCHEN_TALL
-            name = "Mutfak Boy Kiler / Ankastre Modülü"
-            width_mm, height_mm, depth_mm = 600.0, 2100.0, 580.0
-            has_plinth = True
-            plinth_height_mm = 100.0
         elif any(k in text for k in ("mutfak alt", "alt modül", "tezgah altı", "evye")):
             cabinet_type = CabinetType.KITCHEN_BASE
             name = "Mutfak Alt Dolap Modülü"
@@ -146,36 +146,44 @@ class SemanticParserEngine:
             width_mm, height_mm, depth_mm = 1600.0, 500.0, 420.0
             drawer_count = 2
 
-        # 2. Ölçülerin Çıkarılması (Önce açık etiketli ifadeler, sonra WxHxD kalıbı)
-        w_match = re.search(
-            r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)",
-            text,
-        ) or re.search(
-            r"(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?",
-            text,
+        # 2. Ölçülerin Çıkarılması (Önce 'dış ölçü' / 'toplam ölçü' kapsamı kontrol edilir)
+        outer_scope = text
+        outer_match = re.search(r"(?:dış\s*ölçü|dış\s*ebat|toplam\s*ölçü)[^.]*?(?:\.|$)", text)
+        if outer_match:
+            outer_scope = outer_match.group(0)
+
+        w_match = (
+            re.search(r"(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", outer_scope)
+            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)", outer_scope)
+            or re.search(r"(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", text)
+            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)", text)
         )
         if w_match:
-            width_mm = cls._to_mm(w_match.group(1), w_match.group(2))
+            val = w_match.group(1) if w_match.group(1) and not re.match(r"^[a-zA-Z]+$", w_match.group(1)) else w_match.group(2)
+            unit = w_match.group(2) if w_match.group(2) and re.match(r"^[a-zA-Z]+$", w_match.group(2)) else w_match.group(1)
+            width_mm = cls._to_mm(val, unit)
 
-        h_match = re.search(
-            r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)",
-            text,
-        ) or re.search(
-            r"(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?",
-            text,
+        h_match = (
+            re.search(r"(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", outer_scope)
+            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)", outer_scope)
+            or re.search(r"(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", text)
+            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)", text)
         )
         if h_match:
-            height_mm = cls._to_mm(h_match.group(1), h_match.group(2))
+            val = h_match.group(1) if h_match.group(1) and not re.match(r"^[a-zA-Z]+$", h_match.group(1)) else h_match.group(2)
+            unit = h_match.group(2) if h_match.group(2) and re.match(r"^[a-zA-Z]+$", h_match.group(2)) else h_match.group(1)
+            height_mm = cls._to_mm(val, unit)
 
-        d_match = re.search(
-            r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)",
-            text,
-        ) or re.search(
-            r"(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?",
-            text,
+        d_match = (
+            re.search(r"(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", outer_scope)
+            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)", outer_scope)
+            or re.search(r"(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", text)
+            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)", text)
         )
         if d_match:
-            depth_mm = cls._to_mm(d_match.group(1), d_match.group(2))
+            val = d_match.group(1) if d_match.group(1) and not re.match(r"^[a-zA-Z]+$", d_match.group(1)) else d_match.group(2)
+            unit = d_match.group(2) if d_match.group(2) and re.match(r"^[a-zA-Z]+$", d_match.group(2)) else d_match.group(1)
+            depth_mm = cls._to_mm(val, unit)
 
         # Eğer WxHxD (örn. 90x210x60 cm veya 900x2100x580) formatı kullanılmışsa
         if not (w_match or h_match or d_match):
@@ -231,11 +239,11 @@ class SemanticParserEngine:
             door_type = DoorType.DOUBLE
         elif any(k in text for k in ("sağ kapak", "sag kapak", "sağa açılır")):
             door_type = DoorType.SINGLE_RIGHT
-        elif any(k in text for k in ("tek kapak", "sol kapak", "1 kapak")):
+        elif any(k in text for k in ("tek kapak", "sol kapak", "1 kapak", "kalkar kapak", "kalkar", "tek parça")):
             door_type = DoorType.SINGLE_LEFT
 
         # 5. Baza Bilgisi
-        if any(k in text for k in ("bazasız", "bazasiz")):
+        if any(k in text for k in ("bazasız", "bazasiz", "tavandan tabana")):
             has_plinth = False
             plinth_height_mm = 0.0
         elif "bazalı" in text or "bazali" in text:

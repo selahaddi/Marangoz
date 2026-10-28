@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Archive,
   Box,
+  Check,
   Cpu,
   FileSpreadsheet,
   LayoutGrid,
@@ -11,6 +12,7 @@ import {
   Sliders,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import { BomTableView } from "./components/BomTableView";
 import { CabinetViewer3D } from "./components/CabinetViewer3D";
@@ -20,6 +22,10 @@ import {
   parseNaturalLanguagePrompt,
 } from "./services/api";
 import { ROOM_LINE_PRESETS } from "./services/clientEngine";
+import {
+  getStoredGeminiApiKey,
+  setStoredGeminiApiKey,
+} from "./services/geminiClient";
 import type {
   BackPanelType,
   CabinetConfig,
@@ -53,6 +59,7 @@ const DEFAULT_CONFIG: CabinetConfig = {
 };
 
 const EXAMPLE_PROMPTS: readonly string[] = [
+  "Mutfakta solo buzdolabımızın etrafını saracak bir buzdolabı çevreleme (gömme) dolap modülü tasarlamak istiyorum. Dolabın toplam dış ölçüleri: Yükseklik 235 cm, genişlik 85 cm, derinlik 65 cm olsun. Alt kısımda buzdolabının rahat oturması ve hava sirkülasyonu için net 80 cm genişliğinde ve 185 cm yüksekliğinde açık bir niş (boşluk) bırakılsın; buzdolabının arkasına arkalık konmasın, açık kalsın. Buzdolabının üstünde kalan boşluğa ise yukarı doğru açılan (gazlı pistonlu) tek parça kalkar kapaklı derin bir üst depolama dolabı yerleştirilsin. Yan dikmeler tavandan tabana kadar yekpare 18 mm gövde malzemesi olarak insin. Gövde 18 mm beyaz suntalam, üst kapak 18 mm meşe desen MDF-Lam olsun. Üst dolabın arkalığı 8 mm kanala geçme yapılsın. Birleşimler minifix ve kavela ile System 32 standardında delinsin.",
   "90 cm genişliğinde, 85 cm yüksekliğinde, 48 cm derinliğinde, 4 çekmeceli, kapaksız meşe yatak odası şifonyeri",
   "210 cm yüksekliğinde, 90 cm genişliğinde, 58 cm derinliğinde, 3 raflı, 2 çekmeceli, çift kapaklı gardırop",
   "100 cm genişliğinde, 82 cm yüksekliğinde, 55 cm derinliğinde, 2 çekmeceli, çift kapaklı banyo lavabo alt dolabı",
@@ -72,6 +79,9 @@ export function App() {
   const [isParsing, setIsParsing] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string>(() => getStoredGeminiApiKey());
+  const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
+  const [tempApiKey, setTempApiKey] = useState<string>("");
 
   const allModules: CabinetConfig[] = [
     config,
@@ -216,24 +226,38 @@ export function App() {
             </div>
           </div>
 
-          {pkg && (
-            <div className="flex items-center gap-2.5">
-              <div className="hidden text-right text-xs sm:block">
-                <span className="text-slate-400">Aktif İş Kimliği: </span>
-                <code className="font-mono font-semibold text-sky-400">
-                  #{pkg.job_id}
-                </code>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                setTempApiKey(apiKey);
+                setShowKeyModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/20"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-sky-400" />
+              <span>Gemini AI {apiKey ? "Bağlı" : "Ayarla"}</span>
+            </button>
+
+            {pkg && (
+              <div className="flex items-center gap-2.5">
+                <div className="hidden text-right text-xs sm:block">
+                  <span className="text-slate-400">Aktif İş Kimliği: </span>
+                  <code className="font-mono font-semibold text-sky-400">
+                    #{pkg.job_id}
+                  </code>
+                </div>
+                <a
+                  href={pkg.zip_download_url}
+                  download={`marangoz_uretim_paketi_${pkg.job_id}.zip`}
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-500"
+                >
+                  <Archive className="h-4 w-4" />
+                  Üretim Paketini İndir (.ZIP — GLB + DXF + NC + MPR + SVG + CSV)
+                </a>
               </div>
-              <a
-                href={pkg.zip_download_url}
-                download={`marangoz_uretim_paketi_${pkg.job_id}.zip`}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-500"
-              >
-                <Archive className="h-4 w-4" />
-                Üretim Paketini İndir (.ZIP — GLB + DXF + NC + MPR + SVG + CSV)
-              </a>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </header>
 
@@ -914,6 +938,81 @@ export function App() {
           </section>
         </div>
       </main>
+
+      {/* Gemini AI API Anahtarı Modal */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-sky-400" />
+                <h3 className="text-sm font-bold text-slate-100">
+                  Google Gemini AI Entegrasyonu
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowKeyModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="mt-3 text-xs leading-relaxed text-slate-300">
+              Vercel veya doğrudan tarayıcı ortamında serbest Türkçe/İngilizce dolap
+              tariflerini Gemini 2.5 Flash ile ayrıştırmak için Google AI Studio API
+              anahtarınızı girebilirsiniz. Anahtar yalnızca tarayıcınızın yerel hafızasında
+              (localStorage) saklanır.
+            </p>
+
+            <div className="mt-4">
+              <label
+                htmlFor="gemini-key-input"
+                className="mb-1 block text-xs font-medium text-slate-300"
+              >
+                Gemini API Key
+              </label>
+              <input
+                id="gemini-key-input"
+                type="password"
+                value={tempApiKey}
+                onChange={(e) => setTempApiKey(e.target.value)}
+                placeholder="AQ.Ab8... veya AIza..."
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setTempApiKey("");
+                  setApiKey("");
+                  setStoredGeminiApiKey("");
+                  setShowKeyModal(false);
+                }}
+                className="rounded-lg border border-slate-800 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800"
+              >
+                Temizle
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const cleaned = tempApiKey.trim();
+                  setApiKey(cleaned);
+                  setStoredGeminiApiKey(cleaned);
+                  setShowKeyModal(false);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-sky-500"
+              >
+                <Check className="h-3.5 w-3.5" />
+                Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
