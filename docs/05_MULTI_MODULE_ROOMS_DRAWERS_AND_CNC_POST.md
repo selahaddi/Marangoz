@@ -45,3 +45,4 @@ Bir modülde $N_{\text{çekmece}} > 0$ tanımlandığında aşağıdaki determin
    * `<100 \WerkStck\` iş parçası tanımı.
    * `<102 \BohrVert\` dikey delik blokları (`XA`, `YA`, `TI` derinlik, `DU` çap).
    * `<112 \Tasche\` arkalık kanalı cep frezeleme bloğu.
+

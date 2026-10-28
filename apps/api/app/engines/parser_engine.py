@@ -12,6 +12,7 @@ import re
 
 from google import genai
 from google.genai import types
+from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.schemas.cabinet import (
@@ -23,6 +24,29 @@ from app.schemas.cabinet import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class CabinetParseSchema(BaseModel):
+    """Gemini API ile yapılandırılmış JSON çıktısı için özyinelemesiz şema."""
+
+    name: str = Field(default="Parametrik Dolap", description="Dolap veya modül adı")
+    cabinet_type: CabinetType = Field(default=CabinetType.WARDROBE, description="Dolap tipi")
+    width_mm: float = Field(default=900.0, description="Dış genişlik (mm)")
+    height_mm: float = Field(default=2100.0, description="Dış yükseklik (mm)")
+    depth_mm: float = Field(default=580.0, description="Dış derinlik (mm)")
+    shelf_count: int = Field(default=3, description="Hareketli raf adedi (0-12)")
+    door_type: DoorType = Field(default=DoorType.DOUBLE, description="Kapak tipi")
+    drawer_count: int = Field(default=0, description="Çekmece adedi (0-6)")
+    drawer_front_height_mm: float = Field(default=180.0, description="Çekmece klapa yüksekliği (mm)")
+    has_plinth: bool = Field(default=True, description="Alt baza var mı")
+    plinth_height_mm: float = Field(default=80.0, description="Baza yüksekliği (mm)")
+    body_material: str = Field(default="18mm Beyaz Suntalam", description="Gövde malzemesi")
+    body_color_hex: str = Field(default="#F4F1EA", description="Gövde renk hex kodu")
+    door_color_hex: str = Field(default="#C89F70", description="Kapak renk hex kodu")
+    front_pvc_thickness_mm: float = Field(default=2.0, description="Ön kenar PVC kalınlığı (mm)")
+    hidden_pvc_thickness_mm: float = Field(default=0.4, description="Görünmeyen kenar PVC kalınlığı (mm)")
+    back_panel_type: BackPanelType = Field(default=BackPanelType.GROOVED_8MM, description="Arkalık tipi")
+    sheet_size: SheetSizeOption = Field(default=SheetSizeOption.SHEET_2800_2100, description="Plaka ebadı")
 
 
 class SemanticParserEngine:
@@ -279,27 +303,71 @@ class SemanticParserEngine:
     def parse_prompt(cls, prompt: str) -> CabinetConfig:
         """Doğal dil istemini Gemini API (varsa) veya deterministik ayrıştırıcı ile CabinetConfig'e çevirir."""
         settings = get_settings()
-        if settings.gemini_api_key.strip():
-            try:
-                client = genai.Client(api_key=settings.gemini_api_key.strip())
-                response = client.models.generate_content(
-                    model=settings.gemini_model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=cls.SYSTEM_INSTRUCTION,
-                        response_mime_type="application/json",
-                        response_schema=CabinetConfig,
-                        temperature=0.0,
-                    ),
-                )
-                if response.text:
-                    raw_dict = json.loads(response.text)
-                    return CabinetConfig.model_validate(raw_dict)
-            except Exception as exc:
-                logger.warning(
-                    "Gemini API ayrıştırması başarısız oldu, deterministik ayrıştırıcı kullanılıyor: %s",
-                    exc,
-                )
+        api_key = settings.gemini_api_key.strip()
+        if api_key:
+            candidate_models = [
+                settings.gemini_model,
+                "gemini-2.5-flash",
+                "gemini-3.8-flash",
+                "gemini-2.0-flash",
+            ]
+            models_to_try: list[str] = []
+            for m in candidate_models:
+                if m and m not in models_to_try:
+                    models_to_try.append(m)
+
+            client = genai.Client(api_key=api_key)
+            for model_name in models_to_try:
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=cls.SYSTEM_INSTRUCTION,
+                            response_mime_type="application/json",
+                            response_schema=CabinetParseSchema,
+                            temperature=0.0,
+                        ),
+                    )
+                    if response.text:
+                        parsed = CabinetParseSchema.model_validate_json(response.text)
+                        width_mm = max(300.0, min(2700.0, parsed.width_mm))
+                        height_mm = max(300.0, min(2750.0, parsed.height_mm))
+                        depth_mm = max(200.0, min(900.0, parsed.depth_mm))
+                        shelf_count = max(0, min(12, parsed.shelf_count))
+                        drawer_count = max(0, min(6, parsed.drawer_count))
+                        drawer_front_height = max(
+                            120.0, min(350.0, parsed.drawer_front_height_mm or 180.0)
+                        )
+
+                        return CabinetConfig(
+                            name=parsed.name,
+                            cabinet_type=parsed.cabinet_type,
+                            width_mm=width_mm,
+                            height_mm=height_mm,
+                            depth_mm=depth_mm,
+                            shelf_count=shelf_count,
+                            door_type=parsed.door_type,
+                            drawer_count=drawer_count,
+                            drawer_front_height_mm=drawer_front_height,
+                            has_plinth=parsed.has_plinth,
+                            plinth_height_mm=parsed.plinth_height_mm if parsed.has_plinth else 0.0,
+                            body_material=parsed.body_material,
+                            body_color_hex=parsed.body_color_hex,
+                            door_color_hex=parsed.door_color_hex,
+                            front_pvc_thickness_mm=parsed.front_pvc_thickness_mm,
+                            hidden_pvc_thickness_mm=parsed.hidden_pvc_thickness_mm,
+                            back_panel_type=parsed.back_panel_type,
+                            sheet_size=parsed.sheet_size,
+                            additional_modules=[],
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Gemini API modeli (%s) ayrıştırmada başarısız oldu: %s",
+                        model_name,
+                        exc,
+                    )
+                    continue
 
         return cls._deterministic_rule_parse(prompt)
 
