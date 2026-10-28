@@ -271,9 +271,16 @@ class BOMEngine:
         h = config.height_mm
         d = config.depth_mm
         plinth_h = config.plinth_height_mm if config.has_plinth else 0.0
+        niche_h = max(0.0, getattr(config, "appliance_niche_height_mm", 0.0))
+        base_offset_y = round(max(plinth_h, niche_h), 2)
+        door_mat = (
+            config.door_material.strip()
+            if getattr(config, "door_material", "") and config.door_material.strip()
+            else config.body_material
+        )
 
         inner_w = round(w - (2.0 * t), 2)
-        clear_inner_h = round(h - plinth_h - (2.0 * t), 2)
+        clear_inner_h = round(h - base_offset_y - (2.0 * t), 2)
 
         # Çekmece bölgesi yüksekliği kontrolü
         drawer_count = config.drawer_count
@@ -293,13 +300,13 @@ class BOMEngine:
             h, d, side_edge
         )
         side_drills = cls._build_side_panel_drills(
-            h, d, plinth_h, config.shelf_count, drawer_count, drawer_front_h
+            h, d, base_offset_y, config.shelf_count, drawer_count, drawer_front_h
         )
 
         side_grooves: list[GroovePath] = []
         if config.back_panel_type == BackPanelType.GROOVED_8MM:
             groove_start_x = round(
-                plinth_h + t - MC.BACK_PANEL_INSERTION_PER_SIDE_MM, 2
+                base_offset_y + t - MC.BACK_PANEL_INSERTION_PER_SIDE_MM, 2
             )
             groove_len_x = round(
                 clear_inner_h + (2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM), 2
@@ -440,7 +447,11 @@ class BOMEngine:
             PanelPart(
                 part_id=f"P{part_counter:02d}",
                 code=f"{prefix}TABLA_ALT",
-                name=f"{label_prefix}Alt Tabla",
+                name=(
+                    f"{label_prefix}Üst Dolap Alt Tablası (Niş Üstü)"
+                    if niche_h > 0.0
+                    else f"{label_prefix}Alt Tabla"
+                ),
                 material=config.body_material,
                 thickness_mm=t,
                 quantity=1,
@@ -456,7 +467,7 @@ class BOMEngine:
                 grooves=horiz_grooves,
                 transform_3d=Box3DTransform(
                     center_x_mm=x_offset_mm,
-                    center_y_mm=round(plinth_h + t / 2.0, 2),
+                    center_y_mm=round(base_offset_y + t / 2.0, 2),
                     center_z_mm=0.0,
                     size_x_mm=inner_w,
                     size_y_mm=t,
@@ -468,8 +479,8 @@ class BOMEngine:
         )
         part_counter += 1
 
-        # 3. Alt Baza Kayıtları
-        if config.has_plinth and plinth_h > 0.0:
+        # 3. Alt Baza Kayıtları (Cihaz nişi yoksa)
+        if config.has_plinth and plinth_h > 0.0 and niche_h <= 0.0:
             plinth_edge = EdgeBandSpec(
                 length_1_mm=config.hidden_pvc_thickness_mm,
                 length_2_mm=config.hidden_pvc_thickness_mm,
@@ -557,7 +568,7 @@ class BOMEngine:
 
             for d_idx in range(1, drawer_count + 1):
                 center_y = round(
-                    plinth_h
+                    base_offset_y
                     + t
                     + ((d_idx - 0.5) * drawer_front_h),
                     2,
@@ -572,7 +583,7 @@ class BOMEngine:
                         part_id=f"P{part_counter:02d}",
                         code=f"{prefix}CEK_KLAPA_{d_idx:02d}",
                         name=f"{label_prefix}Çekmece #{d_idx} Ön Klapası",
-                        material=config.body_material,
+                        material=door_mat,
                         thickness_mm=t,
                         quantity=1,
                         net_length_mm=front_net_w,
@@ -744,7 +755,7 @@ class BOMEngine:
 
             for s_idx in range(1, config.shelf_count + 1):
                 shelf_y = round(
-                    plinth_h + t + drawer_zone_h + (s_idx * step_h), 2
+                    base_offset_y + t + drawer_zone_h + (s_idx * step_h), 2
                 )
                 parts.append(
                     PanelPart(
@@ -778,7 +789,7 @@ class BOMEngine:
                 )
                 part_counter += 1
 
-        # 6. Arkalık Paneli
+        # 6. Arkalık Paneli (Niş varsa yalnızca üst dolap arkalığı)
         no_edge = EdgeBandSpec(
             length_1_mm=0.0, length_2_mm=0.0, width_1_mm=0.0, width_2_mm=0.0
         )
@@ -798,7 +809,7 @@ class BOMEngine:
         else:
             back_t = MC.BACK_PANEL_NAILED_THICKNESS_MM
             back_mat = "3mm Beyaz Duralit Arkalık"
-            back_l = round(h - plinth_h - 4.0, 2)
+            back_l = round(h - base_offset_y - 4.0, 2)
             back_w = round(w - 4.0, 2)
             back_z = round(-d / 2.0 - back_t / 2.0, 2)
 
@@ -806,7 +817,11 @@ class BOMEngine:
             PanelPart(
                 part_id=f"P{part_counter:02d}",
                 code=f"{prefix}ARKALIK",
-                name=f"{label_prefix}Arkalık Paneli",
+                name=(
+                    f"{label_prefix}Üst Dolap Arkalık Paneli"
+                    if niche_h > 0.0
+                    else f"{label_prefix}Arkalık Paneli"
+                ),
                 material=back_mat,
                 thickness_mm=back_t,
                 quantity=1,
@@ -822,7 +837,7 @@ class BOMEngine:
                 grooves=[],
                 transform_3d=Box3DTransform(
                     center_x_mm=x_offset_mm,
-                    center_y_mm=round(plinth_h + (h - plinth_h) / 2.0, 2),
+                    center_y_mm=round(base_offset_y + (h - base_offset_y) / 2.0, 2),
                     center_z_mm=back_z,
                     size_x_mm=back_w,
                     size_y_mm=back_l,
@@ -834,9 +849,9 @@ class BOMEngine:
         )
         part_counter += 1
 
-        # 7. Kapaklar (Çekmece bölgesinin üstünde kalan alan için)
+        # 7. Kapaklar (Çekmece/Niş bölgesinin üstünde kalan alan için)
         total_hinges = 0
-        door_avail_h = round((h - plinth_h - drawer_zone_h), 2)
+        door_avail_h = round((h - base_offset_y - drawer_zone_h), 2)
         if config.door_type != DoorType.NONE and door_avail_h >= 240.0:
             door_net_h = round(door_avail_h - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
             door_edge = EdgeBandSpec(
@@ -846,11 +861,71 @@ class BOMEngine:
                 width_2_mm=config.front_pvc_thickness_mm,
             )
             door_y_center = round(
-                plinth_h + drawer_zone_h + (door_avail_h / 2.0), 2
+                base_offset_y + drawer_zone_h + (door_avail_h / 2.0), 2
             )
             door_z_center = round(d / 2.0 + t / 2.0 + 1.5, 2)
 
-            if config.door_type in (DoorType.SINGLE_LEFT, DoorType.SINGLE_RIGHT):
+            if config.door_type == DoorType.FLAP_UP:
+                door_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+                d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
+                    door_net_h, door_net_w, door_edge
+                )
+                top_hinge_x = round(door_net_h - MC.HINGE_CUP_CENTER_FROM_EDGE_MM, 2)
+                hinge_drills = [
+                    DrillPoint(
+                        x_mm=top_hinge_x,
+                        y_mm=100.0,
+                        diameter_mm=MC.HINGE_CUP_DIAMETER_MM,
+                        depth_mm=MC.HINGE_CUP_DEPTH_MM,
+                        layer=MC.LAYER_HINGE_CUP,
+                        description="Üst Kalkar Kapak Sol Tas Menteşe Yuvası (Ø35mm)",
+                    ),
+                    DrillPoint(
+                        x_mm=top_hinge_x,
+                        y_mm=round(door_net_w - 100.0, 2),
+                        diameter_mm=MC.HINGE_CUP_DIAMETER_MM,
+                        depth_mm=MC.HINGE_CUP_DEPTH_MM,
+                        layer=MC.LAYER_HINGE_CUP,
+                        description="Üst Kalkar Kapak Sağ Tas Menteşe Yuvası (Ø35mm)",
+                    ),
+                ]
+                total_hinges += 2
+                total_handles += 1
+
+                parts.append(
+                    PanelPart(
+                        part_id=f"P{part_counter:02d}",
+                        code=f"{prefix}KAPAK_KALKAR",
+                        name=f"{label_prefix}Üst Kalkar Kapak (Gazlı Pistonlu)",
+                        material=door_mat,
+                        thickness_mm=t,
+                        quantity=1,
+                        net_length_mm=door_net_h,
+                        net_width_mm=door_net_w,
+                        cut_length_mm=d_cut_l,
+                        cut_width_mm=d_cut_w,
+                        pvc_deduction_length_mm=d_ded_l,
+                        pvc_deduction_width_mm=d_ded_w,
+                        edge_band=door_edge,
+                        area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
+                        drills=hinge_drills,
+                        grooves=[],
+                        transform_3d=Box3DTransform(
+                            center_x_mm=x_offset_mm,
+                            center_y_mm=door_y_center,
+                            center_z_mm=door_z_center,
+                            size_x_mm=door_net_w,
+                            size_y_mm=door_net_h,
+                            size_z_mm=t,
+                            color_hex=config.door_color_hex,
+                            is_door=True,
+                            hinge_side="top",
+                            module_index=module_idx,
+                        ),
+                    )
+                )
+                part_counter += 1
+            elif config.door_type in (DoorType.SINGLE_LEFT, DoorType.SINGLE_RIGHT):
                 door_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
                 d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
                     door_net_h, door_net_w, door_edge
@@ -871,7 +946,7 @@ class BOMEngine:
                             if hinge_left
                             else f"{label_prefix}Tek Kapak (Sağ Menteşeli)"
                         ),
-                        material=config.body_material,
+                        material=door_mat,
                         thickness_mm=t,
                         quantity=1,
                         net_length_mm=door_net_h,
@@ -931,7 +1006,7 @@ class BOMEngine:
                             part_id=f"P{part_counter:02d}",
                             code=f"{prefix}KAPAK_{side_code}",
                             name=f"{label_prefix}{side_label}",
-                            material=config.body_material,
+                            material=door_mat,
                             thickness_mm=t,
                             quantity=1,
                             net_length_mm=door_net_h,
@@ -1087,6 +1162,20 @@ class BOMEngine:
                     unit="Takım",
                     quantity=float(total_drawer_slides),
                     note=f"{total_drawer_slides} adet çekmece için sağ/sol ray takımı",
+                )
+            )
+
+        total_gas_struts = sum(
+            2 for m in all_modules if m.door_type == DoorType.FLAP_UP
+        )
+        if total_gas_struts > 0:
+            hardware.append(
+                HardwareItem(
+                    code="HRD-PSTN-100",
+                    name="Gazlı Piston Kalkar Kapak Makası (100N)",
+                    unit="Adet",
+                    quantity=float(total_gas_struts),
+                    note="Yukarı açılır kalkar kapak için sağ/sol piston",
                 )
             )
 

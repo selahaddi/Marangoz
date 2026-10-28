@@ -213,3 +213,56 @@ def test_drawer_box_and_multi_module_room_line() -> None:
     assert "<100 \\WerkStck\\" in mpr_str
     assert "<102 \\BohrVert\\" in mpr_str
 
+
+def test_refrigerator_enclosure_niche_and_flap_door() -> None:
+    """Buzdolabı çevreleme modülünde 1850mm açık alt niş, üst kalkar kapak ve gazlı piston hesabını doğrular."""
+    fridge_prompt = (
+        "Mutfakta solo buzdolabımızın etrafını saracak bir buzdolabı çevreleme (gömme) dolap modülü "
+        "tasarlamak istiyorum. Dolabın toplam dış ölçüleri: Yükseklik 235 cm, genişlik 85 cm, "
+        "derinlik 65 cm olsun. Alt kısımda buzdolabının rahat oturması ve hava sirkülasyonu için net "
+        "80 cm genişliğinde ve 185 cm yüksekliğinde açık bir niş (boşluk) bırakılsın; buzdolabının "
+        "arkasına arkalık konmasın, açık kalsın. Buzdolabının üstünde kalan boşluğa ise yukarı doğru "
+        "açılan (gazlı pistonlu) tek parça kalkar kapaklı derin bir üst depolama dolabı yerleştirilsin. "
+        "Yan dikmeler tavandan tabana kadar yekpare 18 mm gövde malzemesi olarak insin. Gövde 18 mm "
+        "beyaz suntalam, üst kapak 18 mm meşe desen MDF-Lam olsun. Üst dolabın arkalığı 8 mm kanala "
+        "geçme yapılsın. Birleşimler minifix ve kavela ile System 32 standardında delinsin."
+    )
+    cfg = SemanticParserEngine._deterministic_rule_parse(fridge_prompt)
+    assert cfg.width_mm == 850.0
+    assert cfg.height_mm == 2350.0
+    assert cfg.depth_mm == 650.0
+    assert cfg.appliance_niche_height_mm == 1850.0
+    assert cfg.has_plinth is False
+    assert cfg.door_type == DoorType.FLAP_UP
+    assert cfg.shelf_count == 0
+    assert cfg.body_material == "18mm Beyaz Suntalam"
+    assert cfg.door_material == "18mm Doğal Meşe MDF-Lam"
+
+    bom = BOMEngine.generate_bom(cfg)
+    assert bom.total_parts_count == 6
+    parts_by_code = {p.code: p for p in bom.parts}
+    assert set(parts_by_code.keys()) == {
+        "YAN_SOL",
+        "YAN_SAG",
+        "TABLA_UST",
+        "TABLA_ALT",
+        "ARKALIK",
+        "KAPAK_KALKAR",
+    }
+
+    # Alt tabla nişin hemen üstünde (Y = 1850 + 9 = 1859 mm) yer almalı
+    assert parts_by_code["TABLA_ALT"].transform_3d.center_y_mm == 1859.0
+    # Arkalık yalnızca üst dolabı (2350 - 1850 - 36 + 15 = 479 mm) kapatmalı
+    assert parts_by_code["ARKALIK"].net_length_mm == 479.0
+    assert parts_by_code["ARKALIK"].net_width_mm == 829.0
+    # Üst kalkar kapak 496 x 846 mm (kesim 492 x 842 mm) ve üstten menteşeli olmalı
+    kapak = parts_by_code["KAPAK_KALKAR"]
+    assert kapak.net_length_mm == 496.0
+    assert kapak.net_width_mm == 846.0
+    assert kapak.cut_length_mm == 492.0
+    assert kapak.cut_width_mm == 842.0
+    assert kapak.transform_3d.hinge_side == "top"
+    assert kapak.material == "18mm Doğal Meşe MDF-Lam"
+    assert any(h.code == "HRD-PSTN-100" and h.quantity == 2 for h in bom.hardware)
+
+

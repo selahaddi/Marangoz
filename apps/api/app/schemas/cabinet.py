@@ -40,6 +40,7 @@ class DoorType(StrEnum):
     SINGLE_LEFT = "single_left"
     SINGLE_RIGHT = "single_right"
     DOUBLE = "double"
+    FLAP_UP = "flap_up"
 
 
 class BackPanelType(StrEnum):
@@ -142,6 +143,12 @@ class CabinetConfig(BaseModel):
         le=350.0,
         description="Her bir çekmece ön klapa yüksekliği (mm)",
     )
+    appliance_niche_height_mm: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2200.0,
+        description="Alt kısımda bırakılacak açık cihaz / buzdolabı niş yüksekliği (mm)",
+    )
     additional_modules: list["CabinetConfig"] = Field(
         default_factory=list,
         description="Çoklu modül / oda hattı içindeki yan yana ek modüller",
@@ -161,6 +168,11 @@ class CabinetConfig(BaseModel):
         min_length=2,
         max_length=80,
         description="Gövde plaka malzemesi",
+    )
+    door_material: str = Field(
+        default="",
+        max_length=80,
+        description="Kapak ve çekmece klapa malzemesi (boş ise body_material kullanılır)",
     )
     body_color_hex: str = Field(
         default="#F4F1EA",
@@ -207,6 +219,12 @@ class CabinetConfig(BaseModel):
             self.plinth_height_mm = 0.0
         elif self.plinth_height_mm < 50.0:
             self.plinth_height_mm = 80.0
+
+        if self.appliance_niche_height_mm > 0.0:
+            self.has_plinth = False
+            self.plinth_height_mm = 0.0
+            if self.appliance_niche_height_mm > self.height_mm - 200.0:
+                self.appliance_niche_height_mm = max(0.0, self.height_mm - 350.0)
 
         if self.height_mm - self.plinth_height_mm < 200.0:
             raise ValueError(

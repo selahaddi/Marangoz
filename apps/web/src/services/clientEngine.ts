@@ -631,8 +631,39 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     depthMm = toMm(rawVal, rawUnit);
   }
 
+  // 2b. Alt Cihaz / Buzdolabı Niş Boşluğu Tespiti
+  let applianceNicheHeightMm = 0.0;
+  const nicheMatch =
+    text.match(
+      /(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde\s*)?(?:açık\s*)?(?:bir\s*)?(?:niş|nis|boşluk|bosluk)/i
+    ) ??
+    text.match(
+      /(?:niş|nis|boşluk|bosluk)[^.]*?(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|boy)/i
+    );
+  if (nicheMatch) {
+    applianceNicheHeightMm = toMm(nicheMatch[1], nicheMatch[2]);
+  } else if (
+    text.includes("buzdolab") &&
+    (text.includes("niş") ||
+      text.includes("nis") ||
+      text.includes("boşluk") ||
+      text.includes("bosluk") ||
+      text.includes("çevreleme") ||
+      text.includes("gömme"))
+  ) {
+    applianceNicheHeightMm = Math.min(1850.0, Math.max(0.0, heightMm - 450.0));
+  }
+
+  if (applianceNicheHeightMm > 0) {
+    hasPlinth = false;
+    plinthHeightMm = 0.0;
+  }
+
   let shelfCount =
-    cabinetType === "dresser" || cabinetType === "bathroom_vanity"
+    cabinetType === "dresser" ||
+    cabinetType === "bathroom_vanity" ||
+    applianceNicheHeightMm > 0 ||
+    text.includes("buzdolab")
       ? 0
       : cabinetType === "kitchen_wall"
       ? 2
@@ -664,6 +695,15 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   ) {
     doorType = "none";
   } else if (
+    text.includes("kalkar kapak") ||
+    text.includes("kalkar") ||
+    text.includes("gazlı piston") ||
+    text.includes("gazli piston") ||
+    text.includes("yukarı doğru açılan") ||
+    text.includes("yukarı açılır")
+  ) {
+    doorType = "flap_up";
+  } else if (
     text.includes("çift kapak") ||
     text.includes("cift kapak") ||
     text.includes("iki kapak") ||
@@ -676,8 +716,6 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     text.includes("tek kapak") ||
     text.includes("sol kapak") ||
     text.includes("1 kapak") ||
-    text.includes("kalkar kapak") ||
-    text.includes("kalkar") ||
     text.includes("tek parça")
   ) {
     doorType = "single_left";
@@ -706,13 +744,42 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   let bodyColorHex = "#F4F1EA";
   let doorColorHex = "#D7C4A3";
   let bodyMaterial = "18mm Beyaz Suntalam";
+  let doorMaterial = "";
 
   for (const [word, [hex, mat]] of Object.entries(colorMap)) {
-    if (text.includes(`${word} kapak`)) {
-      doorColorHex = hex;
-    } else if (text.includes(`${word} gövde`) || text.includes(word)) {
+    const bodyClause = text.match(
+      new RegExp(`(?:gövde|govde)[^.,;]*${word}[^.,;]*|${word}[^.,;]*(?:gövde|govde)[^.,;]*`, "i")
+    );
+    const doorClause = text.match(
+      new RegExp(`kapak[^.,;]*${word}[^.,;]*|${word}[^.,;]*kapak[^.,;]*`, "i")
+    );
+    if (bodyClause) {
       bodyColorHex = hex;
-      bodyMaterial = mat;
+      const clauseStr = bodyClause[0];
+      if (clauseStr.includes("mdf")) {
+        bodyMaterial = mat.replace("Suntalam", "MDF-Lam");
+      } else if (clauseStr.includes("suntalam")) {
+        bodyMaterial = mat.replace("MDF-Lam", "Suntalam");
+      } else {
+        bodyMaterial = mat;
+      }
+    }
+    if (doorClause) {
+      doorColorHex = hex;
+      const clauseStr = doorClause[0];
+      if (clauseStr.includes("mdf")) {
+        doorMaterial = mat.replace("Suntalam", "MDF-Lam");
+      } else if (clauseStr.includes("suntalam")) {
+        doorMaterial = mat.replace("MDF-Lam", "Suntalam");
+      } else {
+        doorMaterial = mat;
+      }
+    }
+    if (!bodyClause && !doorClause && text.includes(word)) {
+      bodyColorHex = hex;
+      bodyMaterial = text.includes("mdf")
+        ? mat.replace("Suntalam", "MDF-Lam")
+        : mat;
       if (!text.includes("kapak")) {
         doorColorHex = hex;
       }
@@ -724,6 +791,10 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   depthMm = Math.max(200, Math.min(900, depthMm));
   shelfCount = Math.max(0, Math.min(12, shelfCount));
   drawerCount = Math.max(0, Math.min(6, drawerCount));
+  applianceNicheHeightMm = Math.max(
+    0,
+    Math.min(heightMm - 260, applianceNicheHeightMm)
+  );
 
   return {
     name,
@@ -735,10 +806,12 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     door_type: doorType,
     drawer_count: drawerCount,
     drawer_front_height_mm: 180.0,
+    appliance_niche_height_mm: applianceNicheHeightMm,
     additional_modules: [],
     has_plinth: hasPlinth,
     plinth_height_mm: plinthHeightMm,
     body_material: bodyMaterial,
+    door_material: doorMaterial,
     body_color_hex: bodyColorHex,
     door_color_hex: doorColorHex,
     front_pvc_thickness_mm: 2.0,
@@ -810,6 +883,7 @@ function generateSingleModuleParts(
   dowelCount: number;
   totalHinges: number;
   totalHandles: number;
+  totalGasStruts: number;
 } {
   const parts: PanelPart[] = [];
   let partCounter = startPartCounter;
@@ -821,10 +895,19 @@ function generateSingleModuleParts(
   const w = config.width_mm;
   const h = config.height_mm;
   const d = config.depth_mm;
-  const plinthH = config.has_plinth ? config.plinth_height_mm : 0.0;
+  const nicheH = Math.min(
+    config.appliance_niche_height_mm ?? 0.0,
+    Math.max(0.0, h - 260.0)
+  );
+  const plinthH = config.has_plinth && nicheH <= 0 ? config.plinth_height_mm : 0.0;
+  const baseOffsetY = Math.max(plinthH, nicheH);
+  const doorMat =
+    config.door_material && config.door_material.trim()
+      ? config.door_material.trim()
+      : config.body_material;
 
   const innerW = round2(w - 2.0 * t);
-  const clearInnerH = round2(h - plinthH - 2.0 * t);
+  const clearInnerH = round2(h - baseOffsetY - 2.0 * t);
 
   const drawerCount = config.drawer_count ?? 0;
   let drawerFrontH = config.drawer_front_height_mm ?? 180.0;
@@ -836,7 +919,7 @@ function generateSingleModuleParts(
   // Yan Dikme Delikleri
   const sideDrills: DrillPoint[] = [];
   const tHalf = t / 2.0;
-  const bottomConnX = round2(plinthH + tHalf);
+  const bottomConnX = round2(baseOffsetY + tHalf);
   const topConnX = round2(h - tHalf);
   const connYCoords = connectionDepthCoords(d);
 
@@ -871,7 +954,7 @@ function generateSingleModuleParts(
   if (drawerCount > 0) {
     const slideOffsets = [37.0, 165.0, 293.0];
     for (let dIdx = 0; dIdx < drawerCount; dIdx += 1) {
-      const railX = round2(plinthH + t + dIdx * drawerFrontH + 45.0);
+      const railX = round2(baseOffsetY + t + dIdx * drawerFrontH + 45.0);
       for (const frontOff of slideOffsets) {
         const holeY = round2(d - frontOff);
         if (holeY >= 40.0) {
@@ -891,7 +974,7 @@ function generateSingleModuleParts(
   // Sistem 32 Raf Pimi Delikleri
   const remainingClearH = round2(clearInnerH - drawerZoneH);
   if (config.shelf_count > 0 && remainingClearH > 120.0) {
-    const lowerBoundX = plinthH + t + drawerZoneH;
+    const lowerBoundX = baseOffsetY + t + drawerZoneH;
     const stepH = remainingClearH / (config.shelf_count + 1);
     const pinYRear = round2(
       MC.BACK_GROOVE_OFFSET_FROM_REAR_MM +
@@ -933,7 +1016,7 @@ function generateSingleModuleParts(
   const sideGrooves: GroovePath[] = [];
   if (config.back_panel_type === "grooved_8mm") {
     sideGrooves.push({
-      x_start_mm: round2(plinthH + t - MC.BACK_PANEL_INSERTION_PER_SIDE_MM),
+      x_start_mm: round2(baseOffsetY + t - MC.BACK_PANEL_INSERTION_PER_SIDE_MM),
       y_start_mm: MC.BACK_GROOVE_OFFSET_FROM_REAR_MM,
       width_mm: round2(clearInnerH + 2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM),
       length_mm: MC.BACK_GROOVE_WIDTH_MM,
@@ -1087,7 +1170,10 @@ function generateSingleModuleParts(
   parts.push({
     part_id: padId(partCounter++),
     code: `${prefix}TABLA_ALT`,
-    name: `${labelPrefix}Alt Tabla`,
+    name:
+      nicheH > 0
+        ? `${labelPrefix}Üst Dolap Alt Tablası (Niş Üstü)`
+        : `${labelPrefix}Alt Tabla`,
     material: config.body_material,
     thickness_mm: t,
     quantity: 1,
@@ -1104,7 +1190,7 @@ function generateSingleModuleParts(
     grooves: horizGrooves,
     transform_3d: {
       center_x_mm: xOffsetMm,
-      center_y_mm: round2(plinthH + t / 2.0),
+      center_y_mm: round2(baseOffsetY + t / 2.0),
       center_z_mm: 0.0,
       size_x_mm: innerW,
       size_y_mm: t,
@@ -1222,7 +1308,7 @@ function generateSingleModuleParts(
 
     for (let dIdx = 1; dIdx <= drawerCount; dIdx += 1) {
       const dStr = String(dIdx).padStart(2, "0");
-      const centerY = round2(plinthH + t + (dIdx - 0.5) * drawerFrontH);
+      const centerY = round2(baseOffsetY + t + (dIdx - 0.5) * drawerFrontH);
       const klapaZ = round2(d / 2.0 + t / 2.0 + 1.5);
       const boxZ = round2(d / 2.0 - slideLen / 2.0 - 5.0);
       totalHandles += 1;
@@ -1231,7 +1317,7 @@ function generateSingleModuleParts(
         part_id: padId(partCounter++),
         code: `${prefix}CEK_KLAPA_${dStr}`,
         name: `${labelPrefix}Çekmece #${dIdx} Ön Klapası`,
-        material: config.body_material,
+        material: doorMat,
         thickness_mm: t,
         quantity: 1,
         net_length_mm: frontNetW,
@@ -1416,7 +1502,7 @@ function generateSingleModuleParts(
         grooves: [],
         transform_3d: {
           center_x_mm: xOffsetMm,
-          center_y_mm: round2(plinthH + t + drawerZoneH + sIdx * stepH),
+          center_y_mm: round2(baseOffsetY + t + drawerZoneH + sIdx * stepH),
           center_z_mm: shelfZCenter,
           size_x_mm: shelfNetL,
           size_y_mm: t,
@@ -1431,7 +1517,7 @@ function generateSingleModuleParts(
     }
   }
 
-  // Arkalık
+  // Arkalık (Alt cihaz/buzdolabı niş boşluğu varsa arkalık yalnızca üst dolap arkasını kapatır)
   const noEdge: EdgeBandSpec = {
     length_1_mm: 0.0,
     length_2_mm: 0.0,
@@ -1447,7 +1533,7 @@ function generateSingleModuleParts(
     : "3mm Beyaz Duralit Arkalık";
   const backL = isGrooved
     ? round2(clearInnerH + 2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM)
-    : round2(h - plinthH - 4.0);
+    : round2(h - baseOffsetY - 4.0);
   const backW = isGrooved
     ? round2(innerW + 2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM)
     : round2(w - 4.0);
@@ -1479,7 +1565,7 @@ function generateSingleModuleParts(
     grooves: [],
     transform_3d: {
       center_x_mm: xOffsetMm,
-      center_y_mm: round2(plinthH + (h - plinthH) / 2.0),
+      center_y_mm: round2(baseOffsetY + (h - baseOffsetY) / 2.0),
       center_z_mm: backZ,
       size_x_mm: backW,
       size_y_mm: backL,
@@ -1494,6 +1580,7 @@ function generateSingleModuleParts(
 
   // Kapaklar
   let totalHinges = 0;
+  let totalGasStruts = 0;
   const buildDoorDrills = (
     doorH: number,
     doorW: number,
@@ -1531,7 +1618,7 @@ function generateSingleModuleParts(
     return drills;
   };
 
-  const doorAvailH = round2(h - plinthH - drawerZoneH);
+  const doorAvailH = round2(h - baseOffsetY - drawerZoneH);
   if (config.door_type !== "none" && doorAvailH >= 240.0) {
     const doorNetH = round2(doorAvailH - 2.0 * MC.DOOR_OUTER_GAP_MM);
     const doorEdge: EdgeBandSpec = {
@@ -1540,10 +1627,81 @@ function generateSingleModuleParts(
       width_1_mm: config.front_pvc_thickness_mm,
       width_2_mm: config.front_pvc_thickness_mm,
     };
-    const doorYCenter = round2(plinthH + drawerZoneH + doorAvailH / 2.0);
+    const doorYCenter = round2(baseOffsetY + drawerZoneH + doorAvailH / 2.0);
     const doorZCenter = round2(d / 2.0 + t / 2.0 + 1.5);
 
-    if (
+    if (config.door_type === "flap_up") {
+      const doorNetW = round2(w - 2.0 * MC.DOOR_OUTER_GAP_MM);
+      const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(
+        doorNetH,
+        doorNetW,
+        doorEdge
+      );
+      const topX = round2(doorNetH - MC.HINGE_CUP_CENTER_FROM_EDGE_MM);
+      const leftY = round2(
+        Math.min(MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, doorNetW * 0.2)
+      );
+      const rightY = round2(
+        Math.max(
+          doorNetW - MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM,
+          doorNetW * 0.8
+        )
+      );
+      const dDrills: DrillPoint[] = [
+        {
+          x_mm: topX,
+          y_mm: leftY,
+          diameter_mm: MC.HINGE_CUP_DIAMETER_MM,
+          depth_mm: MC.HINGE_CUP_DEPTH_MM,
+          layer: MC.LAYER_HINGE_CUP,
+          description: "Üst Kalkar Kapak Sol Tas Menteşe Yuvası (Ø35mm)",
+        },
+        {
+          x_mm: topX,
+          y_mm: rightY,
+          diameter_mm: MC.HINGE_CUP_DIAMETER_MM,
+          depth_mm: MC.HINGE_CUP_DEPTH_MM,
+          layer: MC.LAYER_HINGE_CUP,
+          description: "Üst Kalkar Kapak Sağ Tas Menteşe Yuvası (Ø35mm)",
+        },
+      ];
+      totalHinges += 2;
+      totalHandles += 1;
+      totalGasStruts += 2;
+
+      parts.push({
+        part_id: padId(partCounter++),
+        code: `${prefix}KAPAK_KALKAR`,
+        name: `${labelPrefix}Kalkar Kapak (Gazlı Pistonlu)`,
+        material: doorMat,
+        thickness_mm: t,
+        quantity: 1,
+        net_length_mm: doorNetH,
+        net_width_mm: doorNetW,
+        cut_length_mm: dCutL,
+        cut_width_mm: dCutW,
+        pvc_deduction_length_mm: dDedL,
+        pvc_deduction_width_mm: dDedW,
+        edge_band: doorEdge,
+        area_m2: round4((doorNetH * doorNetW) / 1_000_000.0),
+        grain_direction: "length",
+        drills: dDrills,
+        grooves: [],
+        transform_3d: {
+          center_x_mm: xOffsetMm,
+          center_y_mm: doorYCenter,
+          center_z_mm: doorZCenter,
+          size_x_mm: doorNetW,
+          size_y_mm: doorNetH,
+          size_z_mm: t,
+          color_hex: config.door_color_hex,
+          is_door: true,
+          is_drawer: false,
+          hinge_side: "top",
+          module_index: moduleIdx,
+        },
+      });
+    } else if (
       config.door_type === "single_left" ||
       config.door_type === "single_right"
     ) {
@@ -1564,7 +1722,7 @@ function generateSingleModuleParts(
         name: hingeLeft
           ? `${labelPrefix}Tek Kapak (Sol Menteşeli)`
           : `${labelPrefix}Tek Kapak (Sağ Menteşeli)`,
-        material: config.body_material,
+        material: doorMat,
         thickness_mm: t,
         quantity: 1,
         net_length_mm: doorNetH,
@@ -1622,7 +1780,7 @@ function generateSingleModuleParts(
           part_id: padId(partCounter++),
           code: `${prefix}KAPAK_${sideCode}`,
           name: `${labelPrefix}${sideLabel}`,
-          material: config.body_material,
+          material: doorMat,
           thickness_mm: t,
           quantity: 1,
           net_length_mm: doorNetH,
@@ -1655,7 +1813,7 @@ function generateSingleModuleParts(
   }
 
   const minifixSets = connectionDepthCoords(d).length * 4 + drawerCount * 4;
-  const dowelCount = minifixSets + (config.has_plinth ? 8 : 0);
+  const dowelCount = minifixSets + (config.has_plinth && plinthH > 0 ? 8 : 0);
 
   return {
     parts,
@@ -1664,6 +1822,7 @@ function generateSingleModuleParts(
     dowelCount,
     totalHinges,
     totalHandles,
+    totalGasStruts,
   };
 }
 
@@ -1682,6 +1841,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
   let totalDowels = 0;
   let totalHinges = 0;
   let totalHandles = 0;
+  let totalGasStruts = 0;
   let totalShelfPins = 0;
   let totalDrawerSlides = 0;
 
@@ -1702,6 +1862,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     totalDowels += res.dowelCount;
     totalHinges += res.totalHinges;
     totalHandles += res.totalHandles;
+    totalGasStruts += res.totalGasStruts;
     totalShelfPins += modCfg.shelf_count * 4;
     totalDrawerSlides += modCfg.drawer_count ?? 0;
   });
@@ -1778,6 +1939,15 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       unit: "Adet",
       quantity: totalHinges,
       note: "Kapak bağlantıları için",
+    });
+  }
+  if (totalGasStruts > 0) {
+    hardware.push({
+      code: "HRD-PSTN-100",
+      name: "Gazlı Piston Kalkar Kapak Makası (100N)",
+      unit: "Adet",
+      quantity: totalGasStruts,
+      note: "Üst kalkar kapak sağ/sol amortisörleri",
     });
   }
   if (totalHandles > 0) {

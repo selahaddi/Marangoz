@@ -40,7 +40,12 @@ class CabinetParseSchema(BaseModel):
     drawer_front_height_mm: float = Field(default=180.0, description="Çekmece klapa yüksekliği (mm)")
     has_plinth: bool = Field(default=True, description="Alt baza var mı")
     plinth_height_mm: float = Field(default=80.0, description="Baza yüksekliği (mm)")
+    appliance_niche_height_mm: float = Field(
+        default=0.0,
+        description="Alt açık cihaz/buzdolabı niş boşluğu yüksekliği (mm). Yoksa 0.",
+    )
     body_material: str = Field(default="18mm Beyaz Suntalam", description="Gövde malzemesi")
+    door_material: str = Field(default="", description="Kapak malzemesi (belirtilmişse)")
     body_color_hex: str = Field(default="#F4F1EA", description="Gövde renk hex kodu")
     door_color_hex: str = Field(default="#C89F70", description="Kapak renk hex kodu")
     front_pvc_thickness_mm: float = Field(default=2.0, description="Ön kenar PVC kalınlığı (mm)")
@@ -56,8 +61,13 @@ class SemanticParserEngine:
         "Sen bir mobilya fabrikası için Doğal Dil Ayrıştırıcısısın (Semantic Parser). "
         "Kullanıcının Türkçe veya İngilizce dolap tarifini dikkatle oku ve yalnızca "
         "CabinetConfig JSON şemasına uygun parametreleri çıkar. "
-        "Ölçüler santimetre (cm) verilmişse milimetreye (mm) çevir (örn: 210 cm -> 2100 mm). "
-        "Hiçbir kesim veya delik hesabı yapma, sadece dış ölçüleri ve özellikleri çıkar."
+        "Ölçüler santimetre (cm) verilmişse milimetreye (mm) çevir (örn: 235 cm -> 2350 mm). "
+        "Toplam dış ölçüleri width_mm, height_mm, depth_mm olarak yaz; alt kısımda buzdolabı veya "
+        "cihaz için açık bir niş/boşluk yüksekliği tarif edilmişse (örn: 185 cm açık niş) bunu "
+        "appliance_niche_height_mm alanına mm cinsinden (1850) yaz ve has_plinth=false yap. "
+        "Gazlı pistonlu / yukarı doğru açılan kalkar kapak istenmişse door_type='flap_up' seç. "
+        "İstemde açıkça raf adedi belirtilmemişse ve üst kalkar kapaklı niş dolabıysa shelf_count=0 ver. "
+        "Hiçbir kesim veya delik hesabı yapma, sadece şema parametrelerini çıkar."
     )
 
     COLOR_MAP: dict[str, tuple[str, str]] = {
@@ -202,10 +212,39 @@ class SemanticParserEngine:
                 width_mm = d1 if d1 != depth_mm else sorted_dims[1]
                 height_mm = d2 if d2 not in (width_mm, depth_mm) else sorted_dims[2]
 
+        # 2b. Alt Cihaz / Buzdolabı Niş Boşluğu Tespiti
+        appliance_niche_height_mm = 0.0
+        niche_match = (
+            re.search(
+                r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde\s*)?(?:açık\s*)?(?:bir\s*)?(?:niş|nis|boşluk|bosluk)",
+                text,
+            )
+            or re.search(
+                r"(?:niş|nis|boşluk|bosluk)[^.]*?(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|boy)",
+                text,
+            )
+        )
+        if niche_match:
+            appliance_niche_height_mm = cls._to_mm(
+                niche_match.group(1), niche_match.group(2)
+            )
+        elif "buzdolab" in text and any(
+            k in text for k in ("niş", "nis", "boşluk", "bosluk", "çevreleme", "gömme")
+        ):
+            appliance_niche_height_mm = min(1850.0, max(0.0, height_mm - 450.0))
+
+        if appliance_niche_height_mm > 0:
+            has_plinth = False
+            plinth_height_mm = 0.0
+
         # 3. Raf ve Çekmece Sayısı
         shelf_count = (
             0
-            if cabinet_type in (CabinetType.DRESSER, CabinetType.BATHROOM_VANITY)
+            if (
+                cabinet_type in (CabinetType.DRESSER, CabinetType.BATHROOM_VANITY)
+                or appliance_niche_height_mm > 0
+                or "buzdolab" in text
+            )
             else (2 if cabinet_type == CabinetType.KITCHEN_WALL else 4)
         )
         if "rafsız" in text or "rafsiz" in text:
@@ -235,11 +274,23 @@ class SemanticParserEngine:
         )
         if any(k in text for k in ("kapaksız", "kapaksiz", "açık raf", "acik raf")):
             door_type = DoorType.NONE
+        elif any(
+            k in text
+            for k in (
+                "kalkar kapak",
+                "kalkar",
+                "gazlı piston",
+                "gazli piston",
+                "yukarı doğru açılan",
+                "yukarı açılır",
+            )
+        ):
+            door_type = DoorType.FLAP_UP
         elif any(k in text for k in ("çift kapak", "cift kapak", "iki kapak", "2 kapak")):
             door_type = DoorType.DOUBLE
         elif any(k in text for k in ("sağ kapak", "sag kapak", "sağa açılır")):
             door_type = DoorType.SINGLE_RIGHT
-        elif any(k in text for k in ("tek kapak", "sol kapak", "1 kapak", "kalkar kapak", "kalkar", "tek parça")):
+        elif any(k in text for k in ("tek kapak", "sol kapak", "1 kapak", "tek parça")):
             door_type = DoorType.SINGLE_LEFT
 
         # 5. Baza Bilgisi
@@ -258,18 +309,44 @@ class SemanticParserEngine:
         body_color_hex = "#F4F1EA"
         door_color_hex = "#D7C4A3"
         body_material = "18mm Beyaz Suntalam"
+        door_material = ""
 
         for color_word, (hex_val, mat_label) in cls.COLOR_MAP.items():
-            if f"{color_word} kapak" in text:
-                door_color_hex = hex_val
-            elif f"{color_word} gövde" in text or color_word in text:
+            body_clause = re.search(
+                rf"(?:gövde|govde)[^.,;]*\b{color_word}[^.,;]*|\b{color_word}[^.,;]*(?:gövde|govde)[^.,;]*",
+                text,
+            )
+            door_clause = re.search(
+                rf"kapak[^.,;]*\b{color_word}[^.,;]*|\b{color_word}[^.,;]*kapak[^.,;]*",
+                text,
+            )
+            if body_clause:
                 body_color_hex = hex_val
-                body_material = mat_label
+                clause_str = body_clause.group(0)
+                if "mdf" in clause_str:
+                    body_material = mat_label.replace("Suntalam", "MDF-Lam")
+                elif "suntalam" in clause_str:
+                    body_material = mat_label.replace("MDF-Lam", "Suntalam")
+                else:
+                    body_material = mat_label
+            if door_clause:
+                door_color_hex = hex_val
+                clause_str = door_clause.group(0)
+                if "mdf" in clause_str:
+                    door_material = mat_label.replace("Suntalam", "MDF-Lam")
+                elif "suntalam" in clause_str:
+                    door_material = mat_label.replace("MDF-Lam", "Suntalam")
+                else:
+                    door_material = mat_label
+            if not body_clause and not door_clause and color_word in text:
+                body_color_hex = hex_val
+                body_material = (
+                    mat_label.replace("Suntalam", "MDF-Lam")
+                    if "mdf" in text
+                    else mat_label
+                )
                 if "kapak" not in text:
                     door_color_hex = hex_val
-
-        if "mdf" in text and "Suntalam" in body_material:
-            body_material = body_material.replace("Suntalam", "MDF-Lam")
 
         # 7. Arkalık ve Plaka Ebadı
         back_panel_type = BackPanelType.GROOVED_8MM
@@ -286,6 +363,9 @@ class SemanticParserEngine:
         depth_mm = max(200.0, min(900.0, depth_mm))
         shelf_count = max(0, min(12, shelf_count))
         drawer_count = max(0, min(6, drawer_count))
+        appliance_niche_height_mm = max(
+            0.0, min(height_mm - 260.0, appliance_niche_height_mm)
+        )
 
         return CabinetConfig(
             name=name,
@@ -298,7 +378,9 @@ class SemanticParserEngine:
             drawer_count=drawer_count,
             has_plinth=has_plinth,
             plinth_height_mm=plinth_height_mm,
+            appliance_niche_height_mm=appliance_niche_height_mm,
             body_material=body_material,
+            door_material=door_material,
             body_color_hex=body_color_hex,
             door_color_hex=door_color_hex,
             front_pvc_thickness_mm=2.0,
@@ -327,15 +409,20 @@ class SemanticParserEngine:
             client = genai.Client(api_key=api_key)
             for model_name in models_to_try:
                 try:
+                    gen_config = types.GenerateContentConfig(
+                        system_instruction=cls.SYSTEM_INSTRUCTION,
+                        response_mime_type="application/json",
+                        response_schema=CabinetParseSchema,
+                        temperature=0.0,
+                    )
+                    if model_name.startswith("gemini-2.5"):
+                        gen_config.thinking_config = types.ThinkingConfig(
+                            thinking_budget=0
+                        )
                     response = client.models.generate_content(
                         model=model_name,
                         contents=prompt,
-                        config=types.GenerateContentConfig(
-                            system_instruction=cls.SYSTEM_INSTRUCTION,
-                            response_mime_type="application/json",
-                            response_schema=CabinetParseSchema,
-                            temperature=0.0,
-                        ),
+                        config=gen_config,
                     )
                     if response.text:
                         parsed = CabinetParseSchema.model_validate_json(response.text)
@@ -347,6 +434,11 @@ class SemanticParserEngine:
                         drawer_front_height = max(
                             120.0, min(350.0, parsed.drawer_front_height_mm or 180.0)
                         )
+                        niche_h = max(
+                            0.0,
+                            min(height_mm - 260.0, parsed.appliance_niche_height_mm or 0.0),
+                        )
+                        has_plinth = False if niche_h > 0 else parsed.has_plinth
 
                         return CabinetConfig(
                             name=parsed.name,
@@ -358,9 +450,11 @@ class SemanticParserEngine:
                             door_type=parsed.door_type,
                             drawer_count=drawer_count,
                             drawer_front_height_mm=drawer_front_height,
-                            has_plinth=parsed.has_plinth,
-                            plinth_height_mm=parsed.plinth_height_mm if parsed.has_plinth else 0.0,
+                            has_plinth=has_plinth,
+                            plinth_height_mm=parsed.plinth_height_mm if has_plinth else 0.0,
+                            appliance_niche_height_mm=niche_h,
                             body_material=parsed.body_material,
+                            door_material=parsed.door_material or "",
                             body_color_hex=parsed.body_color_hex,
                             door_color_hex=parsed.door_color_hex,
                             front_pvc_thickness_mm=parsed.front_pvc_thickness_mm,

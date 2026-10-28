@@ -15,7 +15,7 @@ export type CabinetType =
   | "shoe_cabinet"
   | "tv_unit";
 
-export type DoorType = "none" | "single_left" | "single_right" | "double";
+export type DoorType = "none" | "single_left" | "single_right" | "double" | "flap_up";
 
 export type BackPanelType = "grooved_8mm" | "nailed_3mm";
 
@@ -44,10 +44,12 @@ export interface CabinetConfig {
   door_type: DoorType;
   drawer_count: number;
   drawer_front_height_mm: number;
+  appliance_niche_height_mm?: number;
   additional_modules?: CabinetConfig[];
   has_plinth: boolean;
   plinth_height_mm: number;
   body_material: string;
+  door_material?: string;
   body_color_hex: string;
   door_color_hex: string;
   front_pvc_thickness_mm: number;

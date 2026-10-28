@@ -20,6 +20,7 @@ import { NestingView } from "./components/NestingView";
 import {
   generateProductionPackage,
   parseNaturalLanguagePrompt,
+  type ParseResult,
 } from "./services/api";
 import { ROOM_LINE_PRESETS } from "./services/clientEngine";
 import {
@@ -82,6 +83,7 @@ export function App() {
   const [apiKey, setApiKey] = useState<string>(() => getStoredGeminiApiKey());
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
   const [tempApiKey, setTempApiKey] = useState<string>("");
+  const [parseInfo, setParseInfo] = useState<ParseResult | null>(null);
 
   const allModules: CabinetConfig[] = [
     config,
@@ -184,9 +186,10 @@ export function App() {
     setActivePresetId(null);
     setActiveModuleIndex(0);
     try {
-      const parsedConfig = await parseNaturalLanguagePrompt(promptText);
-      setConfig(parsedConfig);
-      await runGeneration(parsedConfig);
+      const result = await parseNaturalLanguagePrompt(promptText);
+      setParseInfo(result);
+      setConfig(result.config);
+      await runGeneration(result.config);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Doğal dil ayrıştırma hatası.";
@@ -236,7 +239,13 @@ export function App() {
               className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/20"
             >
               <Sparkles className="h-3.5 w-3.5 text-sky-400" />
-              <span>Gemini AI {apiKey ? "Bağlı" : "Ayarla"}</span>
+              <span>
+                {parseInfo && parseInfo.engine !== "rule_based"
+                  ? "Gemini AI Aktif"
+                  : apiKey
+                  ? "Gemini: Kişisel Anahtar"
+                  : "Gemini AI Ayarları"}
+              </span>
             </button>
 
             {pkg && (
@@ -318,6 +327,44 @@ export function App() {
               </button>
             ))}
           </div>
+
+          {/* Ayrıştırma Motoru Durumu (hangi motor çalıştı, AI neden devre dışı) */}
+          {parseInfo && (
+            <div
+              role="status"
+              className={`mt-3 rounded-xl border px-3 py-2 text-[11px] ${
+                parseInfo.engine === "rule_based"
+                  ? "border-amber-500/40 bg-amber-950/40 text-amber-200"
+                  : "border-emerald-500/40 bg-emerald-950/40 text-emerald-200"
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Sparkles className="h-3.5 w-3.5" />
+                <span className="font-semibold">
+                  Ayrıştırma motoru: {parseInfo.engineLabel}
+                </span>
+                {parseInfo.engine === "rule_based" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTempApiKey(apiKey);
+                      setShowKeyModal(true);
+                    }}
+                    className="rounded-md border border-amber-400/50 px-2 py-0.5 font-semibold hover:bg-amber-500/20"
+                  >
+                    Yapay zekâyı etkinleştir
+                  </button>
+                )}
+              </div>
+              {parseInfo.engine === "rule_based" && parseInfo.aiErrors.length > 0 && (
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-amber-300/90">
+                  {parseInfo.aiErrors.map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </section>
 
         {/* Çoklu Modül Oda & Kategori Hatları (6 Farklı Oda/Kategori Hattı) */}
@@ -618,9 +665,40 @@ export function App() {
                     <option value="double">Çift Kapak</option>
                     <option value="single_left">Tek Kapak (Sol Menteşe)</option>
                     <option value="single_right">Tek Kapak (Sağ Menteşe)</option>
+                    <option value="flap_up">Kalkar Kapak (Gazlı Pistonlu)</option>
                     <option value="none">Kapaksız (Açık)</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Alt Cihaz / Buzdolabı Niş Boşluğu */}
+              <div>
+                <label
+                  htmlFor="appliance-niche-mm"
+                  className="block text-xs font-medium text-slate-300"
+                >
+                  Alt Cihaz / Buzdolabı Açık Niş Yüksekliği
+                </label>
+                <span id="niche-hint" className="field-hint">
+                  0–2200 mm (0 = Tam Boy Kapalı Gövde, örn. 1850 = Buzdolabı Nişi)
+                </span>
+                <input
+                  id="appliance-niche-mm"
+                  type="number"
+                  min={0}
+                  max={2200}
+                  aria-describedby="niche-hint"
+                  value={activeModule.appliance_niche_height_mm ?? 0}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    updateActiveModule({
+                      appliance_niche_height_mm: val,
+                      ...(val > 0 ? { has_plinth: false, plinth_height_mm: 0 } : {}),
+                    });
+                  }}
+                  className="param-input w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100"
+                />
+                <div className="error-msg">0–2200 mm arası niş yüksekliği giriniz.</div>
               </div>
 
               {/* Çekmece Adedi ve Klapa Yüksekliği */}
@@ -960,10 +1038,11 @@ export function App() {
             </div>
 
             <p className="mt-3 text-xs leading-relaxed text-slate-300">
-              Vercel veya doğrudan tarayıcı ortamında serbest Türkçe/İngilizce dolap
-              tariflerini Gemini 2.5 Flash ile ayrıştırmak için Google AI Studio API
-              anahtarınızı girebilirsiniz. Anahtar yalnızca tarayıcınızın yerel hafızasında
-              (localStorage) saklanır.
+              Varsayılan olarak yapay zekâ, sunucudaki <code>GEMINI_API_KEY</code>{" "}
+              ortam değişkeniyle (Vercel &gt; Settings &gt; Environment Variables)
+              çalışır ve anahtar tarayıcıya hiç gönderilmez. Sunucu anahtarı yoksa
+              buraya kendi Google AI Studio anahtarınızı girebilirsiniz; anahtar
+              yalnızca bu tarayıcının yerel hafızasında (localStorage) saklanır.
             </p>
 
             <div className="mt-4">
@@ -978,7 +1057,7 @@ export function App() {
                 type="password"
                 value={tempApiKey}
                 onChange={(e) => setTempApiKey(e.target.value)}
-                placeholder="AQ.Ab8... veya AIza..."
+                placeholder="AIza... (Google AI Studio anahtarı)"
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-sky-500 focus:outline-none"
               />
             </div>

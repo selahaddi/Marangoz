@@ -68,6 +68,40 @@ function PanelMesh3D({
 
   // Kapak ise menteşe ekseni etrafında gerçekçi açılma dönüşü uygula
   if (t3d.is_door) {
+    if (t3d.hinge_side === "top") {
+      const pivotY = cy + sy / 2.0;
+      const offsetY = -sy / 2.0;
+      const openAngleX = doorsOpen ? -Math.PI * 0.56 : 0.0;
+
+      return (
+        <group position={[cx, pivotY, cz]} rotation={[openAngleX, 0, 0]}>
+          <mesh
+            position={[0, offsetY, 0]}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+            }}
+            onPointerOver={(e) => {
+              e.stopPropagation();
+              setHovered(true);
+            }}
+            onPointerOut={() => setHovered(false)}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[sx, sy, sz]} />
+            <meshStandardMaterial
+              color={displayColor}
+              roughness={0.45}
+              metalness={0.08}
+              wireframe={wireframe}
+            />
+            <Edges threshold={15} color={isSelected ? "#0284C7" : "#334155"} />
+          </mesh>
+        </group>
+      );
+    }
+
     const isLeftHinge = t3d.hinge_side === "left";
     const pivotX = isLeftHinge ? cx - sx / 2.0 : cx + sx / 2.0;
     const offsetX = isLeftHinge ? sx / 2.0 : -sx / 2.0;
