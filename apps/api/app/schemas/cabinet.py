@@ -19,11 +19,15 @@ class ApiResponse(BaseModel, Generic[T]):
 
 
 class CabinetType(StrEnum):
-    """Desteklenen modüler dolap tipleri."""
+    """Desteklenen modüler dolap ve oda tipleri."""
 
     WARDROBE = "wardrobe"
     KITCHEN_BASE = "kitchen_base"
     KITCHEN_WALL = "kitchen_wall"
+    KITCHEN_TALL = "kitchen_tall"
+    BATHROOM_VANITY = "bathroom_vanity"
+    BATHROOM_TALL = "bathroom_tall"
+    DRESSER = "dresser"
     BOOKSHELF = "bookshelf"
     SHOE_CABINET = "shoe_cabinet"
     TV_UNIT = "tv_unit"
@@ -125,6 +129,22 @@ class CabinetConfig(BaseModel):
     door_type: DoorType = Field(
         default=DoorType.DOUBLE,
         description="Kapak tipi (none, single_left, single_right, double)",
+    )
+    drawer_count: int = Field(
+        default=0,
+        ge=0,
+        le=6,
+        description="Modül alt kısmındaki çekmece adedi (0-6)",
+    )
+    drawer_front_height_mm: float = Field(
+        default=180.0,
+        ge=120.0,
+        le=350.0,
+        description="Her bir çekmece ön klapa yüksekliği (mm)",
+    )
+    additional_modules: list["CabinetConfig"] = Field(
+        default_factory=list,
+        description="Çoklu modül / oda hattı içindeki yan yana ek modüller",
     )
     has_plinth: bool = Field(
         default=True,
@@ -234,8 +254,12 @@ class Box3DTransform(BaseModel):
     size_z_mm: float = Field(gt=0.0, description="3D Z boyutu (mm)")
     color_hex: str = Field(description="Parça 3D rengi (HEX)")
     is_door: bool = Field(default=False, description="Kapak parçası mı?")
+    is_drawer: bool = Field(default=False, description="Çekmece parçası mı?")
     hinge_side: str | None = Field(
         default=None, description="Kapak menteşe yönü (left / right / None)"
+    )
+    module_index: int = Field(
+        default=1, ge=1, description="Çoklu modül hattındaki modül sıra numarası"
     )
 
 

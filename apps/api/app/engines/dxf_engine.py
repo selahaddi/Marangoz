@@ -28,6 +28,7 @@ class DXFProductionEngine:
         (MC.LAYER_DOWEL, 4),         # Camgöbeği: Ø8 mm Kavela deliği
         (MC.LAYER_SHELF_PIN, 5),     # Mavi: Ø5 mm Sistem 32 raf pimi deliği
         (MC.LAYER_HINGE_CUP, 6),     # Macenta: Ø35 mm Tas menteşe yuvası
+        (MC.LAYER_DRAWER_SLIDE, 30), # Turuncu: Ø5 mm Çekmece rayı montaj deliği
         ("ANNOTATION_INFO", 8),      # Gri: Parça kimliği ve PVC etiketleri
     )
 

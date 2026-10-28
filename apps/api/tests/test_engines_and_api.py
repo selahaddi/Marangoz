@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import ManufacturingConstants as MC
 from app.engines.bom_engine import BOMEngine
+from app.engines.cnc_post_engine import CNCPostProcessorEngine
 from app.engines.dxf_engine import DXFProductionEngine
 from app.engines.geometry_engine import CabinetGeometryEngine
 from app.engines.nesting_engine import NestingEngine
@@ -162,5 +163,53 @@ def test_semantic_parser_and_fastapi_endpoints() -> None:
         assert "3d_model/cabinet_model.glb" in names
         assert "bom/kesim_ve_malzeme_listesi.csv" in names
         assert any(n.startswith("cnc_dxf/") and n.endswith(".dxf") for n in names)
+        assert any(n.startswith("cnc_gcode/") and n.endswith(".nc") for n in names)
+        assert any(n.startswith("cnc_mpr/") and n.endswith(".mpr") for n in names)
         assert any(n.startswith("nesting/") and n.endswith(".svg") for n in names)
+
+
+def test_drawer_box_and_multi_module_room_line() -> None:
+    """Çekmece kasası, teleskopik ray delikleri, çoklu modül oda hattı ve CNC post-processor'ü doğrular."""
+    mod1 = CabinetConfig(
+        name="Sol Gardırop",
+        width_mm=900.0,
+        height_mm=2100.0,
+        depth_mm=580.0,
+        shelf_count=3,
+        drawer_count=2,
+        drawer_front_height_mm=180.0,
+        door_type=DoorType.DOUBLE,
+        additional_modules=[
+            CabinetConfig(
+                name="Sağ Çekmeceli Modül",
+                width_mm=600.0,
+                height_mm=2100.0,
+                depth_mm=580.0,
+                shelf_count=4,
+                drawer_count=3,
+                drawer_front_height_mm=180.0,
+                door_type=DoorType.SINGLE_RIGHT,
+            )
+        ],
+    )
+    bom = BOMEngine.generate_bom(mod1)
+
+    codes = [p.code for p in bom.parts]
+    assert "M1_YAN_SOL" in codes
+    assert "M1_CEK_KLAPA_01" in codes
+    assert "M2_YAN_SAG" in codes
+    assert "M2_CEK_KLAPA_03" in codes
+
+    # Ray montaj delikleri kontrolü
+    m1_yan = next(p for p in bom.parts if p.code == "M1_YAN_SOL")
+    slide_drills = [d for d in m1_yan.drills if d.layer == MC.LAYER_DRAWER_SLIDE]
+    assert len(slide_drills) == 6  # 2 çekmece x 3 delik
+
+    # G-Code ve WoodWOP MPR üretimi kontrolü
+    gcode_str = CNCPostProcessorEngine.export_part_gcode_string(m1_yan)
+    mpr_str = CNCPostProcessorEngine.export_part_mpr_string(m1_yan)
+    assert "G21 G90" in gcode_str
+    assert "G81" in gcode_str
+    assert "<100 \\WerkStck\\" in mpr_str
+    assert "<102 \\BohrVert\\" in mpr_str
 

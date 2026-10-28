@@ -64,7 +64,7 @@ class SemanticParserEngine:
         """Metin içerisindeki ölçü, raf, kapak, renk ve malzeme ifadelerini deterministik ayrıştırır."""
         text = prompt.lower()
 
-        # 1. Dolap Tipi Tespiti
+        # 1. Dolap / Oda Tipi Tespiti
         cabinet_type = CabinetType.WARDROBE
         name = "Parametrik Gardırop Modülü"
         width_mm = 900.0
@@ -72,6 +72,7 @@ class SemanticParserEngine:
         depth_mm = 580.0
         has_plinth = True
         plinth_height_mm = 80.0
+        drawer_count = 0
 
         if any(k in text for k in ("mutfak üst", "üst modül", "duvar dolab")):
             cabinet_type = CabinetType.KITCHEN_WALL
@@ -79,24 +80,47 @@ class SemanticParserEngine:
             width_mm, height_mm, depth_mm = 800.0, 720.0, 350.0
             has_plinth = False
             plinth_height_mm = 0.0
-        elif any(k in text for k in ("mutfak alt", "alt modül", "tezgah altı")):
+        elif any(k in text for k in ("boy kiler", "ankastre kule", "kiler dolab")):
+            cabinet_type = CabinetType.KITCHEN_TALL
+            name = "Mutfak Boy Kiler / Ankastre Modülü"
+            width_mm, height_mm, depth_mm = 600.0, 2100.0, 580.0
+            has_plinth = True
+            plinth_height_mm = 100.0
+        elif any(k in text for k in ("mutfak alt", "alt modül", "tezgah altı", "evye")):
             cabinet_type = CabinetType.KITCHEN_BASE
             name = "Mutfak Alt Dolap Modülü"
             width_mm, height_mm, depth_mm = 800.0, 820.0, 560.0
             has_plinth = True
             plinth_height_mm = 100.0
-        elif any(k in text for k in ("kitaplık", "kitaplik")):
+        elif any(k in text for k in ("banyo boy", "kirli sepet")):
+            cabinet_type = CabinetType.BATHROOM_TALL
+            name = "Banyo Boy Dolabı Modülü"
+            width_mm, height_mm, depth_mm = 450.0, 1800.0, 380.0
+        elif any(k in text for k in ("banyo", "lavabo")):
+            cabinet_type = CabinetType.BATHROOM_VANITY
+            name = "Banyo Lavabo Altı Modülü"
+            width_mm, height_mm, depth_mm = 800.0, 650.0, 480.0
+            has_plinth = False
+            plinth_height_mm = 0.0
+            drawer_count = 2
+        elif any(k in text for k in ("şifonyer", "sifonyer", "komodin")):
+            cabinet_type = CabinetType.DRESSER
+            name = "Şifonyer / Komodin Modülü"
+            width_mm, height_mm, depth_mm = 900.0, 860.0, 480.0
+            drawer_count = 4
+        elif any(k in text for k in ("kitaplık", "kitaplik", "dosya", "klasör")):
             cabinet_type = CabinetType.BOOKSHELF
-            name = "Parametrik Kitaplık Modülü"
-            width_mm, height_mm, depth_mm = 800.0, 1800.0, 320.0
-        elif any(k in text for k in ("ayakkabılık", "ayakkabilik", "portmanto")):
+            name = "Parametrik Kitaplık / Ofis Modülü"
+            width_mm, height_mm, depth_mm = 800.0, 1800.0, 350.0
+        elif any(k in text for k in ("ayakkabılık", "ayakkabilik", "portmanto", "vestiyer")):
             cabinet_type = CabinetType.SHOE_CABINET
-            name = "Ayakkabılık / Portmanto Modülü"
+            name = "Vestiyer / Portmanto Modülü"
             width_mm, height_mm, depth_mm = 900.0, 1200.0, 380.0
         elif any(k in text for k in ("tv", "televizyon", "konsol")):
             cabinet_type = CabinetType.TV_UNIT
-            name = "TV Ünitesi / Konsol Modülü"
+            name = "TV Ünitesi / Medya Konsolu"
             width_mm, height_mm, depth_mm = 1600.0, 500.0, 420.0
+            drawer_count = 2
 
         # 2. Ölçülerin Çıkarılması (Önce açık etiketli ifadeler, sonra WxHxD kalıbı)
         w_match = re.search(
@@ -146,8 +170,12 @@ class SemanticParserEngine:
                 width_mm = d1 if d1 != depth_mm else sorted_dims[1]
                 height_mm = d2 if d2 not in (width_mm, depth_mm) else sorted_dims[2]
 
-        # 3. Raf Sayısı
-        shelf_count = 4 if cabinet_type != CabinetType.KITCHEN_WALL else 2
+        # 3. Raf ve Çekmece Sayısı
+        shelf_count = (
+            0
+            if cabinet_type in (CabinetType.DRESSER, CabinetType.BATHROOM_VANITY)
+            else (2 if cabinet_type == CabinetType.KITCHEN_WALL else 4)
+        )
         if "rafsız" in text or "rafsiz" in text:
             shelf_count = 0
         else:
@@ -155,10 +183,22 @@ class SemanticParserEngine:
             if shelf_match:
                 shelf_count = int(shelf_match.group(1))
 
+        if "çekmecesiz" in text or "cekmecesiz" in text:
+            drawer_count = 0
+        else:
+            drawer_match = re.search(r"(\d+)\s*(?:adet\s*)?(?:frenli\s*)?[çc]ekmece", text)
+            if drawer_match:
+                drawer_count = int(drawer_match.group(1))
+
         # 4. Kapak Tipi
         door_type = (
             DoorType.NONE
-            if cabinet_type == CabinetType.BOOKSHELF
+            if cabinet_type
+            in (
+                CabinetType.BOOKSHELF,
+                CabinetType.DRESSER,
+                CabinetType.BATHROOM_VANITY,
+            )
             else DoorType.DOUBLE
         )
         if any(k in text for k in ("kapaksız", "kapaksiz", "açık raf", "acik raf")):
@@ -213,6 +253,7 @@ class SemanticParserEngine:
         height_mm = max(300.0, min(2750.0, height_mm))
         depth_mm = max(200.0, min(900.0, depth_mm))
         shelf_count = max(0, min(12, shelf_count))
+        drawer_count = max(0, min(6, drawer_count))
 
         return CabinetConfig(
             name=name,
@@ -222,6 +263,7 @@ class SemanticParserEngine:
             depth_mm=depth_mm,
             shelf_count=shelf_count,
             door_type=door_type,
+            drawer_count=drawer_count,
             has_plinth=has_plinth,
             plinth_height_mm=plinth_height_mm,
             body_material=body_material,

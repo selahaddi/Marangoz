@@ -7,6 +7,10 @@ export type CabinetType =
   | "wardrobe"
   | "kitchen_base"
   | "kitchen_wall"
+  | "kitchen_tall"
+  | "bathroom_vanity"
+  | "bathroom_tall"
+  | "dresser"
   | "bookshelf"
   | "shoe_cabinet"
   | "tv_unit";
@@ -38,6 +42,9 @@ export interface CabinetConfig {
   depth_mm: number;
   shelf_count: number;
   door_type: DoorType;
+  drawer_count: number;
+  drawer_front_height_mm: number;
+  additional_modules?: CabinetConfig[];
   has_plinth: boolean;
   plinth_height_mm: number;
   body_material: string;
@@ -47,6 +54,15 @@ export interface CabinetConfig {
   hidden_pvc_thickness_mm: number;
   back_panel_type: BackPanelType;
   sheet_size: SheetSizeOption;
+}
+
+export interface RoomLinePreset {
+  id: string;
+  category: string;
+  title: string;
+  subtitle: string;
+  totalWidthMm: number;
+  config: CabinetConfig;
 }
 
 export interface DrillPoint {
@@ -76,7 +92,9 @@ export interface Box3DTransform {
   size_z_mm: number;
   color_hex: string;
   is_door: boolean;
+  is_drawer: boolean;
   hinge_side: string | null;
+  module_index: number;
 }
 
 export interface PanelPart {
@@ -173,4 +191,3 @@ export interface ProductionPackageResponse {
   dxf_filenames: string[];
   zip_download_url: string;
 }
-

@@ -4,10 +4,13 @@ import {
   Box,
   Cpu,
   FileSpreadsheet,
+  LayoutGrid,
   Loader2,
+  Plus,
   Scissors,
   Sliders,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { BomTableView } from "./components/BomTableView";
 import { CabinetViewer3D } from "./components/CabinetViewer3D";
@@ -16,12 +19,14 @@ import {
   generateProductionPackage,
   parseNaturalLanguagePrompt,
 } from "./services/api";
+import { ROOM_LINE_PRESETS } from "./services/clientEngine";
 import type {
   BackPanelType,
   CabinetConfig,
   CabinetType,
   DoorType,
   ProductionPackageResponse,
+  RoomLinePreset,
   SheetSizeOption,
 } from "./types/cabinet";
 
@@ -33,6 +38,8 @@ const DEFAULT_CONFIG: CabinetConfig = {
   depth_mm: 580,
   shelf_count: 4,
   door_type: "double",
+  drawer_count: 0,
+  drawer_front_height_mm: 180,
   has_plinth: true,
   plinth_height_mm: 80,
   body_material: "18mm Beyaz Suntalam",
@@ -42,13 +49,14 @@ const DEFAULT_CONFIG: CabinetConfig = {
   hidden_pvc_thickness_mm: 0.4,
   back_panel_type: "grooved_8mm",
   sheet_size: "2800x2100",
+  additional_modules: [],
 };
 
 const EXAMPLE_PROMPTS: readonly string[] = [
-  "210 cm yüksekliğinde, 90 cm genişliğinde, 58 cm derinliğinde, 4 raflı, çift kapaklı, beyaz gövdeli meşe kapaklı gardırop",
-  "80 cm genişliğinde, 72 cm yüksekliğinde, 35 cm derinliğinde, 2 raflı, çift kapaklı, bazasız mutfak üst dolabı",
-  "100 cm genişliğinde, 180 cm yüksekliğinde, 32 cm derinliğinde, 5 raflı, kapaksız ceviz kitaplık",
-  "120 cm genişliğinde, 82 cm yüksekliğinde, 56 cm derinliğinde, 2 raflı, çift kapaklı, antrasit mutfak alt modülü",
+  "90 cm genişliğinde, 85 cm yüksekliğinde, 48 cm derinliğinde, 4 çekmeceli, kapaksız meşe yatak odası şifonyeri",
+  "210 cm yüksekliğinde, 90 cm genişliğinde, 58 cm derinliğinde, 3 raflı, 2 çekmeceli, çift kapaklı gardırop",
+  "100 cm genişliğinde, 82 cm yüksekliğinde, 55 cm derinliğinde, 2 çekmeceli, çift kapaklı banyo lavabo alt dolabı",
+  "180 cm genişliğinde, 48 cm yüksekliğinde, 42 cm derinliğinde, 3 çekmeceli, çift kapaklı ceviz TV konsolu",
 ];
 
 type ActiveTab = "3d_and_bom" | "nesting" | "bom_only";
@@ -56,6 +64,8 @@ type ActiveTab = "3d_and_bom" | "nesting" | "bom_only";
 export function App() {
   const [prompt, setPrompt] = useState<string>(EXAMPLE_PROMPTS[0]);
   const [config, setConfig] = useState<CabinetConfig>(DEFAULT_CONFIG);
+  const [activeModuleIndex, setActiveModuleIndex] = useState<number>(0);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [pkg, setPkg] = useState<ProductionPackageResponse | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>("P01");
   const [activeTab, setActiveTab] = useState<ActiveTab>("3d_and_bom");
@@ -63,13 +73,85 @@ export function App() {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const allModules: CabinetConfig[] = [
+    config,
+    ...(config.additional_modules ?? []),
+  ];
+  const safeModuleIndex =
+    activeModuleIndex < allModules.length ? activeModuleIndex : 0;
+  const activeModule: CabinetConfig = allModules[safeModuleIndex];
+
+  const updateActiveModule = (patch: Partial<CabinetConfig>) => {
+    if (safeModuleIndex === 0) {
+      setConfig((prev) => ({
+        ...prev,
+        ...patch,
+      }));
+    } else {
+      setConfig((prev) => {
+        const extras = [...(prev.additional_modules ?? [])];
+        const targetIdx = safeModuleIndex - 1;
+        if (extras[targetIdx]) {
+          extras[targetIdx] = {
+            ...extras[targetIdx],
+            ...patch,
+          };
+        }
+        return {
+          ...prev,
+          additional_modules: extras,
+        };
+      });
+    }
+  };
+
+  const handleAddSideModule = () => {
+    const nextIdx = (config.additional_modules?.length ?? 0) + 2;
+    const clonedModule: CabinetConfig = {
+      ...activeModule,
+      name: `Ek Modül #${nextIdx}`,
+      additional_modules: [],
+    };
+    const nextConfig: CabinetConfig = {
+      ...config,
+      additional_modules: [...(config.additional_modules ?? []), clonedModule],
+    };
+    setConfig(nextConfig);
+    setActiveModuleIndex((config.additional_modules?.length ?? 0) + 1);
+    void runGeneration(nextConfig);
+  };
+
+  const handleRemoveModule = (idxToRemove: number) => {
+    if (idxToRemove === 0) return;
+    const extras = (config.additional_modules ?? []).filter(
+      (_, i) => i !== idxToRemove - 1
+    );
+    const nextConfig: CabinetConfig = {
+      ...config,
+      additional_modules: extras,
+    };
+    setConfig(nextConfig);
+    setActiveModuleIndex(0);
+    void runGeneration(nextConfig);
+  };
+
+  const handleSelectRoomPreset = (preset: RoomLinePreset) => {
+    const clonedPrimary: CabinetConfig = JSON.parse(
+      JSON.stringify(preset.config)
+    ) as CabinetConfig;
+    setActivePresetId(preset.id);
+    setActiveModuleIndex(0);
+    setConfig(clonedPrimary);
+    void runGeneration(clonedPrimary);
+  };
+
   const runGeneration = async (targetConfig: CabinetConfig) => {
     setIsGenerating(true);
     setErrorMsg(null);
     try {
       const result = await generateProductionPackage(targetConfig);
       setPkg(result);
-      if (result.bom.parts.length > 0 && !selectedPartId) {
+      if (result.bom.parts.length > 0) {
         setSelectedPartId(result.bom.parts[0].part_id);
       }
     } catch (err) {
@@ -89,6 +171,8 @@ export function App() {
     if (!promptText.trim()) return;
     setIsParsing(true);
     setErrorMsg(null);
+    setActivePresetId(null);
+    setActiveModuleIndex(0);
     try {
       const parsedConfig = await parseNaturalLanguagePrompt(promptText);
       setConfig(parsedConfig);
@@ -122,12 +206,12 @@ export function App() {
                   MARANGOZ CAD/CAM
                 </h1>
                 <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-semibold text-sky-400">
-                  Deterministik Çekirdek v0.1
+                  Deterministik Çekirdek v0.2
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Doğal Dilden Parametrik Mobilya, Sistem 32 CNC DXF (R2010) ve
-                Giyotin Plaka Kesim Optimizasyonu
+                Çoklu Modül Oda Hatları, Çekmece Kutu Mühendisliği, CNC Post-Processor
+                (DXF / G-Code .NC / WoodWOP .MPR) ve Giyotin Nesting
               </p>
             </div>
           </div>
@@ -146,7 +230,7 @@ export function App() {
                 className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-500"
               >
                 <Archive className="h-4 w-4" />
-                Üretim Paketini İndir (.ZIP — GLB + DXF + SVG + CSV)
+                Üretim Paketini İndir (.ZIP — GLB + DXF + NC + MPR + SVG + CSV)
               </a>
             </div>
           )}
@@ -171,7 +255,7 @@ export function App() {
                   type="text"
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Örn: 210 cm yüksekliğinde, 90 cm genişliğinde, 58 cm derinliğinde, 4 raflı, çift kapaklı gardırop..."
+                  placeholder="Örn: 90 cm genişliğinde, 85 cm yüksekliğinde, 48 cm derinliğinde, 4 çekmeceli şifonyer..."
                   className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-sky-500 focus:outline-none"
                 />
                 <button
@@ -206,9 +290,62 @@ export function App() {
                 }}
                 className="rounded-lg border border-slate-800 bg-slate-950/80 px-2.5 py-1 text-[11px] text-slate-300 transition hover:border-sky-500/50 hover:text-sky-300"
               >
-                {sample.slice(0, 62)}...
+                {sample.slice(0, 65)}...
               </button>
             ))}
+          </div>
+        </section>
+
+        {/* Çoklu Modül Oda & Kategori Hatları (6 Farklı Oda/Kategori Hattı) */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-lg">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <LayoutGrid className="h-4 w-4 text-indigo-400" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                Çoklu Modül Oda &amp; Kategori Üretim Hatları (Tek Tıkla Tüm Oda
+                Nesting &amp; CNC)
+              </h2>
+            </div>
+            <span className="text-[11px] text-slate-400">
+              Yan yana dizili modüller ortak plaka optimizasyonuna (Nesting) girer
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+            {ROOM_LINE_PRESETS.map((preset) => {
+              const isSelected = activePresetId === preset.id;
+              const moduleCount =
+                1 + (preset.config.additional_modules?.length ?? 0);
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => handleSelectRoomPreset(preset)}
+                  className={`flex flex-col justify-between rounded-xl border p-3 text-left transition ${
+                    isSelected
+                      ? "border-indigo-500 bg-indigo-950/50 text-white shadow-md shadow-indigo-500/10"
+                      : "border-slate-800 bg-slate-950/70 text-slate-300 hover:border-indigo-500/50 hover:bg-slate-900"
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="rounded bg-indigo-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                        {preset.category}
+                      </span>
+                      <span className="font-mono text-[11px] font-semibold text-emerald-400">
+                        {moduleCount} Modül · {preset.totalWidthMm} mm
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-xs font-bold text-slate-100">
+                      {preset.title}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-400">
+                      {preset.subtitle}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </section>
 
@@ -237,20 +374,70 @@ export function App() {
                 <span className="text-[11px] text-slate-400">18mm Gövde</span>
               </div>
 
+              {/* Çoklu Modül Seçici ve Yanına Modül Ekleme */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-2.5">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-300">
+                    Hattaki Modüller ({allModules.length} Adet)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddSideModule}
+                    className="inline-flex items-center gap-1 rounded-lg bg-indigo-600/90 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-indigo-500"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Yanına Modül Ekle
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {allModules.map((mod, idx) => {
+                    const isCurrent = idx === safeModuleIndex;
+                    return (
+                      <div
+                        key={idx}
+                        className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium transition ${
+                          isCurrent
+                            ? "border-sky-500 bg-sky-500/20 text-sky-200"
+                            : "border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setActiveModuleIndex(idx)}
+                          className="text-left"
+                        >
+                          M{idx + 1}: {mod.width_mm}mm
+                        </button>
+                        {idx > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveModule(idx)}
+                            title="Modülü Hattan Sil"
+                            className="ml-1 text-slate-400 hover:text-red-400"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Modül Tipi */}
               <div>
                 <label
                   htmlFor="cabinet-type"
                   className="mb-1 block text-xs font-medium text-slate-300"
                 >
-                  Modül Tipi
+                  Modül Tipi (M{safeModuleIndex + 1})
                 </label>
                 <select
                   id="cabinet-type"
-                  value={config.cabinet_type}
+                  value={activeModule.cabinet_type}
                   onChange={(e) =>
-                    setConfig({
-                      ...config,
+                    updateActiveModule({
                       cabinet_type: e.target.value as CabinetType,
                     })
                   }
@@ -259,9 +446,13 @@ export function App() {
                   <option value="wardrobe">Gardırop / Yüklük</option>
                   <option value="kitchen_base">Mutfak Alt Modül</option>
                   <option value="kitchen_wall">Mutfak Üst Modül</option>
-                  <option value="bookshelf">Kitaplık / Açık Raf</option>
+                  <option value="kitchen_tall">Mutfak Boy / Ankastre Kule</option>
+                  <option value="bathroom_vanity">Banyo Lavabo Alt Modül</option>
+                  <option value="bathroom_tall">Banyo Boy Dolabı</option>
+                  <option value="dresser">Şifonyer / Komodin</option>
                   <option value="shoe_cabinet">Ayakkabılık / Portmanto</option>
-                  <option value="tv_unit">TV Ünitesi / Konsol</option>
+                  <option value="tv_unit">TV Ünitesi / Medya Konsolu</option>
+                  <option value="bookshelf">Kitaplık / Açık Raf</option>
                 </select>
               </div>
 
@@ -284,10 +475,9 @@ export function App() {
                     min={300}
                     max={2700}
                     aria-describedby="width-hint"
-                    value={config.width_mm}
+                    value={activeModule.width_mm}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
+                      updateActiveModule({
                         width_mm: Number(e.target.value),
                       })
                     }
@@ -313,10 +503,9 @@ export function App() {
                     min={300}
                     max={2750}
                     aria-describedby="height-hint"
-                    value={config.height_mm}
+                    value={activeModule.height_mm}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
+                      updateActiveModule({
                         height_mm: Number(e.target.value),
                       })
                     }
@@ -342,10 +531,9 @@ export function App() {
                     min={200}
                     max={900}
                     aria-describedby="depth-hint"
-                    value={config.depth_mm}
+                    value={activeModule.depth_mm}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
+                      updateActiveModule({
                         depth_mm: Number(e.target.value),
                       })
                     }
@@ -374,10 +562,9 @@ export function App() {
                     min={0}
                     max={12}
                     aria-describedby="shelf-hint"
-                    value={config.shelf_count}
+                    value={activeModule.shelf_count}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
+                      updateActiveModule({
                         shelf_count: Number(e.target.value),
                       })
                     }
@@ -396,10 +583,9 @@ export function App() {
                   <span className="field-hint">Menteşe Ø35mm</span>
                   <select
                     id="door-type"
-                    value={config.door_type}
+                    value={activeModule.door_type}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
+                      updateActiveModule({
                         door_type: e.target.value as DoorType,
                       })
                     }
@@ -410,6 +596,65 @@ export function App() {
                     <option value="single_right">Tek Kapak (Sağ Menteşe)</option>
                     <option value="none">Kapaksız (Açık)</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Çekmece Adedi ve Klapa Yüksekliği */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label
+                    htmlFor="drawer-count"
+                    className="block text-xs font-medium text-slate-300"
+                  >
+                    Çekmece Adedi
+                  </label>
+                  <span id="drawer-count-hint" className="field-hint">
+                    0–6 Adet (Ray Boşluğu 26mm)
+                  </span>
+                  <input
+                    id="drawer-count"
+                    type="number"
+                    required
+                    min={0}
+                    max={6}
+                    aria-describedby="drawer-count-hint"
+                    value={activeModule.drawer_count ?? 0}
+                    onChange={(e) =>
+                      updateActiveModule({
+                        drawer_count: Number(e.target.value),
+                      })
+                    }
+                    className="param-input w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100"
+                  />
+                  <div className="error-msg">0–6 arası çekmece giriniz.</div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="drawer-height"
+                    className="block text-xs font-medium text-slate-300"
+                  >
+                    Klapa Yüksekliği
+                  </label>
+                  <span id="drawer-height-hint" className="field-hint">
+                    120–350 mm
+                  </span>
+                  <input
+                    id="drawer-height"
+                    type="number"
+                    required
+                    min={120}
+                    max={350}
+                    aria-describedby="drawer-height-hint"
+                    value={activeModule.drawer_front_height_mm ?? 180}
+                    onChange={(e) =>
+                      updateActiveModule({
+                        drawer_front_height_mm: Number(e.target.value),
+                      })
+                    }
+                    className="param-input w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100"
+                  />
+                  <div className="error-msg">120–350 mm arası giriniz.</div>
                 </div>
               </div>
 
@@ -424,10 +669,9 @@ export function App() {
                   </label>
                   <select
                     id="front-pvc"
-                    value={config.front_pvc_thickness_mm}
+                    value={activeModule.front_pvc_thickness_mm}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
+                      updateActiveModule({
                         front_pvc_thickness_mm: Number(e.target.value),
                       })
                     }
@@ -448,10 +692,9 @@ export function App() {
                   </label>
                   <select
                     id="back-panel-type"
-                    value={config.back_panel_type}
+                    value={activeModule.back_panel_type}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
+                      updateActiveModule({
                         back_panel_type: e.target.value as BackPanelType,
                       })
                     }
@@ -469,27 +712,25 @@ export function App() {
                   <label className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-300">
                     <input
                       type="checkbox"
-                      checked={config.has_plinth}
+                      checked={activeModule.has_plinth}
                       onChange={(e) =>
-                        setConfig({
-                          ...config,
+                        updateActiveModule({
                           has_plinth: e.target.checked,
                           plinth_height_mm: e.target.checked ? 80 : 0,
                         })
                       }
                       className="rounded border-slate-700 bg-slate-950 text-sky-500"
                     />
-                    Alt Baza ({config.plinth_height_mm} mm)
+                    Alt Baza ({activeModule.plinth_height_mm} mm)
                   </label>
-                  {config.has_plinth && (
+                  {activeModule.has_plinth && (
                     <input
                       type="number"
                       min={50}
                       max={200}
-                      value={config.plinth_height_mm}
+                      value={activeModule.plinth_height_mm}
                       onChange={(e) =>
-                        setConfig({
-                          ...config,
+                        updateActiveModule({
                           plinth_height_mm: Number(e.target.value),
                         })
                       }
@@ -535,14 +776,14 @@ export function App() {
                     <input
                       id="body-color"
                       type="color"
-                      value={config.body_color_hex}
+                      value={activeModule.body_color_hex}
                       onChange={(e) =>
-                        setConfig({ ...config, body_color_hex: e.target.value })
+                        updateActiveModule({ body_color_hex: e.target.value })
                       }
                       className="h-8 w-10 cursor-pointer rounded border border-slate-700 bg-slate-950"
                     />
                     <span className="font-mono text-xs text-slate-400">
-                      {config.body_color_hex}
+                      {activeModule.body_color_hex}
                     </span>
                   </div>
                 </div>
@@ -552,20 +793,20 @@ export function App() {
                     htmlFor="door-color"
                     className="mb-1 block text-xs font-medium text-slate-300"
                   >
-                    Kapak Rengi
+                    Kapak / Klapa Rengi
                   </label>
                   <div className="flex items-center gap-2">
                     <input
                       id="door-color"
                       type="color"
-                      value={config.door_color_hex}
+                      value={activeModule.door_color_hex}
                       onChange={(e) =>
-                        setConfig({ ...config, door_color_hex: e.target.value })
+                        updateActiveModule({ door_color_hex: e.target.value })
                       }
                       className="h-8 w-10 cursor-pointer rounded border border-slate-700 bg-slate-950"
                     />
                     <span className="font-mono text-xs text-slate-400">
-                      {config.door_color_hex}
+                      {activeModule.door_color_hex}
                     </span>
                   </div>
                 </div>
@@ -601,7 +842,7 @@ export function App() {
                   }`}
                 >
                   <Box className="h-4 w-4" />
-                  3D Önizleme + Kesim &amp; CNC DXF
+                  3D Önizleme + Kesim &amp; CNC Post-Processor
                 </button>
 
                 <button
@@ -677,4 +918,3 @@ export function App() {
   );
 }
 export default App;
-

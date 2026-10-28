@@ -44,18 +44,21 @@ function PanelMesh3D({
 
   // Patlatılmış görünüm (Exploded View) vektörü
   const dy = baseCy - cabinetCenterY;
-  const explodeX = baseCx * explodeFactor * 0.45;
+  const explodeX = baseCx * explodeFactor * 0.35;
   const explodeY = dy * explodeFactor * 0.35;
   const explodeZ =
-    t3d.is_door
+    t3d.is_door || t3d.is_drawer
       ? explodeFactor * 0.28
       : part.code === "ARKALIK"
       ? -explodeFactor * 0.25
       : baseCz * explodeFactor * 0.3;
 
+  // Çekmece parçası ise kapak/çekmece açıldığında +280 mm öne doğru teleskopik ray hareketi
+  const drawerSlideZ = t3d.is_drawer && doorsOpen ? 0.28 : 0.0;
+
   const cx = baseCx + explodeX;
   const cy = baseCy + explodeY;
-  const cz = baseCz + explodeZ;
+  const cz = baseCz + explodeZ + drawerSlideZ;
 
   const displayColor = isSelected
     ? "#38BDF8"
@@ -147,7 +150,17 @@ export function CabinetViewer3D({
   const [explodeFactor, setExplodeFactor] = useState<number>(0);
   const [wireframe, setWireframe] = useState<boolean>(false);
 
-  const cabinetCenterY = bom.config.height_mm / 2000.0;
+  const allModules = [bom.config, ...(bom.config.additional_modules ?? [])];
+  const totalWidthMm = allModules.reduce((acc, m) => acc + m.width_mm, 0);
+  const maxHeightMm = Math.max(...allModules.map((m) => m.height_mm));
+  const maxDepthMm = Math.max(...allModules.map((m) => m.depth_mm));
+  const hasAnyDoorsOrDrawers = allModules.some(
+    (m) => m.door_type !== "none" || (m.drawer_count ?? 0) > 0
+  );
+
+  const cabinetCenterY = maxHeightMm / 2000.0;
+  const cameraDist = Math.max(2.4, (totalWidthMm / 1000.0) * 1.15);
+
   const selectedPart =
     bom.parts.find((p) => p.part_id === selectedPartId) ?? null;
 
@@ -163,7 +176,7 @@ export function CabinetViewer3D({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${bom.config.cabinet_type}_${bom.config.width_mm}x${bom.config.height_mm}.glb`;
+    link.download = `${bom.config.cabinet_type}_${totalWidthMm}x${maxHeightMm}.glb`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -172,16 +185,21 @@ export function CabinetViewer3D({
     <div className="relative flex h-[560px] w-full flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900/80">
       {/* Üst 3D Kontrol Çubuğu */}
       <div className="z-10 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/90 px-4 py-2.5 backdrop-blur">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Box className="h-4 w-4 text-sky-400" />
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-            Etkileşimli 3D CAD Önizleme (Dış: {bom.config.width_mm} ×{" "}
-            {bom.config.height_mm} × {bom.config.depth_mm} mm)
+            Etkileşimli 3D CAD Önizleme (Toplam Hat: {totalWidthMm} ×{" "}
+            {maxHeightMm} × {maxDepthMm} mm)
           </span>
+          {allModules.length > 1 && (
+            <span className="rounded-md border border-indigo-500/40 bg-indigo-500/15 px-2 py-0.5 text-[11px] font-semibold text-indigo-300">
+              {allModules.length} Modüllü Oda Hattı
+            </span>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {bom.config.door_type !== "none" && (
+          {hasAnyDoorsOrDrawers && (
             <button
               type="button"
               onClick={() => setDoorsOpen((prev) => !prev)}
@@ -192,7 +210,9 @@ export function CabinetViewer3D({
               }`}
             >
               <DoorOpen className="h-3.5 w-3.5" />
-              {doorsOpen ? "Kapakları Kapat" : "Kapakları Aç"}
+              {doorsOpen
+                ? "Kapak & Çekmeceleri Kapat"
+                : "Kapak & Çekmeceleri Aç"}
             </button>
           )}
 
@@ -237,7 +257,7 @@ export function CabinetViewer3D({
       <div className="relative flex-1">
         <Canvas
           shadows
-          camera={{ position: [1.8, 1.6, 2.4], fov: 42 }}
+          camera={{ position: [cameraDist * 0.7, 1.6, cameraDist], fov: 42 }}
           onPointerMissed={() => onSelectPart(null)}
         >
           <color attach="background" args={["#090D16"]} />
@@ -267,20 +287,20 @@ export function CabinetViewer3D({
             <ContactShadows
               position={[0, -0.005, 0]}
               opacity={0.5}
-              scale={5}
+              scale={8}
               blur={2}
-              far={2.5}
+              far={3.0}
             />
             <Grid
               position={[0, -0.01, 0]}
-              args={[6, 6]}
+              args={[8, 8]}
               cellSize={0.2}
               cellThickness={0.6}
               cellColor="#1e293b"
               sectionSize={1}
               sectionThickness={1.2}
               sectionColor="#334155"
-              fadeDistance={8}
+              fadeDistance={10}
             />
           </group>
 
@@ -325,4 +345,3 @@ export function CabinetViewer3D({
     </div>
   );
 }
-

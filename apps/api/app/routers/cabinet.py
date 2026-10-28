@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
 from app.engines.bom_engine import BOMEngine
+from app.engines.cnc_post_engine import CNCPostProcessorEngine
 from app.engines.dxf_engine import DXFProductionEngine
 from app.engines.geometry_engine import CabinetGeometryEngine
 from app.engines.nesting_engine import NestingEngine
@@ -144,9 +145,14 @@ async def generate_production_package(
         glb_path.write_bytes(glb_bytes)
         glb_base64 = base64.b64encode(glb_bytes).decode("ascii")
 
-        # 3. CNC Katmanlı DXF R2010 Dosyaları Üretimi
+        # 3. CNC Katmanlı DXF R2010, ISO G-Code (.nc) ve WoodWOP (.mpr) Dosyaları Üretimi
         dxf_paths = DXFProductionEngine.export_all_dxf_files(bom, dxf_dir)
         dxf_filenames = [p.name for p in dxf_paths]
+        gcode_dir = job_dir / "gcode"
+        mpr_dir = job_dir / "mpr"
+        gcode_paths, mpr_paths = CNCPostProcessorEngine.export_all_cnc_programs(
+            bom, gcode_dir, mpr_dir
+        )
 
         # 4. 2D Giyotin Plaka Kesim Optimizasyonu (Nesting)
         nesting = NestingEngine.run_nesting(bom)
@@ -174,6 +180,10 @@ async def generate_production_package(
                 )
             for dxf_file in dxf_paths:
                 zf.write(dxf_file, arcname=f"cnc_dxf/{dxf_file.name}")
+            for nc_file in gcode_paths:
+                zf.write(nc_file, arcname=f"cnc_gcode/{nc_file.name}")
+            for mpr_file in mpr_paths:
+                zf.write(mpr_file, arcname=f"cnc_mpr/{mpr_file.name}")
 
         package_response = ProductionPackageResponse(
             job_id=job_id,
@@ -230,6 +240,42 @@ async def download_single_dxf(job_id: str, filename: str) -> FileResponse:
     return FileResponse(
         path=dxf_path,
         media_type="application/dxf",
+        filename=filename,
+    )
+
+
+@router.get("/jobs/{job_id}/gcode/{filename}")
+async def download_single_gcode(job_id: str, filename: str) -> FileResponse:
+    """Tek bir parçaya ait ISO G-Code (.nc) dosyasını indirir."""
+    if not job_id.isalnum() or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Geçersiz dosya isteği.")
+
+    settings = get_settings()
+    nc_path = Path(settings.artifacts_dir) / job_id / "gcode" / filename
+    if not nc_path.is_file():
+        raise HTTPException(status_code=404, detail="G-Code (.nc) dosyası bulunamadı.")
+
+    return FileResponse(
+        path=nc_path,
+        media_type="text/plain",
+        filename=filename,
+    )
+
+
+@router.get("/jobs/{job_id}/mpr/{filename}")
+async def download_single_mpr(job_id: str, filename: str) -> FileResponse:
+    """Tek bir parçaya ait Homag WoodWOP (.mpr) dosyasını indirir."""
+    if not job_id.isalnum() or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Geçersiz dosya isteği.")
+
+    settings = get_settings()
+    mpr_path = Path(settings.artifacts_dir) / job_id / "mpr" / filename
+    if not mpr_path.is_file():
+        raise HTTPException(status_code=404, detail="WoodWOP (.mpr) dosyası bulunamadı.")
+
+    return FileResponse(
+        path=mpr_path,
+        media_type="text/plain",
         filename=filename,
     )
 

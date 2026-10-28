@@ -1,11 +1,6 @@
 /**
- * Tarayıcı İçi Deterministik Mühendislik Motoru (Client-Side CAD/CAM/DXF/Nesting/ZIP).
- *
- * Vercel üzerinde statik dağıtım yapıldığında veya Python Serverless fonksiyonuna
- * ulaşılamadığında (örn. HTTP 404/405), docs/02_MANUFACTURING_AND_CAD_RULES.md
- * içerisindeki tüm kuralları birebir aynı matematikle tarayıcıda çalıştırır.
- * Hiçbir mock veri içermez; gerçek BOM, gerçek DXF R2010, gerçek Giyotin Nesting SVG
- * ve gerçek ZIP üretim paketi üretir.
+ * Tarayıcı İçi Deterministik Mühendislik Motoru
+ * (BOM + Çekmece Kasa + Çoklu Modül Oda Hattı + DXF R2010 + G-Code .nc + WoodWOP .mpr + Nesting SVG + ZIP).
  */
 
 import type {
@@ -21,6 +16,7 @@ import type {
   NestingResult,
   PanelPart,
   ProductionPackageResponse,
+  RoomLinePreset,
   SheetLayout,
   SheetSizeOption,
 } from "../types/cabinet";
@@ -57,6 +53,11 @@ const MC = {
   HINGE_CUP_DEPTH_MM: 13.0,
   HINGE_CUP_CENTER_FROM_EDGE_MM: 22.5,
   HINGE_EDGE_OFFSET_TOP_BOTTOM_MM: 100.0,
+  DRAWER_SLIDE_CLEARANCE_TOTAL_MM: 26.0,
+  DRAWER_BOX_HEIGHT_REDUCTION_MM: 45.0,
+  DRAWER_SLIDE_SIZES_MM: [250.0, 300.0, 350.0, 400.0, 450.0, 500.0, 550.0],
+  DRAWER_SLIDE_HOLE_DIAMETER_MM: 5.0,
+  DRAWER_SLIDE_HOLE_DEPTH_MM: 12.0,
   LAYER_OUTLINE: "OUTLINE_CUT",
   LAYER_GROOVE_BACK: "GROOVE_BACK_8MM",
   LAYER_MINIFIX_CAM: "DRILL_MINIFIX_CAM_D15",
@@ -64,10 +65,397 @@ const MC = {
   LAYER_DOWEL: "DRILL_DOWEL_D8",
   LAYER_SHELF_PIN: "DRILL_SHELF_PIN_D5",
   LAYER_HINGE_CUP: "DRILL_HINGE_CUP_D35",
+  LAYER_DRAWER_SLIDE: "DRILL_SLIDE_D5",
 } as const;
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const round4 = (n: number): number => Math.round(n * 10000) / 10000;
+
+/**
+ * Fabrika Oda ve Kategori Hatları (Çoklu Modül Hazır Hat Şablonları)
+ */
+export const ROOM_LINE_PRESETS: readonly RoomLinePreset[] = [
+  {
+    id: "kitchen_full_line",
+    category: "Mutfak Hattı",
+    title: "Komple Mutfak Alt + Ankastre Kiler Hattı (3 Modül — 200 cm)",
+    subtitle:
+      "Modül 1: 80cm Evye Altı + Modül 2: 60cm 3 Çekmeceli Kaşıklık/Tencere + Modül 3: 60cm Boy Kiler",
+    totalWidthMm: 2000,
+    config: {
+      name: "Mutfak Evye Altı Modülü",
+      cabinet_type: "kitchen_base",
+      width_mm: 800,
+      height_mm: 820,
+      depth_mm: 560,
+      shelf_count: 1,
+      door_type: "double",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      has_plinth: true,
+      plinth_height_mm: 100,
+      body_material: "18mm Beyaz MDF-Lam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#374151",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [
+        {
+          name: "Mutfak 3 Çekmeceli Alt Modül",
+          cabinet_type: "kitchen_base",
+          width_mm: 600,
+          height_mm: 820,
+          depth_mm: 560,
+          shelf_count: 0,
+          door_type: "none",
+          drawer_count: 3,
+          drawer_front_height_mm: 228,
+          has_plinth: true,
+          plinth_height_mm: 100,
+          body_material: "18mm Beyaz MDF-Lam",
+          body_color_hex: "#F4F1EA",
+          door_color_hex: "#374151",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+        {
+          name: "Mutfak Boy Kiler / Ankastre Kule",
+          cabinet_type: "kitchen_tall",
+          width_mm: 600,
+          height_mm: 2100,
+          depth_mm: 560,
+          shelf_count: 4,
+          door_type: "single_right",
+          drawer_count: 2,
+          drawer_front_height_mm: 200,
+          has_plinth: true,
+          plinth_height_mm: 100,
+          body_material: "18mm Beyaz MDF-Lam",
+          body_color_hex: "#F4F1EA",
+          door_color_hex: "#374151",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+      ],
+    },
+  },
+  {
+    id: "bedroom_master_wardrobe",
+    category: "Yatak Odası Hattı",
+    title: "6 Kapaklı & 3 Çekmeceli Master Gardırop Hattı (3 Modül — 270 cm)",
+    subtitle:
+      "Sol 90cm Gardırop + Orta 90cm 3 Çekmeceli & Kapaklı Modül + Sağ 90cm Gardırop",
+    totalWidthMm: 2700,
+    config: {
+      name: "Sol Gardırop Modülü",
+      cabinet_type: "wardrobe",
+      width_mm: 900,
+      height_mm: 2100,
+      depth_mm: 580,
+      shelf_count: 4,
+      door_type: "double",
+      drawer_count: 0,
+      drawer_front_height_mm: 180,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Doğal Meşe Suntalam",
+      body_color_hex: "#F4F1EA",
+      door_color_hex: "#C89F70",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [
+        {
+          name: "Orta Çekmeceli Gardırop Modülü",
+          cabinet_type: "wardrobe",
+          width_mm: 900,
+          height_mm: 2100,
+          depth_mm: 580,
+          shelf_count: 3,
+          door_type: "double",
+          drawer_count: 3,
+          drawer_front_height_mm: 180,
+          has_plinth: true,
+          plinth_height_mm: 80,
+          body_material: "18mm Doğal Meşe Suntalam",
+          body_color_hex: "#F4F1EA",
+          door_color_hex: "#C89F70",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+        {
+          name: "Sağ Gardırop Modülü",
+          cabinet_type: "wardrobe",
+          width_mm: 900,
+          height_mm: 2100,
+          depth_mm: 580,
+          shelf_count: 4,
+          door_type: "double",
+          drawer_count: 0,
+          drawer_front_height_mm: 180,
+          has_plinth: true,
+          plinth_height_mm: 80,
+          body_material: "18mm Doğal Meşe Suntalam",
+          body_color_hex: "#F4F1EA",
+          door_color_hex: "#C89F70",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+      ],
+    },
+  },
+  {
+    id: "bedroom_dresser_set",
+    category: "Yatak Odası Çekmece Seti",
+    title: "4 Çekmeceli Şifonyer & Çift Komodin Hattı (3 Modül — 190 cm)",
+    subtitle:
+      "Sol 50cm 2 Çekmeceli Komodin + Orta 90cm 4 Çekmeceli Şifonyer + Sağ 50cm 2 Çekmeceli Komodin",
+    totalWidthMm: 1900,
+    config: {
+      name: "Sol 2 Çekmeceli Komodin",
+      cabinet_type: "dresser",
+      width_mm: 500,
+      height_mm: 520,
+      depth_mm: 450,
+      shelf_count: 0,
+      door_type: "none",
+      drawer_count: 2,
+      drawer_front_height_mm: 200,
+      has_plinth: true,
+      plinth_height_mm: 60,
+      body_material: "18mm Koyu Ceviz MDF-Lam",
+      body_color_hex: "#6E472B",
+      door_color_hex: "#EFECE6",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [
+        {
+          name: "4 Çekmeceli Yatak Odası Şifonyeri",
+          cabinet_type: "dresser",
+          width_mm: 900,
+          height_mm: 860,
+          depth_mm: 480,
+          shelf_count: 0,
+          door_type: "none",
+          drawer_count: 4,
+          drawer_front_height_mm: 185,
+          has_plinth: true,
+          plinth_height_mm: 60,
+          body_material: "18mm Koyu Ceviz MDF-Lam",
+          body_color_hex: "#6E472B",
+          door_color_hex: "#EFECE6",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+        {
+          name: "Sağ 2 Çekmeceli Komodin",
+          cabinet_type: "dresser",
+          width_mm: 500,
+          height_mm: 520,
+          depth_mm: 450,
+          shelf_count: 0,
+          door_type: "none",
+          drawer_count: 2,
+          drawer_front_height_mm: 200,
+          has_plinth: true,
+          plinth_height_mm: 60,
+          body_material: "18mm Koyu Ceviz MDF-Lam",
+          body_color_hex: "#6E472B",
+          door_color_hex: "#EFECE6",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+      ],
+    },
+  },
+  {
+    id: "bathroom_vanity_line",
+    category: "Banyo Mobilyası Hattı",
+    title: "Banyo Lavabo Altı & Boy Dolabı Hattı (2 Modül — 125 cm)",
+    subtitle:
+      "80cm 2 Derin Çekmeceli Lavabo Altı Modülü + 45cm Banyo Boy/Havlu Dolabı",
+    totalWidthMm: 1250,
+    config: {
+      name: "Banyo Lavabo Altı Çekmeceli Modül",
+      cabinet_type: "bathroom_vanity",
+      width_mm: 800,
+      height_mm: 650,
+      depth_mm: 480,
+      shelf_count: 0,
+      door_type: "none",
+      drawer_count: 2,
+      drawer_front_height_mm: 280,
+      has_plinth: false,
+      plinth_height_mm: 0,
+      body_material: "18mm Antrasit MDF-Lam",
+      body_color_hex: "#374151",
+      door_color_hex: "#F4F1EA",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [
+        {
+          name: "Banyo Boy ve Havlu Dolabı",
+          cabinet_type: "bathroom_tall",
+          width_mm: 450,
+          height_mm: 1800,
+          depth_mm: 380,
+          shelf_count: 4,
+          door_type: "single_right",
+          drawer_count: 1,
+          drawer_front_height_mm: 260,
+          has_plinth: false,
+          plinth_height_mm: 0,
+          body_material: "18mm Antrasit MDF-Lam",
+          body_color_hex: "#374151",
+          door_color_hex: "#F4F1EA",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+      ],
+    },
+  },
+  {
+    id: "hallway_vestiyer_line",
+    category: "Antre & Vestiyer Hattı",
+    title: "Komple Antre Vestiyer & Oturma Banklı Portmanto (2 Modül — 180 cm)",
+    subtitle:
+      "90cm Çekmeceli Ayakkabılık/Oturma Bankı + 90cm Çift Kapaklı & Çekmeceli Portmanto",
+    totalWidthMm: 1800,
+    config: {
+      name: "Antre Oturma Banklı Ayakkabılık",
+      cabinet_type: "shoe_cabinet",
+      width_mm: 900,
+      height_mm: 550,
+      depth_mm: 400,
+      shelf_count: 0,
+      door_type: "none",
+      drawer_count: 2,
+      drawer_front_height_mm: 200,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Doğal Meşe Suntalam",
+      body_color_hex: "#C89F70",
+      door_color_hex: "#F4F1EA",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [
+        {
+          name: "Boy Vestiyer / Portmanto Dolabı",
+          cabinet_type: "shoe_cabinet",
+          width_mm: 900,
+          height_mm: 2100,
+          depth_mm: 400,
+          shelf_count: 4,
+          door_type: "double",
+          drawer_count: 2,
+          drawer_front_height_mm: 180,
+          has_plinth: true,
+          plinth_height_mm: 80,
+          body_material: "18mm Doğal Meşe Suntalam",
+          body_color_hex: "#C89F70",
+          door_color_hex: "#F4F1EA",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+      ],
+    },
+  },
+  {
+    id: "living_tv_media_line",
+    category: "Salon & Ofis Hattı",
+    title: "TV Medya Konsolu & Çift Kitaplık Kulesi (3 Modül — 280 cm)",
+    subtitle:
+      "Sol 60cm Kitaplık Kulesi + Orta 160cm Çekmeceli TV Konsolu + Sağ 60cm Kitaplık Kulesi",
+    totalWidthMm: 2800,
+    config: {
+      name: "Sol Kitaplık / Vitrin Kulesi",
+      cabinet_type: "bookshelf",
+      width_mm: 600,
+      height_mm: 1850,
+      depth_mm: 360,
+      shelf_count: 4,
+      door_type: "none",
+      drawer_count: 1,
+      drawer_front_height_mm: 220,
+      has_plinth: true,
+      plinth_height_mm: 80,
+      body_material: "18mm Koyu Ceviz MDF-Lam",
+      body_color_hex: "#6E472B",
+      door_color_hex: "#374151",
+      front_pvc_thickness_mm: 2.0,
+      hidden_pvc_thickness_mm: 0.4,
+      back_panel_type: "grooved_8mm",
+      sheet_size: "2800x2100",
+      additional_modules: [
+        {
+          name: "Orta TV Medya Konsolu",
+          cabinet_type: "tv_unit",
+          width_mm: 1600,
+          height_mm: 520,
+          depth_mm: 420,
+          shelf_count: 0,
+          door_type: "none",
+          drawer_count: 2,
+          drawer_front_height_mm: 190,
+          has_plinth: true,
+          plinth_height_mm: 80,
+          body_material: "18mm Koyu Ceviz MDF-Lam",
+          body_color_hex: "#6E472B",
+          door_color_hex: "#374151",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+        {
+          name: "Sağ Kitaplık / Vitrin Kulesi",
+          cabinet_type: "bookshelf",
+          width_mm: 600,
+          height_mm: 1850,
+          depth_mm: 360,
+          shelf_count: 4,
+          door_type: "none",
+          drawer_count: 1,
+          drawer_front_height_mm: 220,
+          has_plinth: true,
+          plinth_height_mm: 80,
+          body_material: "18mm Koyu Ceviz MDF-Lam",
+          body_color_hex: "#6E472B",
+          door_color_hex: "#374151",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+        },
+      ],
+    },
+  },
+];
 
 /**
  * 1. Doğal Dil Ayrıştırıcı (Deterministic Semantic Parser)
@@ -82,6 +470,7 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   let depthMm = 580.0;
   let hasPlinth = true;
   let plinthHeightMm = 80.0;
+  let drawerCount = 0;
 
   if (
     text.includes("mutfak üst") ||
@@ -96,9 +485,22 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     hasPlinth = false;
     plinthHeightMm = 0.0;
   } else if (
+    text.includes("boy kiler") ||
+    text.includes("ankastre kule") ||
+    text.includes("kiler dolab")
+  ) {
+    cabinetType = "kitchen_tall";
+    name = "Mutfak Boy Kiler / Ankastre Modülü";
+    widthMm = 600.0;
+    heightMm = 2100.0;
+    depthMm = 580.0;
+    hasPlinth = true;
+    plinthHeightMm = 100.0;
+  } else if (
     text.includes("mutfak alt") ||
     text.includes("alt modül") ||
-    text.includes("tezgah altı")
+    text.includes("tezgah altı") ||
+    text.includes("evye")
   ) {
     cabinetType = "kitchen_base";
     name = "Mutfak Alt Dolap Modülü";
@@ -107,19 +509,50 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     depthMm = 560.0;
     hasPlinth = true;
     plinthHeightMm = 100.0;
-  } else if (text.includes("kitaplık") || text.includes("kitaplik")) {
+  } else if (text.includes("banyo boy")) {
+    cabinetType = "bathroom_tall";
+    name = "Banyo Boy Dolabı Modülü";
+    widthMm = 450.0;
+    heightMm = 1800.0;
+    depthMm = 380.0;
+  } else if (text.includes("banyo") || text.includes("lavabo")) {
+    cabinetType = "bathroom_vanity";
+    name = "Banyo Lavabo Altı Modülü";
+    widthMm = 800.0;
+    heightMm = 650.0;
+    depthMm = 480.0;
+    hasPlinth = false;
+    plinthHeightMm = 0.0;
+    drawerCount = 2;
+  } else if (
+    text.includes("şifonyer") ||
+    text.includes("sifonyer") ||
+    text.includes("komodin")
+  ) {
+    cabinetType = "dresser";
+    name = "Şifonyer / Komodin Modülü";
+    widthMm = 900.0;
+    heightMm = 860.0;
+    depthMm = 480.0;
+    drawerCount = 4;
+  } else if (
+    text.includes("kitaplık") ||
+    text.includes("kitaplik") ||
+    text.includes("dosya")
+  ) {
     cabinetType = "bookshelf";
-    name = "Parametrik Kitaplık Modülü";
+    name = "Parametrik Kitaplık / Ofis Modülü";
     widthMm = 800.0;
     heightMm = 1800.0;
-    depthMm = 320.0;
+    depthMm = 350.0;
   } else if (
     text.includes("ayakkabılık") ||
     text.includes("ayakkabilik") ||
-    text.includes("portmanto")
+    text.includes("portmanto") ||
+    text.includes("vestiyer")
   ) {
     cabinetType = "shoe_cabinet";
-    name = "Ayakkabılık / Portmanto Modülü";
+    name = "Vestiyer / Portmanto Modülü";
     widthMm = 900.0;
     heightMm = 1200.0;
     depthMm = 380.0;
@@ -129,10 +562,11 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     text.includes("konsol")
   ) {
     cabinetType = "tv_unit";
-    name = "TV Ünitesi / Konsol Modülü";
+    name = "TV Ünitesi / Medya Konsolu";
     widthMm = 1600.0;
     heightMm = 500.0;
     depthMm = 420.0;
+    drawerCount = 2;
   }
 
   const toMm = (valStr: string, unitStr?: string): number => {
@@ -164,7 +598,12 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     text.match(/(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
   if (dMatch) depthMm = toMm(dMatch[1], dMatch[2]);
 
-  let shelfCount = cabinetType === "kitchen_wall" ? 2 : 4;
+  let shelfCount =
+    cabinetType === "dresser" || cabinetType === "bathroom_vanity"
+      ? 0
+      : cabinetType === "kitchen_wall"
+      ? 2
+      : 4;
   if (text.includes("rafsız") || text.includes("rafsiz")) {
     shelfCount = 0;
   } else {
@@ -172,7 +611,19 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     if (sMatch) shelfCount = parseInt(sMatch[1], 10);
   }
 
-  let doorType: DoorType = cabinetType === "bookshelf" ? "none" : "double";
+  if (text.includes("çekmecesiz") || text.includes("cekmecesiz")) {
+    drawerCount = 0;
+  } else {
+    const drMatch = text.match(/(\d+)\s*(?:adet\s*)?(?:frenli\s*)?[çc]ekmece/);
+    if (drMatch) drawerCount = parseInt(drMatch[1], 10);
+  }
+
+  let doorType: DoorType =
+    cabinetType === "bookshelf" ||
+    cabinetType === "dresser" ||
+    cabinetType === "bathroom_vanity"
+      ? "none"
+      : "double";
   if (
     text.includes("kapaksız") ||
     text.includes("kapaksiz") ||
@@ -232,6 +683,7 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   heightMm = Math.max(300, Math.min(2750, heightMm));
   depthMm = Math.max(200, Math.min(900, depthMm));
   shelfCount = Math.max(0, Math.min(12, shelfCount));
+  drawerCount = Math.max(0, Math.min(6, drawerCount));
 
   return {
     name,
@@ -241,6 +693,9 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     depth_mm: depthMm,
     shelf_count: shelfCount,
     door_type: doorType,
+    drawer_count: drawerCount,
+    drawer_front_height_mm: 180.0,
+    additional_modules: [],
     has_plinth: hasPlinth,
     plinth_height_mm: plinthHeightMm,
     body_material: bodyMaterial,
@@ -257,7 +712,7 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
 }
 
 /**
- * 2. Deterministik BOM ve Sistem 32 Delik Motoru
+ * 2. Deterministik BOM, Çekmece Kasa, Çoklu Modül ve Sistem 32 Delik Motoru
  */
 function pvcDeductionForEdge(pvcMm: number): number {
   return pvcMm < MC.PVC_IGNORE_THRESHOLD_MM ? 0.0 : round2(pvcMm);
@@ -293,8 +748,35 @@ function hingeCountForHeight(doorHeightMm: number): number {
   return 5;
 }
 
-export function generateBomLocal(config: CabinetConfig): BOMReport {
+function selectDrawerSlideLength(depthMm: number): number {
+  const maxAllowed = depthMm - 40.0;
+  let chosen = 250.0;
+  for (const size of MC.DRAWER_SLIDE_SIZES_MM) {
+    if (size <= maxAllowed) chosen = size;
+  }
+  return chosen;
+}
+
+function generateSingleModuleParts(
+  config: CabinetConfig,
+  moduleIdx: number,
+  xOffsetMm: number,
+  startPartCounter: number,
+  multiMode: boolean
+): {
+  parts: PanelPart[];
+  nextCounter: number;
+  minifixSets: number;
+  dowelCount: number;
+  totalHinges: number;
+  totalHandles: number;
+} {
   const parts: PanelPart[] = [];
+  let partCounter = startPartCounter;
+  const padId = (n: number): string => `P${String(n).padStart(2, "0")}`;
+  const prefix = multiMode ? `M${moduleIdx}_` : "";
+  const labelPrefix = multiMode ? `[Modül ${moduleIdx}] ` : "";
+
   const t = MC.BODY_THICKNESS_MM;
   const w = config.width_mm;
   const h = config.height_mm;
@@ -303,6 +785,13 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
 
   const innerW = round2(w - 2.0 * t);
   const clearInnerH = round2(h - plinthH - 2.0 * t);
+
+  const drawerCount = config.drawer_count ?? 0;
+  let drawerFrontH = config.drawer_front_height_mm ?? 180.0;
+  if (drawerCount > 0 && drawerCount * drawerFrontH > clearInnerH - 40.0) {
+    drawerFrontH = round2((clearInnerH - 20.0) / drawerCount);
+  }
+  const drawerZoneH = round2(drawerCount * drawerFrontH);
 
   // Yan Dikme Delikleri
   const sideDrills: DrillPoint[] = [];
@@ -338,8 +827,32 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     }
   }
 
-  if (config.shelf_count > 0) {
-    const stepH = clearInnerH / (config.shelf_count + 1);
+  // Çekmece Rayı Montaj Delikleri
+  if (drawerCount > 0) {
+    const slideOffsets = [37.0, 165.0, 293.0];
+    for (let dIdx = 0; dIdx < drawerCount; dIdx += 1) {
+      const railX = round2(plinthH + t + dIdx * drawerFrontH + 45.0);
+      for (const frontOff of slideOffsets) {
+        const holeY = round2(d - frontOff);
+        if (holeY >= 40.0) {
+          sideDrills.push({
+            x_mm: railX,
+            y_mm: holeY,
+            diameter_mm: MC.DRAWER_SLIDE_HOLE_DIAMETER_MM,
+            depth_mm: MC.DRAWER_SLIDE_HOLE_DEPTH_MM,
+            layer: MC.LAYER_DRAWER_SLIDE,
+            description: `Çekmece #${dIdx + 1} Ray Montaj Deliği`,
+          });
+        }
+      }
+    }
+  }
+
+  // Sistem 32 Raf Pimi Delikleri
+  const remainingClearH = round2(clearInnerH - drawerZoneH);
+  if (config.shelf_count > 0 && remainingClearH > 120.0) {
+    const lowerBoundX = plinthH + t + drawerZoneH;
+    const stepH = remainingClearH / (config.shelf_count + 1);
     const pinYRear = round2(
       MC.BACK_GROOVE_OFFSET_FROM_REAR_MM +
         MC.BACK_GROOVE_WIDTH_MM +
@@ -348,7 +861,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     const pinYFront = round2(d - MC.SHELF_PIN_FRONT_OFFSET_MM);
 
     for (let idx = 1; idx <= config.shelf_count; idx += 1) {
-      const centerX = round2(plinthH + t + idx * stepH);
+      const centerX = round2(lowerBoundX + idx * stepH);
       for (const offset of [-MC.SYSTEM_32_PITCH_MM, 0.0, MC.SYSTEM_32_PITCH_MM]) {
         const holeX = round2(centerX + offset);
         for (const holeY of [pinYRear, pinYFront]) {
@@ -390,9 +903,9 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
   }
 
   parts.push({
-    part_id: "P01",
-    code: "YAN_SOL",
-    name: "Sol Yan Dikme",
+    part_id: padId(partCounter++),
+    code: `${prefix}YAN_SOL`,
+    name: `${labelPrefix}Sol Yan Dikme`,
     material: config.body_material,
     thickness_mm: t,
     quantity: 1,
@@ -408,7 +921,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     drills: sideDrills,
     grooves: sideGrooves,
     transform_3d: {
-      center_x_mm: round2(-w / 2.0 + t / 2.0),
+      center_x_mm: round2(xOffsetMm - w / 2.0 + t / 2.0),
       center_y_mm: round2(h / 2.0),
       center_z_mm: 0.0,
       size_x_mm: t,
@@ -416,14 +929,16 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       size_z_mm: d,
       color_hex: config.body_color_hex,
       is_door: false,
+      is_drawer: false,
       hinge_side: null,
+      module_index: moduleIdx,
     },
   });
 
   parts.push({
-    part_id: "P02",
-    code: "YAN_SAG",
-    name: "Sağ Yan Dikme",
+    part_id: padId(partCounter++),
+    code: `${prefix}YAN_SAG`,
+    name: `${labelPrefix}Sağ Yan Dikme`,
     material: config.body_material,
     thickness_mm: t,
     quantity: 1,
@@ -439,7 +954,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     drills: sideDrills,
     grooves: sideGrooves,
     transform_3d: {
-      center_x_mm: round2(w / 2.0 - t / 2.0),
+      center_x_mm: round2(xOffsetMm + w / 2.0 - t / 2.0),
       center_y_mm: round2(h / 2.0),
       center_z_mm: 0.0,
       size_x_mm: t,
@@ -447,7 +962,9 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       size_z_mm: d,
       color_hex: config.body_color_hex,
       is_door: false,
+      is_drawer: false,
       hinge_side: null,
+      module_index: moduleIdx,
     },
   });
 
@@ -495,9 +1012,9 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       : [];
 
   parts.push({
-    part_id: "P03",
-    code: "TABLA_UST",
-    name: "Üst Tabla",
+    part_id: padId(partCounter++),
+    code: `${prefix}TABLA_UST`,
+    name: `${labelPrefix}Üst Tabla`,
     material: config.body_material,
     thickness_mm: t,
     quantity: 1,
@@ -513,7 +1030,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     drills: horizDrills,
     grooves: horizGrooves,
     transform_3d: {
-      center_x_mm: 0.0,
+      center_x_mm: xOffsetMm,
       center_y_mm: round2(h - t / 2.0),
       center_z_mm: 0.0,
       size_x_mm: innerW,
@@ -521,14 +1038,16 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       size_z_mm: d,
       color_hex: config.body_color_hex,
       is_door: false,
+      is_drawer: false,
       hinge_side: null,
+      module_index: moduleIdx,
     },
   });
 
   parts.push({
-    part_id: "P04",
-    code: "TABLA_ALT",
-    name: "Alt Tabla",
+    part_id: padId(partCounter++),
+    code: `${prefix}TABLA_ALT`,
+    name: `${labelPrefix}Alt Tabla`,
     material: config.body_material,
     thickness_mm: t,
     quantity: 1,
@@ -544,7 +1063,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     drills: horizDrills,
     grooves: horizGrooves,
     transform_3d: {
-      center_x_mm: 0.0,
+      center_x_mm: xOffsetMm,
       center_y_mm: round2(plinthH + t / 2.0),
       center_z_mm: 0.0,
       size_x_mm: innerW,
@@ -552,12 +1071,11 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       size_z_mm: d,
       color_hex: config.body_color_hex,
       is_door: false,
+      is_drawer: false,
       hinge_side: null,
+      module_index: moduleIdx,
     },
   });
-
-  let partCounter = 5;
-  const padId = (n: number): string => `P${String(n).padStart(2, "0")}`;
 
   // Baza Kayıtları
   if (config.has_plinth && plinthH > 0) {
@@ -578,8 +1096,8 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     ] as const) {
       parts.push({
         part_id: padId(partCounter++),
-        code: `BAZA_${suffix}`,
-        name: `${label} Baza Kaydı`,
+        code: `${prefix}BAZA_${suffix}`,
+        name: `${labelPrefix}${label} Baza Kaydı`,
         material: config.body_material,
         thickness_mm: t,
         quantity: 1,
@@ -595,7 +1113,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
         drills: [],
         grooves: [],
         transform_3d: {
-          center_x_mm: 0.0,
+          center_x_mm: xOffsetMm,
           center_y_mm: round2(plinthH / 2.0),
           center_z_mm: zPos,
           size_x_mm: innerW,
@@ -603,14 +1121,220 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
           size_z_mm: t,
           color_hex: config.body_color_hex,
           is_door: false,
+          is_drawer: false,
           hinge_side: null,
+          module_index: moduleIdx,
+        },
+      });
+    }
+  }
+
+  // Çekmece Kasa ve Klapaları
+  let totalHandles = 0;
+  if (drawerCount > 0) {
+    const slideLen = selectDrawerSlideLength(d);
+    const boxH = round2(
+      Math.max(80.0, drawerFrontH - MC.DRAWER_BOX_HEIGHT_REDUCTION_MM)
+    );
+    const boxInnerW = round2(
+      innerW - MC.DRAWER_SLIDE_CLEARANCE_TOTAL_MM - 2.0 * t
+    );
+    const frontNetW = round2(w - 2.0 * MC.DOOR_OUTER_GAP_MM);
+    const frontNetH = round2(drawerFrontH - MC.DOOR_CENTER_GAP_MM);
+
+    const frontEdge: EdgeBandSpec = {
+      length_1_mm: config.front_pvc_thickness_mm,
+      length_2_mm: config.front_pvc_thickness_mm,
+      width_1_mm: config.front_pvc_thickness_mm,
+      width_2_mm: config.front_pvc_thickness_mm,
+    };
+    const [fCutL, fCutW, fDedL, fDedW] = computeCutDimensions(
+      frontNetW,
+      frontNetH,
+      frontEdge
+    );
+
+    const boxEdge: EdgeBandSpec = {
+      length_1_mm: config.hidden_pvc_thickness_mm,
+      length_2_mm: 0.0,
+      width_1_mm: 0.0,
+      width_2_mm: 0.0,
+    };
+    const [bsCutL, bsCutW, bsDedL, bsDedW] = computeCutDimensions(
+      slideLen,
+      boxH,
+      boxEdge
+    );
+    const [bfCutL, bfCutW, bfDedL, bfDedW] = computeCutDimensions(
+      boxInnerW,
+      boxH,
+      boxEdge
+    );
+
+    const noEdge: EdgeBandSpec = {
+      length_1_mm: 0.0,
+      length_2_mm: 0.0,
+      width_1_mm: 0.0,
+      width_2_mm: 0.0,
+    };
+    const bottomW = round2(boxInnerW + 15.0);
+    const bottomL = round2(slideLen - 2.0 * t + 15.0);
+
+    for (let dIdx = 1; dIdx <= drawerCount; dIdx += 1) {
+      const dStr = String(dIdx).padStart(2, "0");
+      const centerY = round2(plinthH + t + (dIdx - 0.5) * drawerFrontH);
+      const klapaZ = round2(d / 2.0 + t / 2.0 + 1.5);
+      const boxZ = round2(d / 2.0 - slideLen / 2.0 - 5.0);
+      totalHandles += 1;
+
+      parts.push({
+        part_id: padId(partCounter++),
+        code: `${prefix}CEK_KLAPA_${dStr}`,
+        name: `${labelPrefix}Çekmece #${dIdx} Ön Klapası`,
+        material: config.body_material,
+        thickness_mm: t,
+        quantity: 1,
+        net_length_mm: frontNetW,
+        net_width_mm: frontNetH,
+        cut_length_mm: fCutL,
+        cut_width_mm: fCutW,
+        pvc_deduction_length_mm: fDedL,
+        pvc_deduction_width_mm: fDedW,
+        edge_band: frontEdge,
+        area_m2: round4((frontNetW * frontNetH) / 1_000_000.0),
+        grain_direction: "length",
+        drills: [],
+        grooves: [],
+        transform_3d: {
+          center_x_mm: xOffsetMm,
+          center_y_mm: centerY,
+          center_z_mm: klapaZ,
+          size_x_mm: frontNetW,
+          size_y_mm: frontNetH,
+          size_z_mm: t,
+          color_hex: config.door_color_hex,
+          is_door: false,
+          is_drawer: true,
+          hinge_side: null,
+          module_index: moduleIdx,
+        },
+      });
+
+      for (const [sCode, sName, sxSign] of [
+        ["SOL", "Sol Yan Kasa", -1.0],
+        ["SAG", "Sağ Yan Kasa", 1.0],
+      ] as const) {
+        parts.push({
+          part_id: padId(partCounter++),
+          code: `${prefix}CEK_${dStr}_YAN_${sCode}`,
+          name: `${labelPrefix}Çekmece #${dIdx} ${sName}`,
+          material: config.body_material,
+          thickness_mm: t,
+          quantity: 1,
+          net_length_mm: slideLen,
+          net_width_mm: boxH,
+          cut_length_mm: bsCutL,
+          cut_width_mm: bsCutW,
+          pvc_deduction_length_mm: bsDedL,
+          pvc_deduction_width_mm: bsDedW,
+          edge_band: boxEdge,
+          area_m2: round4((slideLen * boxH) / 1_000_000.0),
+          grain_direction: "length",
+          drills: [],
+          grooves: [],
+          transform_3d: {
+            center_x_mm: round2(
+              xOffsetMm + sxSign * (boxInnerW / 2.0 + t / 2.0)
+            ),
+            center_y_mm: centerY,
+            center_z_mm: boxZ,
+            size_x_mm: t,
+            size_y_mm: boxH,
+            size_z_mm: slideLen,
+            color_hex: config.body_color_hex,
+            is_door: false,
+            is_drawer: true,
+            hinge_side: null,
+            module_index: moduleIdx,
+          },
+        });
+      }
+
+      for (const [fbCode, fbName, fbZ] of [
+        ["ON", "İç Ön Kasa", round2(boxZ + slideLen / 2.0 - t / 2.0)],
+        ["ARKA", "İç Arka Kasa", round2(boxZ - slideLen / 2.0 + t / 2.0)],
+      ] as const) {
+        parts.push({
+          part_id: padId(partCounter++),
+          code: `${prefix}CEK_${dStr}_${fbCode}`,
+          name: `${labelPrefix}Çekmece #${dIdx} ${fbName}`,
+          material: config.body_material,
+          thickness_mm: t,
+          quantity: 1,
+          net_length_mm: boxInnerW,
+          net_width_mm: boxH,
+          cut_length_mm: bfCutL,
+          cut_width_mm: bfCutW,
+          pvc_deduction_length_mm: bfDedL,
+          pvc_deduction_width_mm: bfDedW,
+          edge_band: boxEdge,
+          area_m2: round4((boxInnerW * boxH) / 1_000_000.0),
+          grain_direction: "length",
+          drills: [],
+          grooves: [],
+          transform_3d: {
+            center_x_mm: xOffsetMm,
+            center_y_mm: centerY,
+            center_z_mm: fbZ,
+            size_x_mm: boxInnerW,
+            size_y_mm: boxH,
+            size_z_mm: t,
+            color_hex: config.body_color_hex,
+            is_door: false,
+            is_drawer: true,
+            hinge_side: null,
+            module_index: moduleIdx,
+          },
+        });
+      }
+
+      parts.push({
+        part_id: padId(partCounter++),
+        code: `${prefix}CEK_${dStr}_TABAN`,
+        name: `${labelPrefix}Çekmece #${dIdx} Alt Tabanı (8mm)`,
+        material: "8mm Beyaz MDF-Lam Arkalık",
+        thickness_mm: MC.BACK_PANEL_GROOVED_THICKNESS_MM,
+        quantity: 1,
+        net_length_mm: bottomW,
+        net_width_mm: bottomL,
+        cut_length_mm: bottomW,
+        cut_width_mm: bottomL,
+        pvc_deduction_length_mm: 0.0,
+        pvc_deduction_width_mm: 0.0,
+        edge_band: noEdge,
+        area_m2: round4((bottomW * bottomL) / 1_000_000.0),
+        grain_direction: "length",
+        drills: [],
+        grooves: [],
+        transform_3d: {
+          center_x_mm: xOffsetMm,
+          center_y_mm: round2(centerY - boxH / 2.0 + 8.0),
+          center_z_mm: boxZ,
+          size_x_mm: bottomW,
+          size_y_mm: MC.BACK_PANEL_GROOVED_THICKNESS_MM,
+          size_z_mm: bottomL,
+          color_hex: "#E5E0D5",
+          is_door: false,
+          is_drawer: true,
+          hinge_side: null,
+          module_index: moduleIdx,
         },
       });
     }
   }
 
   // Hareketli Raflar
-  if (config.shelf_count > 0) {
+  if (config.shelf_count > 0 && remainingClearH > 120.0) {
     const shelfNetL = round2(innerW - MC.SHELF_WIDTH_CLEARANCE_MM);
     const rearLoss =
       config.back_panel_type === "grooved_8mm"
@@ -628,14 +1352,14 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       shelfNetW,
       shelfEdge
     );
-    const stepH = clearInnerH / (config.shelf_count + 1);
+    const stepH = remainingClearH / (config.shelf_count + 1);
     const shelfZCenter = round2((rearLoss - MC.SHELF_FRONT_SETBACK_MM) / 2.0);
 
     for (let sIdx = 1; sIdx <= config.shelf_count; sIdx += 1) {
       parts.push({
         part_id: padId(partCounter++),
-        code: `RAF_${String(sIdx).padStart(2, "0")}`,
-        name: `Hareketli Raf #${sIdx}`,
+        code: `${prefix}RAF_${String(sIdx).padStart(2, "0")}`,
+        name: `${labelPrefix}Hareketli Raf #${sIdx}`,
         material: config.body_material,
         thickness_mm: t,
         quantity: 1,
@@ -651,15 +1375,17 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
         drills: [],
         grooves: [],
         transform_3d: {
-          center_x_mm: 0.0,
-          center_y_mm: round2(plinthH + t + sIdx * stepH),
+          center_x_mm: xOffsetMm,
+          center_y_mm: round2(plinthH + t + drawerZoneH + sIdx * stepH),
           center_z_mm: shelfZCenter,
           size_x_mm: shelfNetL,
           size_y_mm: t,
           size_z_mm: shelfNetW,
           color_hex: config.body_color_hex,
           is_door: false,
+          is_drawer: false,
           hinge_side: null,
+          module_index: moduleIdx,
         },
       });
     }
@@ -695,8 +1421,8 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
 
   parts.push({
     part_id: padId(partCounter++),
-    code: "ARKALIK",
-    name: "Arkalık Paneli",
+    code: `${prefix}ARKALIK`,
+    name: `${labelPrefix}Arkalık Paneli`,
     material: backMat,
     thickness_mm: backT,
     quantity: 1,
@@ -712,7 +1438,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     drills: [],
     grooves: [],
     transform_3d: {
-      center_x_mm: 0.0,
+      center_x_mm: xOffsetMm,
       center_y_mm: round2(plinthH + (h - plinthH) / 2.0),
       center_z_mm: backZ,
       size_x_mm: backW,
@@ -720,13 +1446,14 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       size_z_mm: backT,
       color_hex: "#E5E0D5",
       is_door: false,
+      is_drawer: false,
       hinge_side: null,
+      module_index: moduleIdx,
     },
   });
 
   // Kapaklar
   let totalHinges = 0;
-  let doorHandles = 0;
   const buildDoorDrills = (
     doorH: number,
     doorW: number,
@@ -736,13 +1463,22 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     const hingeY = hingeOnLeft
       ? MC.HINGE_CUP_CENTER_FROM_EDGE_MM
       : round2(doorW - MC.HINGE_CUP_CENTER_FROM_EDGE_MM);
-    const topX = round2(doorH - MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM);
-    const bottomX = MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM;
-    const step = count > 2 ? (topX - bottomX) / (count - 1) : 0;
+    const topX = round2(
+      Math.max(doorH - MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, doorH * 0.75)
+    );
+    const bottomX = round2(
+      Math.min(MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, doorH * 0.25)
+    );
+    const step =
+      count > 2 && topX > bottomX ? (topX - bottomX) / (count - 1) : 0;
     const drills: DrillPoint[] = [];
     for (let i = 0; i < count; i += 1) {
       const xPos =
-        count === 2 ? (i === 0 ? bottomX : topX) : round2(bottomX + i * step);
+        count === 2 || topX <= bottomX
+          ? i === 0
+            ? bottomX
+            : topX
+          : round2(bottomX + i * step);
       drills.push({
         x_mm: xPos,
         y_mm: hingeY,
@@ -755,15 +1491,16 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     return drills;
   };
 
-  if (config.door_type !== "none") {
-    const doorNetH = round2(h - plinthH - 2.0 * MC.DOOR_OUTER_GAP_MM);
+  const doorAvailH = round2(h - plinthH - drawerZoneH);
+  if (config.door_type !== "none" && doorAvailH >= 240.0) {
+    const doorNetH = round2(doorAvailH - 2.0 * MC.DOOR_OUTER_GAP_MM);
     const doorEdge: EdgeBandSpec = {
       length_1_mm: config.front_pvc_thickness_mm,
       length_2_mm: config.front_pvc_thickness_mm,
       width_1_mm: config.front_pvc_thickness_mm,
       width_2_mm: config.front_pvc_thickness_mm,
     };
-    const doorYCenter = round2(plinthH + (h - plinthH) / 2.0);
+    const doorYCenter = round2(plinthH + drawerZoneH + doorAvailH / 2.0);
     const doorZCenter = round2(d / 2.0 + t / 2.0 + 1.5);
 
     if (
@@ -779,14 +1516,14 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       const hingeLeft = config.door_type === "single_left";
       const dDrills = buildDoorDrills(doorNetH, doorNetW, hingeLeft);
       totalHinges += dDrills.length;
-      doorHandles += 1;
+      totalHandles += 1;
 
       parts.push({
         part_id: padId(partCounter++),
-        code: "KAPAK_TEK",
+        code: `${prefix}KAPAK_TEK`,
         name: hingeLeft
-          ? "Tek Kapak (Sol Menteşeli)"
-          : "Tek Kapak (Sağ Menteşeli)",
+          ? `${labelPrefix}Tek Kapak (Sol Menteşeli)`
+          : `${labelPrefix}Tek Kapak (Sağ Menteşeli)`,
         material: config.body_material,
         thickness_mm: t,
         quantity: 1,
@@ -802,7 +1539,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
         drills: dDrills,
         grooves: [],
         transform_3d: {
-          center_x_mm: 0.0,
+          center_x_mm: xOffsetMm,
           center_y_mm: doorYCenter,
           center_z_mm: doorZCenter,
           size_x_mm: doorNetW,
@@ -810,7 +1547,9 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
           size_z_mm: t,
           color_hex: config.door_color_hex,
           is_door: true,
+          is_drawer: false,
           hinge_side: hingeLeft ? "left" : "right",
+          module_index: moduleIdx,
         },
       });
     } else if (config.door_type === "double") {
@@ -822,27 +1561,27 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
         doorNetW,
         doorEdge
       );
-      for (const [sideCode, sideLabel, isLeft, centerX] of [
+      for (const [sideCode, sideLabel, isLeft, relCx] of [
         [
           "SOL",
           "Sol Kapak",
           true,
-          round2(-(doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0)),
+          -(doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0),
         ],
         [
           "SAG",
           "Sağ Kapak",
           false,
-          round2(doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0),
+          doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0,
         ],
       ] as const) {
         const dDrills = buildDoorDrills(doorNetH, doorNetW, isLeft);
         totalHinges += dDrills.length;
-        doorHandles += 1;
+        totalHandles += 1;
         parts.push({
           part_id: padId(partCounter++),
-          code: `KAPAK_${sideCode}`,
-          name: sideLabel,
+          code: `${prefix}KAPAK_${sideCode}`,
+          name: `${labelPrefix}${sideLabel}`,
           material: config.body_material,
           thickness_mm: t,
           quantity: 1,
@@ -858,7 +1597,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
           drills: dDrills,
           grooves: [],
           transform_3d: {
-            center_x_mm: centerX,
+            center_x_mm: round2(xOffsetMm + relCx),
             center_y_mm: doorYCenter,
             center_z_mm: doorZCenter,
             size_x_mm: doorNetW,
@@ -866,12 +1605,66 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
             size_z_mm: t,
             color_hex: config.door_color_hex,
             is_door: true,
+            is_drawer: false,
             hinge_side: isLeft ? "left" : "right",
+            module_index: moduleIdx,
           },
         });
       }
     }
   }
+
+  const minifixSets = connectionDepthCoords(d).length * 4 + drawerCount * 4;
+  const dowelCount = minifixSets + (config.has_plinth ? 8 : 0);
+
+  return {
+    parts,
+    nextCounter: partCounter,
+    minifixSets,
+    dowelCount,
+    totalHinges,
+    totalHandles,
+  };
+}
+
+export function generateBomLocal(config: CabinetConfig): BOMReport {
+  const allModules: CabinetConfig[] = [
+    config,
+    ...(config.additional_modules ?? []),
+  ];
+  const multiMode = allModules.length > 1;
+  const totalLineWidth = allModules.reduce((acc, m) => acc + m.width_mm, 0);
+  let currentLeftX = -totalLineWidth / 2.0;
+
+  const parts: PanelPart[] = [];
+  let partCounter = 1;
+  let totalMinifix = 0;
+  let totalDowels = 0;
+  let totalHinges = 0;
+  let totalHandles = 0;
+  let totalShelfPins = 0;
+  let totalDrawerSlides = 0;
+
+  allModules.forEach((modCfg, idx) => {
+    const centerXOffset = round2(currentLeftX + modCfg.width_mm / 2.0);
+    currentLeftX += modCfg.width_mm;
+
+    const res = generateSingleModuleParts(
+      modCfg,
+      idx + 1,
+      centerXOffset,
+      partCounter,
+      multiMode
+    );
+    parts.push(...res.parts);
+    partCounter = res.nextCounter;
+    totalMinifix += res.minifixSets;
+    totalDowels += res.dowelCount;
+    totalHinges += res.totalHinges;
+    totalHandles += res.totalHandles;
+    totalShelfPins += modCfg.shelf_count * 4;
+    totalDrawerSlides += modCfg.drawer_count ?? 0;
+  });
 
   let pvc04Mm = 0;
   let pvc10Mm = 0;
@@ -902,34 +1695,40 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
   const pvc10M = round2(pvc10Mm / 1000.0);
   const pvc20M = round2(pvc20Mm / 1000.0);
 
-  const minifixSets = connectionDepthCoords(d).length * 4;
-  const dowelCount = minifixSets + (config.has_plinth ? 8 : 0);
-  const shelfPins = config.shelf_count * 4;
-
   const hardware: HardwareItem[] = [
     {
       code: "HRD-MNFX-15",
       name: "Minifiks Bağlantı Takımı (Ø15 Eksantrik + Mil)",
       unit: "Takım",
-      quantity: minifixSets,
-      note: "Alt ve üst tabla gövde birleştirmeleri",
+      quantity: totalMinifix,
+      note: "Gövde ve çekmece kasa birleştirmeleri",
     },
     {
       code: "HRD-KVLA-08",
       name: "Ahşap Kavela (Ø8x35mm)",
       unit: "Adet",
-      quantity: dowelCount,
+      quantity: totalDowels,
       note: "Sistem 32 kavela delikleri ve baza kayıtları",
     },
   ];
 
-  if (shelfPins > 0) {
+  if (totalShelfPins > 0) {
     hardware.push({
       code: "HRD-RAFP-05",
       name: "Çelik Raf Pimi (Ø5mm)",
       unit: "Adet",
-      quantity: shelfPins,
-      note: `${config.shelf_count} adet hareketli raf için (raf başı 4 adet)`,
+      quantity: totalShelfPins,
+      note: "Hareketli raflar için (raf başı 4 adet)",
+    });
+  }
+  if (totalDrawerSlides > 0) {
+    const slideLen = selectDrawerSlideLength(config.depth_mm);
+    hardware.push({
+      code: `HRD-CRAY-${slideLen}`,
+      name: `Frenli Teleskopik Çekmece Rayı (${slideLen}mm)`,
+      unit: "Takım",
+      quantity: totalDrawerSlides,
+      note: `${totalDrawerSlides} adet çekmece için sağ/sol ray takımı`,
     });
   }
   if (totalHinges > 0) {
@@ -940,12 +1739,14 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       quantity: totalHinges,
       note: "Kapak bağlantıları için",
     });
+  }
+  if (totalHandles > 0) {
     hardware.push({
       code: "HRD-KULP-160",
       name: "Alüminyum Mobilya Kulpu (160mm)",
       unit: "Adet",
-      quantity: doorHandles,
-      note: "Kapak kulpları",
+      quantity: totalHandles,
+      note: "Kapak ve çekmece kulpları",
     });
   }
   if (pvc20M > 0) {
@@ -954,7 +1755,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       name: "2.0 mm × 22 mm PVC Kenar Bandı",
       unit: "Metre",
       quantity: pvc20M,
-      note: "Görünen ön kenarlar ve kapaklar",
+      note: "Görünen ön kenarlar, kapaklar ve çekmece klapaları",
     });
   }
   if (pvc10M > 0) {
@@ -972,7 +1773,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       name: "0.4 mm × 22 mm PVC Kenar Bandı",
       unit: "Metre",
       quantity: pvc04M,
-      note: "Gizli / arka kenarlar",
+      note: "Gizli / arka kenarlar ve çekmece iç kasaları",
     });
   }
 
@@ -1167,15 +1968,15 @@ function renderSheetSvg(
     lines.push(
       `<g class="part-group"><rect x="${px.toFixed(2)}" y="${py.toFixed(2)}" width="${pw.toFixed(2)}" height="${ph.toFixed(2)}" fill="${fillColor}" fill-opacity="0.85" stroke="#F8FAFC" stroke-width="1.2" />`
     );
-    if (pw > 42 && ph > 22) {
+    if (pw > 38 && ph > 20) {
       const cx = px + pw / 2;
       const cy = py + ph / 2;
       const rotTag = p.rotated ? " [90°]" : "";
       lines.push(
-        `<text x="${cx.toFixed(1)}" y="${(cy - 3).toFixed(1)}" text-anchor="middle" fill="${textColor}" font-size="10" font-weight="700">${p.part_id} ${p.code}${rotTag}</text>`
+        `<text x="${cx.toFixed(1)}" y="${(cy - 2).toFixed(1)}" text-anchor="middle" fill="${textColor}" font-size="9.5" font-weight="700">${p.part_id} ${p.code}${rotTag}</text>`
       );
       lines.push(
-        `<text x="${cx.toFixed(1)}" y="${(cy + 10).toFixed(1)}" text-anchor="middle" fill="#E2E8F0" font-size="9">${p.cut_length_mm}×${p.cut_width_mm} mm</text>`
+        `<text x="${cx.toFixed(1)}" y="${(cy + 9).toFixed(1)}" text-anchor="middle" fill="#E2E8F0" font-size="8.5">${p.cut_length_mm}×${p.cut_width_mm}</text>`
       );
     }
     lines.push(`</g>`);
@@ -1284,7 +2085,7 @@ export function runNestingLocal(bom: BOMReport): NestingResult {
 }
 
 /**
- * 4. CNC DXF (AutoCAD R2010 / AC1024) Dosya Üretici
+ * 4. CNC DXF (AutoCAD R2010), ISO G-Code (.nc) ve Homag WoodWOP (.mpr) Üretici
  */
 export function generatePartDxfString(part: PanelPart): string {
   const lines: string[] = [
@@ -1321,25 +2122,14 @@ export function generatePartDxfString(part: PanelPart): string {
       [x0 + w, y0 + h],
       [x0, y0 + h],
     ];
-    lines.push(
-      "0",
-      "LWPOLYLINE",
-      "8",
-      layer,
-      "90",
-      "4",
-      "70",
-      "1"
-    );
+    lines.push("0", "LWPOLYLINE", "8", layer, "90", "4", "70", "1");
     for (const [cx, cy] of coords) {
       lines.push("10", cx.toFixed(2), "20", cy.toFixed(2));
     }
   };
 
-  // Dış kesim konturu
   addRectLwPolyline(0, 0, part.cut_length_mm, part.cut_width_mm, MC.LAYER_OUTLINE);
 
-  // Arkalık kanalları
   for (const g of part.grooves) {
     addRectLwPolyline(
       g.x_start_mm,
@@ -1350,7 +2140,6 @@ export function generatePartDxfString(part: PanelPart): string {
     );
   }
 
-  // Sistem 32 CNC Delikleri
   for (const d of part.drills) {
     const r = d.diameter_mm / 2.0;
     lines.push(
@@ -1373,8 +2162,138 @@ export function generatePartDxfString(part: PanelPart): string {
   return lines.join("\n");
 }
 
+export function generatePartGcodeString(part: PanelPart): string {
+  const cutL = part.cut_length_mm;
+  const cutW = part.cut_width_mm;
+  const t = part.thickness_mm;
+
+  const lines: string[] = [
+    "%",
+    `(MARANGOZ CAM POST-PROCESSOR - ISO G-CODE)`,
+    `(PARCA: ${part.part_id} ${part.code} - ${part.name})`,
+    `(KESIM EBADI: ${cutL.toFixed(2)} x ${cutW.toFixed(2)} x ${t.toFixed(1)} mm)`,
+    "G21 G90 G17 G40 G49 G80",
+    "G0 Z35.000",
+  ];
+
+  if (part.grooves.length > 0) {
+    lines.push(
+      "(--- OP 1: 8MM ARKALIK KANALI FREZELEME ---)",
+      "T1 M6 (D8.0 KARBUR PARMAK FREZE)",
+      "S18000 M3"
+    );
+    part.grooves.forEach((g, idx) => {
+      const gx0 = g.x_start_mm;
+      const gy0 = g.y_start_mm + g.length_mm / 2.0;
+      const gx1 = g.x_start_mm + g.width_mm;
+      lines.push(
+        `(KANAL #${idx + 1}: ${g.layer})`,
+        `G0 X${gx0.toFixed(3)} Y${gy0.toFixed(3)}`,
+        "G0 Z5.000",
+        `G1 Z-${Math.abs(g.depth_mm).toFixed(3)} F1500`,
+        `G1 X${gx1.toFixed(3)} Y${gy0.toFixed(3)} F4500`,
+        "G0 Z25.000"
+      );
+    });
+  }
+
+  if (part.drills.length > 0) {
+    lines.push(
+      "(--- OP 2: SISTEM 32 CNC DELIK DELME ---)",
+      "T2 M6 (COKLU DELIK UNITE / MATKAP)",
+      "S6000 M3"
+    );
+    part.drills.forEach((d, idx) => {
+      lines.push(
+        `(DELIK #${idx + 1}: ${d.layer} D=${d.diameter_mm.toFixed(1)}mm)`,
+        `G81 X${d.x_mm.toFixed(3)} Y${d.y_mm.toFixed(3)} Z-${Math.abs(d.depth_mm).toFixed(3)} R5.000 F1800`
+      );
+    });
+    lines.push("G80", "G0 Z35.000");
+  }
+
+  const cutZ = -(t + 0.5);
+  lines.push(
+    "(--- OP 3: DIS KONTUR EBATLAMA ---)",
+    "T1 M6 (D8.0 KARBUR PARMAK FREZE)",
+    "S18000 M3",
+    "G0 X0.000 Y0.000",
+    "G0 Z5.000",
+    `G1 Z${cutZ.toFixed(3)} F1500`,
+    `G1 X${cutL.toFixed(3)} Y0.000 F5000`,
+    `G1 X${cutL.toFixed(3)} Y${cutW.toFixed(3)}`,
+    `G1 X0.000 Y${cutW.toFixed(3)}`,
+    "G1 X0.000 Y0.000",
+    "G0 Z50.000",
+    "M5",
+    "M30",
+    "%"
+  );
+  return lines.join("\n");
+}
+
+export function generatePartMprString(part: PanelPart): string {
+  const cutL = part.cut_length_mm;
+  const cutW = part.cut_width_mm;
+  const t = part.thickness_mm;
+
+  const lines: string[] = [
+    "[H",
+    'VERSION="4.0 Alpha"',
+    "OP=1",
+    "FM=1",
+    "VIEW=NOMIRROR",
+    `BSX=${cutL.toFixed(2)}`,
+    `BSY=${cutW.toFixed(2)}`,
+    `BSZ=${t.toFixed(2)}`,
+    "FNX=0.00",
+    "FNY=0.00",
+    `MAT="${part.material}"`,
+    "",
+    "<100 \\WerkStck\\",
+    'LA="BSX"',
+    'BR="BSY"',
+    'DI="BSZ"',
+    'FNX="FNX"',
+    'FNY="FNY"',
+    "",
+  ];
+
+  for (const g of part.grooves) {
+    const cx = g.x_start_mm + g.width_mm / 2.0;
+    const cy = g.y_start_mm + g.length_mm / 2.0;
+    lines.push(
+      "<112 \\Tasche\\",
+      `XA="${cx.toFixed(2)}"`,
+      `YA="${cy.toFixed(2)}"`,
+      `LA="${g.width_mm.toFixed(2)}"`,
+      `BR="${g.length_mm.toFixed(2)}"`,
+      `TI="${g.depth_mm.toFixed(2)}"`,
+      'T_="101"',
+      'F_="5"',
+      ""
+    );
+  }
+
+  for (const d of part.drills) {
+    lines.push(
+      "<102 \\BohrVert\\",
+      `XA="${d.x_mm.toFixed(2)}"`,
+      `YA="${d.y_mm.toFixed(2)}"`,
+      'BM="LS"',
+      `TI="${d.depth_mm.toFixed(2)}"`,
+      `DU="${d.diameter_mm.toFixed(2)}"`,
+      'AN="1"',
+      ""
+    );
+  }
+
+  lines.push("!");
+  return lines.join("\n");
+}
+
 /**
- * 5. Standart ZIP Arşivi Oluşturucu (Pure TypeScript CRC32 + Store ZIP)
+ * 5. Standart ZIP Arşivi Oluşturucu
  */
 function crc32(bytes: Uint8Array): number {
   let c = 0xffffffff;
@@ -1510,11 +2429,18 @@ function buildBomCsvString(bom: BOMReport): string {
   return [header, ...rows].join("\n");
 }
 
-// Tarayıcıda üretilen DXF içeriklerini parça dosya adına göre saklar
 const localDxfBlobUrls = new Map<string, string>();
+const localGcodeBlobUrls = new Map<string, string>();
+const localMprBlobUrls = new Map<string, string>();
 
 export function getLocalDxfBlobUrl(filename: string): string | undefined {
   return localDxfBlobUrls.get(filename);
+}
+export function getLocalGcodeBlobUrl(filename: string): string | undefined {
+  return localGcodeBlobUrls.get(filename);
+}
+export function getLocalMprBlobUrl(filename: string): string | undefined {
+  return localMprBlobUrls.get(filename);
 }
 
 export function generateProductionPackageLocal(
@@ -1544,16 +2470,34 @@ export function generateProductionPackageLocal(
 
   const dxfFilenames: string[] = [];
   for (const part of bom.parts) {
-    const fname = `${part.part_id}_${part.code}.dxf`;
-    const dxfContent = generatePartDxfString(part);
-    dxfFilenames.push(fname);
-    zipFiles.push({
-      name: `cnc_dxf/${fname}`,
-      content: dxfContent,
-    });
+    const baseName = `${part.part_id}_${part.code}`;
+    const dxfName = `${baseName}.dxf`;
+    const ncName = `${baseName}.nc`;
+    const mprName = `${baseName}.mpr`;
 
-    const dxfBlob = new Blob([dxfContent], { type: "application/dxf" });
-    localDxfBlobUrls.set(fname, URL.createObjectURL(dxfBlob));
+    const dxfContent = generatePartDxfString(part);
+    const ncContent = generatePartGcodeString(part);
+    const mprContent = generatePartMprString(part);
+
+    dxfFilenames.push(dxfName);
+    zipFiles.push(
+      { name: `cnc_dxf/${dxfName}`, content: dxfContent },
+      { name: `cnc_gcode/${ncName}`, content: ncContent },
+      { name: `cnc_mpr/${mprName}`, content: mprContent }
+    );
+
+    localDxfBlobUrls.set(
+      dxfName,
+      URL.createObjectURL(new Blob([dxfContent], { type: "application/dxf" }))
+    );
+    localGcodeBlobUrls.set(
+      ncName,
+      URL.createObjectURL(new Blob([ncContent], { type: "text/plain" }))
+    );
+    localMprBlobUrls.set(
+      mprName,
+      URL.createObjectURL(new Blob([mprContent], { type: "text/plain" }))
+    );
   }
 
   const zipBlob = createZipBlob(zipFiles);

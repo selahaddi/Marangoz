@@ -66,6 +66,21 @@ class ManufacturingConstants:
     HINGE_CUP_CENTER_FROM_EDGE_MM: Final[float] = 22.5
     HINGE_EDGE_OFFSET_TOP_BOTTOM_MM: Final[float] = 100.0
 
+    # Çekmece Kasa ve Teleskopik/Frenli Ray Kuralları (mm)
+    DRAWER_SLIDE_CLEARANCE_TOTAL_MM: Final[float] = 26.0  # Sağ 13 mm + Sol 13 mm
+    DRAWER_BOX_HEIGHT_REDUCTION_MM: Final[float] = 45.0   # Klapa yüksekliğinden düşüm
+    DRAWER_SLIDE_SIZES_MM: Final[tuple[float, ...]] = (
+        250.0,
+        300.0,
+        350.0,
+        400.0,
+        450.0,
+        500.0,
+        550.0,
+    )
+    DRAWER_SLIDE_HOLE_DIAMETER_MM: Final[float] = 5.0
+    DRAWER_SLIDE_HOLE_DEPTH_MM: Final[float] = 12.0
+
     # DXF Katman İsimleri (R2010)
     LAYER_OUTLINE: Final[str] = "OUTLINE_CUT"
     LAYER_GROOVE_BACK: Final[str] = "GROOVE_BACK_8MM"
@@ -74,6 +89,7 @@ class ManufacturingConstants:
     LAYER_DOWEL: Final[str] = "DRILL_DOWEL_D8"
     LAYER_SHELF_PIN: Final[str] = "DRILL_SHELF_PIN_D5"
     LAYER_HINGE_CUP: Final[str] = "DRILL_HINGE_CUP_D35"
+    LAYER_DRAWER_SLIDE: Final[str] = "DRILL_SLIDE_D5"
 
 
 class Settings(BaseSettings):
