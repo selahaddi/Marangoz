@@ -82,3 +82,4 @@ Proje kök dizinindeki `vercel.json` dosyası hem React frontend uygulamasını 
 
 ## 📄 Lisans
 Bu proje MIT lisansı ile lisanslanmıştır.
+

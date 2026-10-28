@@ -1,0 +1,9 @@
+{
+  "name": "marangoz-platform",
+  "private": true,
+  "description": "Parametrik Mobilya CAD/CAM, CNC DXF & Nesting Platformu",
+  "scripts": {
+    "build": "if [ -d \"apps/web\" ]; then (cd apps/web && npm install && npm run build && rm -rf ../../dist && cp -r dist ../../dist); else npm run build; fi",
+    "dev": "cd apps/web && npm run dev"
+  }
+}
