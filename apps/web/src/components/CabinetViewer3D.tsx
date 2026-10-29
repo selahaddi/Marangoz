@@ -1,7 +1,19 @@
-import { useMemo, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useThree } from "@react-three/fiber";
 import { ContactShadows, Edges, Grid, Html, OrbitControls } from "@react-three/drei";
-import { Box, DoorOpen, Expand, Eye, Layers, ScanLine } from "lucide-react";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import {
+  Box,
+  DoorOpen,
+  Expand,
+  Eye,
+  HelpCircle,
+  Layers,
+  Maximize2,
+  Minimize2,
+  ScanLine,
+  X as CloseIcon,
+} from "lucide-react";
 import * as THREE from "three";
 import type { BOMReport, CabinetConfig, PanelPart } from "../types/cabinet";
 
@@ -504,6 +516,37 @@ function PanelMesh3D({
   );
 }
 
+function CameraController({
+  view,
+  cameraDist,
+  controlsRef,
+}: {
+  view: "iso" | "front" | "side" | "top";
+  cameraDist: number;
+  controlsRef: React.RefObject<OrbitControlsImpl | null>;
+}) {
+  const { camera } = useThree();
+
+  useEffect(() => {
+    if (view === "iso") {
+      camera.position.set(cameraDist * 0.7, 1.5, cameraDist * 0.9);
+    } else if (view === "front") {
+      camera.position.set(0, 0, cameraDist * 1.35);
+    } else if (view === "side") {
+      camera.position.set(cameraDist * 1.35, 0, 0);
+    } else if (view === "top") {
+      camera.position.set(0, cameraDist * 1.45, 0.001);
+    }
+    camera.lookAt(0, 0, 0);
+    if (controlsRef.current) {
+      controlsRef.current.target.set(0, 0, 0);
+      controlsRef.current.update();
+    }
+  }, [view, cameraDist, camera, controlsRef]);
+
+  return null;
+}
+
 export function CabinetViewer3D({
   bom,
   glbBase64,
@@ -515,6 +558,11 @@ export function CabinetViewer3D({
   const [explodeFactor, setExplodeFactor] = useState<number>(0);
   const [wireframe, setWireframe] = useState<boolean>(false);
   const [xrayMode, setXrayMode] = useState<boolean>(false);
+  const [cameraView, setCameraView] = useState<"iso" | "front" | "side" | "top">("iso");
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
+
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
 
   const allModules = [bom.config, ...(bom.config.additional_modules ?? [])];
   const totalWidthMm = allModules.reduce((acc, m) => acc + m.width_mm, 0);
@@ -555,6 +603,47 @@ export function CabinetViewer3D({
     });
   };
 
+  // Klavye Kısayolları (Space: Kapaklar, X: Röntgen, E: Patlatılmış, F: Tam Ekran, ?: Yardım)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Kullanıcı metin girdisi içindeyse tetikleme
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        toggleAllDoors();
+      } else if (e.key.toLowerCase() === "x") {
+        setXrayMode((prev) => !prev);
+      } else if (e.key.toLowerCase() === "e") {
+        setExplodeFactor((prev) => (prev > 0 ? 0 : 1));
+      } else if (e.key.toLowerCase() === "f") {
+        setIsFullscreen((prev) => !prev);
+      } else if (e.key === "1") {
+        setCameraView("iso");
+      } else if (e.key === "2") {
+        setCameraView("front");
+      } else if (e.key === "3") {
+        setCameraView("side");
+      } else if (e.key === "4") {
+        setCameraView("top");
+      } else if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        setShowHelpModal((prev) => !prev);
+      } else if (e.key === "Escape") {
+        setIsFullscreen(false);
+        setShowHelpModal(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [allDoorsOpen, bom.parts]);
+
   const handleDownloadGlb = () => {
     if (!glbBase64) return;
     const byteCharacters = atob(glbBase64);
@@ -573,87 +662,162 @@ export function CabinetViewer3D({
   };
 
   return (
-    <div className="relative flex h-[560px] w-full flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900/80">
+    <div
+      className={`relative flex flex-col overflow-hidden bg-slate-900/95 transition-all ${
+        isFullscreen
+          ? "fixed inset-0 z-50 h-screen w-screen rounded-none border-none"
+          : "h-[580px] w-full rounded-2xl border border-slate-800 shadow-xl"
+      }`}
+    >
       {/* Üst 3D Kontrol Çubuğu */}
-      <div className="z-10 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/90 px-4 py-2.5 backdrop-blur">
+      <div className="z-10 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-950/80 px-4 py-2.5 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
           <Box className="h-4 w-4 text-sky-400" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-            Etkileşimli 3D CAD Önizleme (Toplam Hat: {totalWidthMm} ×{" "}
-            {maxHeightMm} × {maxDepthMm} mm)
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-200">
+            3D CAD ({totalWidthMm} × {maxHeightMm} × {maxDepthMm} mm)
           </span>
           {allModules.length > 1 && (
             <span className="rounded-md border border-indigo-500/40 bg-indigo-500/15 px-2 py-0.5 text-[11px] font-semibold text-indigo-300">
-              {allModules.length} Modüllü Oda Hattı
+              {allModules.length} Modül
             </span>
           )}
           {xrayMode && (
             <span className="rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-300 animate-pulse">
-              CNC Röntgen / Delik Modu Aktif
+              CNC Röntgen Aktif
             </span>
           )}
+
+          {/* Hızlı Kamera Açıları */}
+          <div className="hidden sm:flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900 p-0.5 text-[11px]">
+            <button
+              type="button"
+              onClick={() => setCameraView("iso")}
+              className={`rounded px-2 py-0.5 font-medium transition ${
+                cameraView === "iso" ? "bg-sky-600 text-white" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              İzo (1)
+            </button>
+            <button
+              type="button"
+              onClick={() => setCameraView("front")}
+              className={`rounded px-2 py-0.5 font-medium transition ${
+                cameraView === "front" ? "bg-sky-600 text-white" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Ön (2)
+            </button>
+            <button
+              type="button"
+              onClick={() => setCameraView("side")}
+              className={`rounded px-2 py-0.5 font-medium transition ${
+                cameraView === "side" ? "bg-sky-600 text-white" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Yan (3)
+            </button>
+            <button
+              type="button"
+              onClick={() => setCameraView("top")}
+              className={`rounded px-2 py-0.5 font-medium transition ${
+                cameraView === "top" ? "bg-sky-600 text-white" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Üst (4)
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {hasAnyDoorsOrDrawers && (
             <button
               type="button"
               onClick={toggleAllDoors}
-              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${openPartIds.size > 0
-                ? "border-sky-500 bg-sky-500/20 text-sky-300"
-                : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
-                }`}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                openPartIds.size > 0
+                  ? "border-sky-500 bg-sky-500/20 text-sky-300"
+                  : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
+              title="Kısayol: Space (Boşluk)"
             >
               <DoorOpen className="h-3.5 w-3.5" />
-              {openPartIds.size > 0
-                ? "Kapak & Çekmeceleri Kapat"
-                : "Kapak & Çekmeceleri Aç"}
+              <span>{openPartIds.size > 0 ? "Kapat" : "Aç"}</span>
             </button>
           )}
 
           <button
             type="button"
             onClick={() => setXrayMode((prev) => !prev)}
-            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${xrayMode
-              ? "border-amber-500 bg-amber-500/25 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.3)]"
-              : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
-              }`}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+              xrayMode
+                ? "border-amber-500 bg-amber-500/25 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.3)]"
+                : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+            }`}
+            title="Kısayol: X tuşu"
           >
             <ScanLine className="h-3.5 w-3.5" />
-            Röntgen (Delikler & Cepler)
+            <span className="hidden md:inline">Röntgen</span>
           </button>
 
           <button
             type="button"
             onClick={() => setExplodeFactor((prev) => (prev > 0 ? 0 : 1))}
-            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${explodeFactor > 0
-              ? "border-amber-500 bg-amber-500/20 text-amber-300"
-              : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
-              }`}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+              explodeFactor > 0
+                ? "border-amber-500 bg-amber-500/20 text-amber-300"
+                : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+            }`}
+            title="Kısayol: E tuşu"
           >
             <Expand className="h-3.5 w-3.5" />
-            {explodeFactor > 0 ? "Normal Montaj" : "Patlatılmış Görünüm"}
+            <span className="hidden md:inline">{explodeFactor > 0 ? "Topla" : "Patlat"}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setWireframe((prev) => !prev)}
-            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${wireframe
-              ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
-              : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
-              }`}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+              wireframe
+                ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
+                : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+            }`}
           >
             <Eye className="h-3.5 w-3.5" />
-            Tel Kafes
+            <span className="hidden md:inline">Tel Kafes</span>
           </button>
 
           <button
             type="button"
             onClick={handleDownloadGlb}
+            title=".GLB 3D Modeli İndir"
             className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-200 transition hover:border-sky-500 hover:text-sky-300"
           >
             <Layers className="h-3.5 w-3.5" />
-            .GLB İndir
+            <span className="hidden md:inline">.GLB</span>
+          </button>
+
+          {/* Tam Ekran Toggle Butonu */}
+          <button
+            type="button"
+            onClick={() => setIsFullscreen((prev) => !prev)}
+            className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white transition"
+            title={isFullscreen ? "Tam Ekrandan Çık (Esc / F)" : "Tam Ekran Görünüm (F)"}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="h-4 w-4" />
+            ) : (
+              <Maximize2 className="h-4 w-4" />
+            )}
+          </button>
+
+          {/* Kısayol Yardım Butonu */}
+          <button
+            type="button"
+            onClick={() => setShowHelpModal(true)}
+            className="flex items-center rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-400 hover:text-white transition"
+            title="Klavye Kısayolları (?)"
+          >
+            <HelpCircle className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -665,6 +829,11 @@ export function CabinetViewer3D({
           camera={{ position: [cameraDist * 0.7, 1.6, cameraDist], fov: 42 }}
           onPointerMissed={() => onSelectPart(null)}
         >
+          <CameraController
+            view={cameraView}
+            cameraDist={cameraDist}
+            controlsRef={controlsRef}
+          />
           <color attach="background" args={["#090D16"]} />
           <ambientLight intensity={xrayMode ? 1.0 : 0.75} />
           <directionalLight
@@ -713,6 +882,7 @@ export function CabinetViewer3D({
           </group>
 
           <OrbitControls
+            ref={controlsRef}
             makeDefault
             minPolarAngle={0.1}
             maxPolarAngle={Math.PI / 2 + 0.15}
@@ -790,6 +960,76 @@ export function CabinetViewer3D({
                   {openPartIds.has(selectedPart.part_id) ? "Kapat" : "Aç"}
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* 3D Klavye Kısayolları Modal */}
+        {showHelpModal && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <HelpCircle className="h-4 w-4 text-sky-400" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-100">
+                    3D CAD Klavye Kısayolları
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowHelpModal(false)}
+                  className="rounded-lg p-1 text-slate-400 hover:text-white"
+                >
+                  <CloseIcon className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-3 space-y-2 text-xs">
+                <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-300">Kapak &amp; Çekmeceleri Aç/Kapat</span>
+                  <kbd className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 font-mono text-[11px] font-bold text-sky-300">
+                    Space
+                  </kbd>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-300">CNC Röntgen (Delik/Cep) Modu</span>
+                  <kbd className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 font-mono text-[11px] font-bold text-amber-300">
+                    X
+                  </kbd>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-300">Patlatılmış Montaj (Exploded)</span>
+                  <kbd className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-200">
+                    E
+                  </kbd>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-300">Tam Ekran Aç / Kapat</span>
+                  <kbd className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-200">
+                    F
+                  </kbd>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-300">Kamera Açıları (İzo / Ön / Yan / Üst)</span>
+                  <kbd className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-200">
+                    1 - 4
+                  </kbd>
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-slate-300">Bu Yardım Penceresi</span>
+                  <kbd className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-200">
+                    ?
+                  </kbd>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowHelpModal(false)}
+                className="mt-4 w-full rounded-xl bg-sky-600 py-2 text-xs font-bold text-white hover:bg-sky-500 transition"
+              >
+                Anladım
+              </button>
             </div>
           </div>
         )}
