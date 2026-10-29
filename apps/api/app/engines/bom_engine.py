@@ -287,11 +287,16 @@ class BOMEngine:
 
     @classmethod
     def _build_door_hinge_drills(
-        cls, door_height_mm: float, door_width_mm: float, hinge_on_left: bool
+        cls,
+        door_height_mm: float,
+        door_width_mm: float,
+        hinge_on_left: bool,
+        hinge_edge_h_mm: float | None = None,
     ) -> list[DrillPoint]:
         """Kapak üzerindeki Ø35 mm tas menteşe yuvası deliklerini üretir."""
+        edge_h = hinge_edge_h_mm if hinge_edge_h_mm is not None else door_height_mm
         drills: list[DrillPoint] = []
-        hinge_count = cls._hinge_count_for_height(door_height_mm)
+        hinge_count = cls._hinge_count_for_height(edge_h)
         hinge_y = (
             MC.HINGE_CUP_CENTER_FROM_EDGE_MM
             if hinge_on_left
@@ -299,11 +304,11 @@ class BOMEngine:
         )
 
         top_x = round(
-            max(door_height_mm - MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, door_height_mm * 0.75),
+            max(edge_h - MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, edge_h * 0.75),
             2,
         )
         bottom_x = round(
-            min(MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, door_height_mm * 0.25), 2
+            min(MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, edge_h * 0.25), 2
         )
 
         if hinge_count == 2 or top_x <= bottom_x:
@@ -2065,7 +2070,6 @@ class BOMEngine:
                 if config.door_type == DoorType.NONE or avail_h < 180.0:
                     return
 
-                door_net_h = round(avail_h - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
                 door_edge = EdgeBandSpec(
                     length_1_mm=config.front_pvc_thickness_mm,
                     length_2_mm=config.front_pvc_thickness_mm,
@@ -2075,8 +2079,43 @@ class BOMEngine:
                 door_z_center = round(d / 2.0 + t / 2.0 + 1.5, 2)
                 code_mid = f"{code_suffix}_" if code_suffix else ""
 
+                cavity_bottom_y = round(y_center - avail_h / 2.0, 2)
+                door_bottom_y = round(cavity_bottom_y + MC.DOOR_OUTER_GAP_MM, 2)
+                is_sloped_cavity = (
+                    has_slope
+                    and round(cavity_bottom_y + avail_h, 2) >= min(left_h, right_h) - 1.0
+                )
+
+                def _get_roof_y(x_mm: float) -> float:
+                    if not has_slope:
+                        return h
+                    if slope_side == "left":
+                        return round(slope_start_h + ((h - slope_start_h) / max(1.0, w)) * x_mm, 2)
+                    else:
+                        return round(h - ((h - slope_start_h) / max(1.0, w)) * x_mm, 2)
+
                 if config.door_type == DoorType.FLAP_UP:
-                    door_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+                    x1 = MC.DOOR_OUTER_GAP_MM
+                    x2 = round(w - MC.DOOR_OUTER_GAP_MM, 2)
+                    door_net_w = round(x2 - x1, 2)
+
+                    is_trap = False
+                    trap_h_start: float | None = None
+                    trap_h_end: float | None = None
+
+                    if is_sloped_cavity:
+                        h_start = round(_get_roof_y(x1) - MC.DOOR_OUTER_GAP_MM - door_bottom_y, 2)
+                        h_end = round(_get_roof_y(x2) - MC.DOOR_OUTER_GAP_MM - door_bottom_y, 2)
+                        door_net_h = round(max(h_start, h_end), 2)
+                        if abs(h_start - h_end) >= 1.0:
+                            is_trap = True
+                            trap_h_start = h_start
+                            trap_h_end = h_end
+                        door_y_center = round(door_bottom_y + door_net_h / 2.0, 2)
+                    else:
+                        door_net_h = round(avail_h - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+                        door_y_center = y_center
+
                     d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
                         door_net_h, door_net_w, door_edge
                     )
@@ -2106,7 +2145,11 @@ class BOMEngine:
                         PanelPart(
                             part_id=f"P{part_counter:02d}",
                             code=f"{prefix}KAPAK_{code_mid}KALKAR",
-                            name=f"{label_prefix}{name_prefix}Kalkar Kapak (Gazlı Pistonlu)",
+                            name=(
+                                f"{label_prefix}{name_prefix}Açılı Eğimli Kalkar Kapak"
+                                if is_trap
+                                else f"{label_prefix}{name_prefix}Kalkar Kapak (Gazlı Pistonlu)"
+                            ),
                             material=door_mat,
                             thickness_mm=t,
                             quantity=1,
@@ -2120,9 +2163,17 @@ class BOMEngine:
                             area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
                             drills=hinge_drills,
                             grooves=[],
+                            is_trapezoid=is_trap,
+                            trapezoid_h_start_mm=trap_h_start,
+                            trapezoid_h_end_mm=trap_h_end,
+                            notch_info=(
+                                f"[ACILI-CATI-EGIMI] {slope_side.upper()} {trap_h_start:.0f}➔{trap_h_end:.0f}mm"
+                                if is_trap and trap_h_start is not None and trap_h_end is not None
+                                else ""
+                            ),
                             transform_3d=Box3DTransform(
                                 center_x_mm=x_offset_mm,
-                                center_y_mm=y_center,
+                                center_y_mm=door_y_center,
                                 center_z_mm=door_z_center,
                                 size_x_mm=door_net_w,
                                 size_y_mm=door_net_h,
@@ -2136,13 +2187,35 @@ class BOMEngine:
                     )
                     part_counter += 1
                 elif config.door_type in (DoorType.SINGLE_LEFT, DoorType.SINGLE_RIGHT):
-                    door_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+                    hinge_left = config.door_type == DoorType.SINGLE_LEFT
+                    x1 = MC.DOOR_OUTER_GAP_MM
+                    x2 = round(w - MC.DOOR_OUTER_GAP_MM, 2)
+                    door_net_w = round(x2 - x1, 2)
+
+                    is_trap = False
+                    trap_h_start = None
+                    trap_h_end = None
+                    hinge_edge_h: float | None = None
+
+                    if is_sloped_cavity:
+                        h_start = round(_get_roof_y(x1) - MC.DOOR_OUTER_GAP_MM - door_bottom_y, 2)
+                        h_end = round(_get_roof_y(x2) - MC.DOOR_OUTER_GAP_MM - door_bottom_y, 2)
+                        door_net_h = round(max(h_start, h_end), 2)
+                        if abs(h_start - h_end) >= 1.0:
+                            is_trap = True
+                            trap_h_start = h_start
+                            trap_h_end = h_end
+                        door_y_center = round(door_bottom_y + door_net_h / 2.0, 2)
+                        hinge_edge_h = h_start if hinge_left else h_end
+                    else:
+                        door_net_h = round(avail_h - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+                        door_y_center = y_center
+
                     d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
                         door_net_h, door_net_w, door_edge
                     )
-                    hinge_left = config.door_type == DoorType.SINGLE_LEFT
                     hinge_drills = cls._build_door_hinge_drills(
-                        door_net_h, door_net_w, hinge_on_left=hinge_left
+                        door_net_h, door_net_w, hinge_on_left=hinge_left, hinge_edge_h_mm=hinge_edge_h
                     )
                     total_hinges += len(hinge_drills)
                     total_handles += 1
@@ -2152,9 +2225,13 @@ class BOMEngine:
                             part_id=f"P{part_counter:02d}",
                             code=f"{prefix}KAPAK_{code_mid}TEK",
                             name=(
-                                f"{label_prefix}{name_prefix}Tek Kapak (Sol Menteşeli)"
-                                if hinge_left
-                                else f"{label_prefix}{name_prefix}Tek Kapak (Sağ Menteşeli)"
+                                f"{label_prefix}{name_prefix}Açılı Eğimli Tek Kapak ({'Sol' if hinge_left else 'Sağ'} Menteşeli)"
+                                if is_trap
+                                else (
+                                    f"{label_prefix}{name_prefix}Tek Kapak (Sol Menteşeli)"
+                                    if hinge_left
+                                    else f"{label_prefix}{name_prefix}Tek Kapak (Sağ Menteşeli)"
+                                )
                             ),
                             material=door_mat,
                             thickness_mm=t,
@@ -2169,9 +2246,17 @@ class BOMEngine:
                             area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
                             drills=hinge_drills,
                             grooves=[],
+                            is_trapezoid=is_trap,
+                            trapezoid_h_start_mm=trap_h_start,
+                            trapezoid_h_end_mm=trap_h_end,
+                            notch_info=(
+                                f"[ACILI-CATI-EGIMI] {slope_side.upper()} {trap_h_start:.0f}➔{trap_h_end:.0f}mm"
+                                if is_trap and trap_h_start is not None and trap_h_end is not None
+                                else ""
+                            ),
                             transform_3d=Box3DTransform(
                                 center_x_mm=x_offset_mm,
-                                center_y_mm=y_center,
+                                center_y_mm=door_y_center,
                                 center_z_mm=door_z_center,
                                 size_x_mm=door_net_w,
                                 size_y_mm=door_net_h,
@@ -2189,56 +2274,94 @@ class BOMEngine:
                         (w - (2.0 * MC.DOOR_OUTER_GAP_MM) - MC.DOOR_CENTER_GAP_MM) / 2.0,
                         2,
                     )
-                    d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
-                        door_net_h, door_net_w, door_edge
-                    )
-                    for side_code, side_label, is_left, rel_cx in (
-                        (
-                            "SOL",
-                            "Sol Kapak",
-                            True,
-                            -(door_net_w / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0),
-                        ),
-                        (
-                            "SAG",
-                            "Sağ Kapak",
-                            False,
-                            door_net_w / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0,
-                        ),
-                    ):
+
+                    door_pairs = [
+                        {
+                            "side_code": "SOL",
+                            "side_label": "Sol Kapak",
+                            "is_left": True,
+                            "rel_cx": -(door_net_w / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0),
+                            "x1": MC.DOOR_OUTER_GAP_MM,
+                            "x2": round(MC.DOOR_OUTER_GAP_MM + door_net_w, 2),
+                        },
+                        {
+                            "side_code": "SAG",
+                            "side_label": "Sağ Kapak",
+                            "is_left": False,
+                            "rel_cx": door_net_w / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0,
+                            "x1": round(w - MC.DOOR_OUTER_GAP_MM - door_net_w, 2),
+                            "x2": round(w - MC.DOOR_OUTER_GAP_MM, 2),
+                        },
+                    ]
+
+                    for dp in door_pairs:
+                        is_trap = False
+                        trap_h_start = None
+                        trap_h_end = None
+                        hinge_edge_h = None
+
+                        if is_sloped_cavity:
+                            h_start = round(_get_roof_y(dp["x1"]) - MC.DOOR_OUTER_GAP_MM - door_bottom_y, 2)
+                            h_end = round(_get_roof_y(dp["x2"]) - MC.DOOR_OUTER_GAP_MM - door_bottom_y, 2)
+                            door_h = round(max(h_start, h_end), 2)
+                            if abs(h_start - h_end) >= 1.0:
+                                is_trap = True
+                                trap_h_start = h_start
+                                trap_h_end = h_end
+                            door_y_center = round(door_bottom_y + door_h / 2.0, 2)
+                            hinge_edge_h = h_start if dp["is_left"] else h_end
+                        else:
+                            door_h = round(avail_h - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+                            door_y_center = y_center
+
+                        d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
+                            door_h, door_net_w, door_edge
+                        )
                         hinge_drills = cls._build_door_hinge_drills(
-                            door_net_h, door_net_w, hinge_on_left=is_left
+                            door_h, door_net_w, hinge_on_left=dp["is_left"], hinge_edge_h_mm=hinge_edge_h
                         )
                         total_hinges += len(hinge_drills)
                         total_handles += 1
                         parts.append(
                             PanelPart(
                                 part_id=f"P{part_counter:02d}",
-                                code=f"{prefix}KAPAK_{code_mid}{side_code}",
-                                name=f"{label_prefix}{name_prefix}{side_label}",
+                                code=f"{prefix}KAPAK_{code_mid}{dp['side_code']}",
+                                name=(
+                                    f"{label_prefix}{name_prefix}Açılı Eğimli {dp['side_label']}"
+                                    if is_trap
+                                    else f"{label_prefix}{name_prefix}{dp['side_label']}"
+                                ),
                                 material=door_mat,
                                 thickness_mm=t,
                                 quantity=1,
-                                net_length_mm=door_net_h,
+                                net_length_mm=door_h,
                                 net_width_mm=door_net_w,
                                 cut_length_mm=d_cut_l,
                                 cut_width_mm=d_cut_w,
                                 pvc_deduction_length_mm=d_ded_l,
                                 pvc_deduction_width_mm=d_ded_w,
                                 edge_band=door_edge,
-                                area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
+                                area_m2=round((door_h * door_net_w) / 1_000_000.0, 4),
                                 drills=hinge_drills,
                                 grooves=[],
+                                is_trapezoid=is_trap,
+                                trapezoid_h_start_mm=trap_h_start,
+                                trapezoid_h_end_mm=trap_h_end,
+                                notch_info=(
+                                    f"[ACILI-CATI-EGIMI] {slope_side.upper()} {trap_h_start:.0f}➔{trap_h_end:.0f}mm"
+                                    if is_trap and trap_h_start is not None and trap_h_end is not None
+                                    else ""
+                                ),
                                 transform_3d=Box3DTransform(
-                                    center_x_mm=round(x_offset_mm + rel_cx, 2),
-                                    center_y_mm=y_center,
+                                    center_x_mm=round(x_offset_mm + dp["rel_cx"], 2),
+                                    center_y_mm=door_y_center,
                                     center_z_mm=door_z_center,
                                     size_x_mm=door_net_w,
-                                    size_y_mm=door_net_h,
+                                    size_y_mm=door_h,
                                     size_z_mm=t,
                                     color_hex=config.door_color_hex,
                                     is_door=True,
-                                    hinge_side="left" if is_left else "right",
+                                    hinge_side="left" if dp["is_left"] else "right",
                                     module_index=module_idx,
                                 ),
                             )

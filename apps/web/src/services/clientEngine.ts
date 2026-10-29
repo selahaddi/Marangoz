@@ -3206,17 +3206,19 @@ function selectDrawerSlideLength(depthMm: number): number {
 function buildDoorDrills(
   doorH: number,
   doorW: number,
-  hingeOnLeft: boolean
+  hingeOnLeft: boolean,
+  hingeEdgeH?: number
 ): DrillPoint[] {
-  const count = hingeCountForHeight(doorH);
+  const edgeH = hingeEdgeH ?? doorH;
+  const count = hingeCountForHeight(edgeH);
   const hingeY = hingeOnLeft
     ? MC.HINGE_CUP_CENTER_FROM_EDGE_MM
     : round2(doorW - MC.HINGE_CUP_CENTER_FROM_EDGE_MM);
   const topX = round2(
-    Math.max(doorH - MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, doorH * 0.75)
+    Math.max(edgeH - MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, edgeH * 0.75)
   );
   const bottomX = round2(
-    Math.min(MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, doorH * 0.25)
+    Math.min(MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, edgeH * 0.25)
   );
   const step =
     count > 2 && topX > bottomX ? (topX - bottomX) / (count - 1) : 0;
@@ -5116,7 +5118,6 @@ function generateSingleModuleParts(
     namePrefix: string
   ) => {
     if (config.door_type === "none" || availH < 180.0) return;
-    const doorNetH = round2(availH - 2.0 * MC.DOOR_OUTER_GAP_MM);
     const doorEdge: EdgeBandSpec = {
       length_1_mm: config.front_pvc_thickness_mm,
       length_2_mm: config.front_pvc_thickness_mm,
@@ -5125,8 +5126,47 @@ function generateSingleModuleParts(
     };
     const doorZCenter = round2(d / 2.0 + t / 2.0 + 1.5);
 
+    // Eğimli dolaplarda (has_slope) tavan hattı ve kapak üst açı hesabı
+    const cavityBottomY = round2(yCenter - availH / 2.0);
+    const doorBottomY = round2(cavityBottomY + MC.DOOR_OUTER_GAP_MM);
+    const isSlopedCavity =
+      hasSlope && round2(cavityBottomY + availH) >= Math.min(leftH, rightH) - 1.0;
+
+    const getRoofY = (xMm: number): number => {
+      if (!hasSlope) return h;
+      if (slopeSide === "left") {
+        return round2(slopeStartH + ((h - slopeStartH) / Math.max(1.0, w)) * xMm);
+      } else {
+        return round2(h - ((h - slopeStartH) / Math.max(1.0, w)) * xMm);
+      }
+    };
+
     if (config.door_type === "flap_up") {
-      const doorNetW = round2(w - 2.0 * MC.DOOR_OUTER_GAP_MM);
+      const x1 = MC.DOOR_OUTER_GAP_MM;
+      const x2 = round2(w - MC.DOOR_OUTER_GAP_MM);
+      const doorNetW = round2(x2 - x1);
+
+      let doorNetH: number;
+      let isTrap = false;
+      let trapHStart: number | undefined;
+      let trapHEnd: number | undefined;
+      let doorYCenter: number;
+
+      if (isSlopedCavity) {
+        const hStart = round2(getRoofY(x1) - MC.DOOR_OUTER_GAP_MM - doorBottomY);
+        const hEnd = round2(getRoofY(x2) - MC.DOOR_OUTER_GAP_MM - doorBottomY);
+        doorNetH = round2(Math.max(hStart, hEnd));
+        if (Math.abs(hStart - hEnd) >= 1.0) {
+          isTrap = true;
+          trapHStart = hStart;
+          trapHEnd = hEnd;
+        }
+        doorYCenter = round2(doorBottomY + doorNetH / 2.0);
+      } else {
+        doorNetH = round2(availH - 2.0 * MC.DOOR_OUTER_GAP_MM);
+        doorYCenter = yCenter;
+      }
+
       const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(doorNetH, doorNetW, doorEdge);
       const topX = round2(doorNetH - MC.HINGE_CUP_CENTER_FROM_EDGE_MM);
       const leftY = round2(Math.min(MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, doorNetW * 0.2));
@@ -5156,7 +5196,9 @@ function generateSingleModuleParts(
       parts.push({
         part_id: padId(partCounter++),
         code: `${prefix}${codePrefix ? codePrefix + "_" : ""}KAPAK_KALKAR`,
-        name: `${labelPrefix}${namePrefix}Kalkar Kapak (Gazlı Pistonlu)`,
+        name: isTrap
+          ? `${labelPrefix}${namePrefix}Açılı Eğimli Kalkar Kapak`
+          : `${labelPrefix}${namePrefix}Kalkar Kapak (Gazlı Pistonlu)`,
         material: doorMat,
         thickness_mm: t,
         quantity: 1,
@@ -5171,9 +5213,15 @@ function generateSingleModuleParts(
         grain_direction: "length",
         drills: dDrills,
         grooves: [],
+        is_trapezoid: isTrap,
+        trapezoid_h_start_mm: trapHStart,
+        trapezoid_h_end_mm: trapHEnd,
+        notch_info: isTrap
+          ? `[ACILI-CATI-EGIMI] ${slopeSide.toUpperCase()} ${trapHStart?.toFixed(0)}➔${trapHEnd?.toFixed(0)}mm`
+          : "",
         transform_3d: {
           center_x_mm: xOffsetMm,
-          center_y_mm: yCenter,
+          center_y_mm: doorYCenter,
           center_z_mm: doorZCenter,
           size_x_mm: doorNetW,
           size_y_mm: doorNetH,
@@ -5189,17 +5237,45 @@ function generateSingleModuleParts(
       config.door_type === "single_left" ||
       config.door_type === "single_right"
     ) {
-      const doorNetW = round2(w - 2.0 * MC.DOOR_OUTER_GAP_MM);
-      const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(doorNetH, doorNetW, doorEdge);
       const hingeLeft = config.door_type === "single_left";
-      const dDrills = buildDoorDrills(doorNetH, doorNetW, hingeLeft);
+      const x1 = MC.DOOR_OUTER_GAP_MM;
+      const x2 = round2(w - MC.DOOR_OUTER_GAP_MM);
+      const doorNetW = round2(x2 - x1);
+
+      let doorNetH: number;
+      let isTrap = false;
+      let trapHStart: number | undefined;
+      let trapHEnd: number | undefined;
+      let doorYCenter: number;
+      let hingeEdgeH: number | undefined;
+
+      if (isSlopedCavity) {
+        const hStart = round2(getRoofY(x1) - MC.DOOR_OUTER_GAP_MM - doorBottomY);
+        const hEnd = round2(getRoofY(x2) - MC.DOOR_OUTER_GAP_MM - doorBottomY);
+        doorNetH = round2(Math.max(hStart, hEnd));
+        if (Math.abs(hStart - hEnd) >= 1.0) {
+          isTrap = true;
+          trapHStart = hStart;
+          trapHEnd = hEnd;
+        }
+        doorYCenter = round2(doorBottomY + doorNetH / 2.0);
+        hingeEdgeH = hingeLeft ? hStart : hEnd;
+      } else {
+        doorNetH = round2(availH - 2.0 * MC.DOOR_OUTER_GAP_MM);
+        doorYCenter = yCenter;
+      }
+
+      const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(doorNetH, doorNetW, doorEdge);
+      const dDrills = buildDoorDrills(doorNetH, doorNetW, hingeLeft, hingeEdgeH);
       totalHinges += dDrills.length;
       totalHandles += 1;
 
       parts.push({
         part_id: padId(partCounter++),
         code: `${prefix}${codePrefix ? codePrefix + "_" : ""}KAPAK_TEK`,
-        name: hingeLeft
+        name: isTrap
+          ? `${labelPrefix}${namePrefix}Açılı Eğimli Tek Kapak (${hingeLeft ? "Sol" : "Sağ"} Menteşeli)`
+          : hingeLeft
           ? `${labelPrefix}${namePrefix}Tek Kapak (Sol Menteşeli)`
           : `${labelPrefix}${namePrefix}Tek Kapak (Sağ Menteşeli)`,
         material: doorMat,
@@ -5216,9 +5292,15 @@ function generateSingleModuleParts(
         grain_direction: "length",
         drills: dDrills,
         grooves: [],
+        is_trapezoid: isTrap,
+        trapezoid_h_start_mm: trapHStart,
+        trapezoid_h_end_mm: trapHEnd,
+        notch_info: isTrap
+          ? `[ACILI-CATI-EGIMI] ${slopeSide.toUpperCase()} ${trapHStart?.toFixed(0)}➔${trapHEnd?.toFixed(0)}mm`
+          : "",
         transform_3d: {
           center_x_mm: xOffsetMm,
-          center_y_mm: yCenter,
+          center_y_mm: doorYCenter,
           center_z_mm: doorZCenter,
           size_x_mm: doorNetW,
           size_y_mm: doorNetH,
@@ -5232,43 +5314,92 @@ function generateSingleModuleParts(
       });
     } else if (config.door_type === "double") {
       const doorNetW = round2((w - 2.0 * MC.DOOR_OUTER_GAP_MM - MC.DOOR_CENTER_GAP_MM) / 2.0);
-      const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(doorNetH, doorNetW, doorEdge);
-      for (const [sideCode, sideLabel, isLeft, relCx] of [
-        ["SOL", "Sol Kapak", true, -(doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0)],
-        ["SAG", "Sağ Kapak", false, doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0],
-      ] as const) {
-        const dDrills = buildDoorDrills(doorNetH, doorNetW, isLeft);
+
+      const doorPairs = [
+        {
+          sideCode: "SOL",
+          sideLabel: "Sol Kapak",
+          isLeft: true,
+          relCx: -(doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0),
+          x1: MC.DOOR_OUTER_GAP_MM,
+          x2: round2(MC.DOOR_OUTER_GAP_MM + doorNetW),
+        },
+        {
+          sideCode: "SAG",
+          sideLabel: "Sağ Kapak",
+          isLeft: false,
+          relCx: doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0,
+          x1: round2(w - MC.DOOR_OUTER_GAP_MM - doorNetW),
+          x2: round2(w - MC.DOOR_OUTER_GAP_MM),
+        },
+      ] as const;
+
+      for (const dp of doorPairs) {
+        let doorH: number;
+        let isTrap = false;
+        let trapHStart: number | undefined;
+        let trapHEnd: number | undefined;
+        let doorYCenter: number;
+        let hingeEdgeH: number | undefined;
+
+        if (isSlopedCavity) {
+          const hStart = round2(getRoofY(dp.x1) - MC.DOOR_OUTER_GAP_MM - doorBottomY);
+          const hEnd = round2(getRoofY(dp.x2) - MC.DOOR_OUTER_GAP_MM - doorBottomY);
+          doorH = round2(Math.max(hStart, hEnd));
+          if (Math.abs(hStart - hEnd) >= 1.0) {
+            isTrap = true;
+            trapHStart = hStart;
+            trapHEnd = hEnd;
+          }
+          doorYCenter = round2(doorBottomY + doorH / 2.0);
+          hingeEdgeH = dp.isLeft ? hStart : hEnd;
+        } else {
+          doorH = round2(availH - 2.0 * MC.DOOR_OUTER_GAP_MM);
+          doorYCenter = yCenter;
+        }
+
+        const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(doorH, doorNetW, doorEdge);
+        const dDrills = buildDoorDrills(doorH, doorNetW, dp.isLeft, hingeEdgeH);
         totalHinges += dDrills.length;
         totalHandles += 1;
+
         parts.push({
           part_id: padId(partCounter++),
-          code: `${prefix}${codePrefix ? codePrefix + "_" : ""}KAPAK_${sideCode}`,
-          name: `${labelPrefix}${namePrefix}${sideLabel}`,
+          code: `${prefix}${codePrefix ? codePrefix + "_" : ""}KAPAK_${dp.sideCode}`,
+          name: isTrap
+            ? `${labelPrefix}${namePrefix}Açılı Eğimli ${dp.sideLabel}`
+            : `${labelPrefix}${namePrefix}${dp.sideLabel}`,
           material: doorMat,
           thickness_mm: t,
           quantity: 1,
-          net_length_mm: doorNetH,
+          net_length_mm: doorH,
           net_width_mm: doorNetW,
           cut_length_mm: dCutL,
           cut_width_mm: dCutW,
           pvc_deduction_length_mm: dDedL,
           pvc_deduction_width_mm: dDedW,
           edge_band: doorEdge,
-          area_m2: round4((doorNetH * doorNetW) / 1_000_000.0),
+          area_m2: round4((doorH * doorNetW) / 1_000_000.0),
           grain_direction: "length",
           drills: dDrills,
           grooves: [],
+          is_trapezoid: isTrap,
+          trapezoid_h_start_mm: trapHStart,
+          trapezoid_h_end_mm: trapHEnd,
+          notch_info: isTrap
+            ? `[ACILI-CATI-EGIMI] ${slopeSide.toUpperCase()} ${trapHStart?.toFixed(0)}➔${trapHEnd?.toFixed(0)}mm`
+            : "",
           transform_3d: {
-            center_x_mm: round2(xOffsetMm + relCx),
-            center_y_mm: yCenter,
+            center_x_mm: round2(xOffsetMm + dp.relCx),
+            center_y_mm: doorYCenter,
             center_z_mm: doorZCenter,
             size_x_mm: doorNetW,
-            size_y_mm: doorNetH,
+            size_y_mm: doorH,
             size_z_mm: t,
             color_hex: config.door_color_hex,
             is_door: true,
             is_drawer: false,
-            hinge_side: isLeft ? "left" : "right",
+            hinge_side: dp.isLeft ? "left" : "right",
             module_index: moduleIdx,
           },
         });

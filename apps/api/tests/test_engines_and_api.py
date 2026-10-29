@@ -615,6 +615,7 @@ def test_sloped_ceiling_and_corner_module() -> None:
         has_slope=True,
         slope_side="left",
         slope_start_height_mm=1200.0,
+        door_type=DoorType.DOUBLE,
     )
     bom_sloped = BOMEngine.generate_bom(sloped_cfg)
     parts_by_code = {p.code: p for p in bom_sloped.parts}
@@ -643,6 +644,23 @@ def test_sloped_ceiling_and_corner_module() -> None:
     assert arkalik.trapezoid_h_start_mm == 1200.0
     assert arkalik.trapezoid_h_end_mm == 2100.0
     assert "ACILI-CATI-EGIMI" in arkalik.notch_info
+
+    # Eğimli Çift Kapak: Çatı hattını aşmayan yamuk kapaklar ve sınır içi menteşe delikleri
+    kapak_sol = parts_by_code["KAPAK_SOL"]
+    assert kapak_sol.is_trapezoid is True
+    assert kapak_sol.net_length_mm == 1565.0
+    assert kapak_sol.trapezoid_h_start_mm == 1118.0
+    assert kapak_sol.trapezoid_h_end_mm == 1565.0
+    assert len(kapak_sol.drills) == 3
+    assert all(d.x_mm <= 1118.0 for d in kapak_sol.drills)
+
+    kapak_sag = parts_by_code["KAPAK_SAG"]
+    assert kapak_sag.is_trapezoid is True
+    assert kapak_sag.net_length_mm == 2014.0
+    assert kapak_sag.trapezoid_h_start_mm == 1567.0
+    assert kapak_sag.trapezoid_h_end_mm == 2014.0
+    assert len(kapak_sag.drills) == 4
+    assert all(d.x_mm <= 2014.0 for d in kapak_sag.drills)
 
     # 2. 90° L-Köşe Kör Panelli Modül Testi
     corner_cfg = CabinetConfig(

@@ -80,3 +80,4 @@ def test_presets_pydantic_and_bom_generation(all_presets):
                     assert -0.01 <= drill.y_mm <= part.net_width_mm + 0.01, (
                         f"{pid} [{mod_label}]: {part.name} delik Y taşması: {drill.y_mm} > {part.net_width_mm}"
                     )
+

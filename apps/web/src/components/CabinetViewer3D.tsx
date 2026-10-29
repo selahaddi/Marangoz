@@ -95,6 +95,40 @@ function createNotchedSidePanelGeometry(
   return geom;
 }
 
+/**
+ * Çatı eğimli açılı kapaklar ve trapezoid arkalıklar için gerçekçi 3D katı geometri üretir.
+ * hStart: Sol kenar (x = -sx/2) yüksekliği (m)
+ * hEnd: Sağ kenar (x = +sx/2) yüksekliği (m)
+ */
+function createTrapezoidPanelGeometry(
+  sx: number,
+  sy: number,
+  sz: number,
+  hStart: number,
+  hEnd: number
+): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  const xLeft = -sx / 2.0;
+  const xRight = sx / 2.0;
+  const yBot = -sy / 2.0;
+  const yTopLeft = yBot + Math.min(sy, Math.max(0.01, hStart));
+  const yTopRight = yBot + Math.min(sy, Math.max(0.01, hEnd));
+
+  shape.moveTo(xLeft, yBot);
+  shape.lineTo(xRight, yBot);
+  shape.lineTo(xRight, yTopRight);
+  shape.lineTo(xLeft, yTopLeft);
+  shape.closePath();
+
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: sz,
+    bevelEnabled: false,
+  });
+  geom.translate(0, 0, -sz / 2.0);
+  geom.computeVertexNormals();
+  return geom;
+}
+
 interface DrillsXRayProps {
   part: PanelPart;
   sx: number;
@@ -364,6 +398,24 @@ function PanelMesh3D({
     );
   }, [isNotchedSide, sx, sy, sz, config]);
 
+  const isTrapezoid =
+    Boolean(part.is_trapezoid) &&
+    typeof part.trapezoid_h_start_mm === "number" &&
+    typeof part.trapezoid_h_end_mm === "number";
+
+  const trapezoidGeometry = useMemo(() => {
+    if (!isTrapezoid) return null;
+    let hStart = (part.trapezoid_h_start_mm ?? 0) / 1000.0;
+    let hEnd = (part.trapezoid_h_end_mm ?? 0) / 1000.0;
+    const panelBottomY = cy - sy / 2.0;
+    // Eğer hStart veya hEnd panel boyu sy'den büyükse, zemin bazlı mutlak kot verilmiştir; panel tabanına göre rölatif yap
+    if (hStart > sy + 0.005 || hEnd > sy + 0.005) {
+      hStart = Math.max(0.01, hStart - panelBottomY);
+      hEnd = Math.max(0.01, hEnd - panelBottomY);
+    }
+    return createTrapezoidPanelGeometry(sx, sy, sz, hStart, hEnd);
+  }, [isTrapezoid, sx, sy, sz, cy, part.trapezoid_h_start_mm, part.trapezoid_h_end_mm]);
+
   // Kapak ise menteşe ekseni etrafında gerçekçi açılma dönüşü uygula
   if (t3d.is_door) {
     if (t3d.hinge_side === "top") {
@@ -387,8 +439,9 @@ function PanelMesh3D({
               onPointerOut={() => setHovered(false)}
               castShadow
               receiveShadow
+              geometry={trapezoidGeometry ?? undefined}
             >
-              <boxGeometry args={[sx, sy, sz]} />
+              {!trapezoidGeometry && <boxGeometry args={[sx, sy, sz]} />}
               <meshStandardMaterial
                 color={displayColor}
                 roughness={xrayMode ? 0.1 : 0.45}
@@ -441,8 +494,9 @@ function PanelMesh3D({
             onPointerOut={() => setHovered(false)}
             castShadow
             receiveShadow
+            geometry={trapezoidGeometry ?? undefined}
           >
-            <boxGeometry args={[sx, sy, sz]} />
+            {!trapezoidGeometry && <boxGeometry args={[sx, sy, sz]} />}
             <meshStandardMaterial
               color={displayColor}
               roughness={xrayMode ? 0.1 : 0.45}
@@ -521,9 +575,9 @@ function PanelMesh3D({
         onPointerOut={() => setHovered(false)}
         castShadow
         receiveShadow
-        geometry={notchedGeometry ?? undefined}
+        geometry={notchedGeometry ?? trapezoidGeometry ?? undefined}
       >
-        {!notchedGeometry && <boxGeometry args={[geomSx, sy, sz]} />}
+        {!notchedGeometry && !trapezoidGeometry && <boxGeometry args={[geomSx, sy, sz]} />}
         <meshStandardMaterial
           color={displayColor}
           roughness={xrayMode ? 0.1 : 0.55}
