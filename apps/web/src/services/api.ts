@@ -49,12 +49,17 @@ interface VercelParseEnvelope extends ApiResponse<CabinetConfig> {
  */
 export async function parseNaturalLanguagePrompt(prompt: string): Promise<ParseResult> {
   const aiErrors: string[] = [];
+  const personalKey = getStoredGeminiApiKey();
+  const reqHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  if (personalKey) {
+    reqHeaders["x-gemini-api-key"] = personalKey;
+  }
 
   if (isLocalHost) {
     try {
       const response = await fetch(`${API_BASE}/parse`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: reqHeaders,
         body: JSON.stringify({ prompt }),
       });
       if (response.ok) {
@@ -76,11 +81,11 @@ export async function parseNaturalLanguagePrompt(prompt: string): Promise<ParseR
     }
   }
 
-  // Vercel sunucu fonksiyonu (anahtar sunucu tarafında)
+  // Vercel sunucu fonksiyonu (anahtar sunucu tarafında veya x-gemini-api-key başlığında)
   try {
     const response = await fetch("/api/parse", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: reqHeaders,
       body: JSON.stringify({ prompt }),
     });
     const isJson = (response.headers.get("content-type") ?? "").includes("application/json");
@@ -103,7 +108,6 @@ export async function parseNaturalLanguagePrompt(prompt: string): Promise<ParseR
   }
 
   // Kullanıcının kişisel anahtarı varsa doğrudan tarayıcıdan
-  const personalKey = getStoredGeminiApiKey();
   if (personalKey) {
     try {
       const direct = await parseWithGeminiApiDirect(prompt, personalKey);
@@ -139,12 +143,17 @@ export async function parseSketchImage(
   prompt: string = ""
 ): Promise<ParseResult> {
   const aiErrors: string[] = [];
+  const personalKey = getStoredGeminiApiKey();
+  const reqHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  if (personalKey) {
+    reqHeaders["x-gemini-api-key"] = personalKey;
+  }
 
   if (isLocalHost) {
     try {
       const response = await fetch(`${API_BASE}/parse_sketch`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: reqHeaders,
         body: JSON.stringify({
           image_base64: imageBase64,
           mime_type: mimeType,
@@ -174,7 +183,7 @@ export async function parseSketchImage(
   try {
     const response = await fetch("/api/parse", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: reqHeaders,
       body: JSON.stringify({
         image_base64: imageBase64,
         mime_type: mimeType,
@@ -201,7 +210,6 @@ export async function parseSketchImage(
   }
 
   // Kullanıcının kişisel anahtarı varsa tarayıcıdan doğrudan Gemini Vision
-  const personalKey = getStoredGeminiApiKey();
   if (personalKey) {
     try {
       const direct = await parseSketchWithGeminiApiDirect(

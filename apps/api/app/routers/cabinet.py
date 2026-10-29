@@ -9,7 +9,7 @@ import uuid
 import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
@@ -117,10 +117,13 @@ async def health_check() -> ApiResponse[dict[str, str]]:
 @router.post("/parse", response_model=ApiResponse[CabinetConfig])
 async def parse_natural_language_prompt(
     payload: ParsePromptRequest,
+    x_gemini_api_key: str | None = Header(default=None),
 ) -> ApiResponse[CabinetConfig]:
     """Doğal dil istemini doğrulanmış bir CabinetConfig JSON şemasına ayrıştırır."""
     try:
-        config = SemanticParserEngine.parse_prompt(payload.prompt)
+        config = SemanticParserEngine.parse_prompt(
+            payload.prompt, api_key_override=x_gemini_api_key
+        )
         return ApiResponse(success=True, data=config, error=None)
     except Exception as exc:
         logger.exception("Doğal dil ayrıştırma hatası: %s", exc)
@@ -134,6 +137,7 @@ async def parse_natural_language_prompt(
 @router.post("/parse_sketch", response_model=ApiResponse[CabinetConfig])
 async def parse_sketch_image(
     payload: ParseSketchRequest,
+    x_gemini_api_key: str | None = Header(default=None),
 ) -> ApiResponse[CabinetConfig]:
     """Eskiz veya rölöve fotoğrafını Gemini Vision ile CabinetConfig şemasına ayrıştırır."""
     try:
@@ -145,6 +149,7 @@ async def parse_sketch_image(
             image_bytes=image_bytes,
             mime_type=payload.mime_type,
             prompt=payload.prompt,
+            api_key_override=x_gemini_api_key,
         )
         return ApiResponse(success=True, data=config, error=None)
     except Exception as exc:
@@ -157,13 +162,17 @@ async def parse_sketch_image(
 
 
 @router.post("/revise", response_model=RevisionResponse)
-async def revise_cabinet(payload: RevisionRequest) -> RevisionResponse:
+async def revise_cabinet(
+    payload: RevisionRequest,
+    x_gemini_api_key: str | None = Header(default=None),
+) -> RevisionResponse:
     """Mevcut dolap parametrelerini doğal dilde konuşarak iteratif olarak günceller."""
     try:
         updated_cfg, assistant_msg, diffs = RevisionEngine.revise_config(
             current_config=payload.current_config,
             instruction=payload.instruction,
             history=payload.history,
+            api_key_override=x_gemini_api_key,
         )
         return RevisionResponse(
             success=True,

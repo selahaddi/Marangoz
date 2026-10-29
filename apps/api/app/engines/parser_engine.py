@@ -91,6 +91,42 @@ class CabinetParseSchema(BaseModel):
     hidden_pvc_thickness_mm: float = Field(default=0.4, description="Görünmeyen kenar PVC kalınlığı (mm)")
     back_panel_type: BackPanelType = Field(default=BackPanelType.GROOVED_8MM, description="Arkalık tipi")
     sheet_size: SheetSizeOption = Field(default=SheetSizeOption.SHEET_2800_2100, description="Plaka ebadı")
+    fastener_type: FastenerType = Field(
+        default=FastenerType.MINIFIX_DOWEL,
+        description="Bağlantı elemanı tipi (minifix_dowel veya cabineo_12)",
+    )
+    cutting_mode: CuttingMode = Field(
+        default=CuttingMode.PANEL_SAW,
+        description="Makine kesim modu (panel_saw veya cnc_router)",
+    )
+    plinth_type: PlinthType = Field(
+        default=PlinthType.WOOD_PLINTH,
+        description="Alt baza tipi (wood_plinth veya adjustable_legs)",
+    )
+    has_baseboard_notch: bool = Field(
+        default=False, description="Arka süpürgelik kertmesi var mı"
+    )
+    baseboard_notch_height_mm: float = Field(
+        default=80.0, description="Süpürgelik kertme yüksekliği (mm)"
+    )
+    baseboard_notch_depth_mm: float = Field(
+        default=15.0, description="Süpürgelik kertme derinliği (mm)"
+    )
+    has_column_notch: bool = Field(
+        default=False, description="Arka kolon kertmesi var mı"
+    )
+    column_notch_width_mm: float = Field(
+        default=120.0, description="Kolon kertme genişliği (mm)"
+    )
+    column_notch_depth_mm: float = Field(
+        default=120.0, description="Kolon kertme derinliği (mm)"
+    )
+    left_filler_width_mm: float = Field(
+        default=0.0, description="Sol duvar kör kapama çıtası genişliği (mm)"
+    )
+    right_filler_width_mm: float = Field(
+        default=0.0, description="Sağ duvar kör kapama çıtası genişliği (mm)"
+    )
     zones: list[ZoneParseSchema] = Field(
         default_factory=list,
         description="İç dikmelerle ayrılmış dikey bölmeler listesi (örn: sol raflı, sağ askılı ve çekmeceli)",
@@ -98,7 +134,9 @@ class CabinetParseSchema(BaseModel):
     has_slope: bool = Field(default=False, description="Çatı veya merdiven altı eğimi var mı")
     slope_side: str = Field(default="left", description="Eğimin alçak kenarı (left veya right)")
     slope_start_height_mm: float = Field(default=1200.0, description="Eğimli alçak kenar boyu (mm)")
+    slope_angle_deg: float = Field(default=0.0, description="Çatı eğim açısı (derece)")
     is_corner_module: bool = Field(default=False, description="L-Köşe dönüş modülü mü")
+    corner_angle_deg: float = Field(default=90.0, description="L-Köşe açısı (derece)")
     corner_blind_width_mm: float = Field(default=100.0, description="L-Köşe kör kapama paneli genişliği (mm)")
 
 
@@ -122,6 +160,12 @@ class SemanticParserEngine:
         "Eğer kullanıcı dolabın içini dikey bölmelere / kolonlara ayırmışsa (örn: 'sol tarafı 4 raflı, sağ tarafı askılıklı ve 2 çekmeceli', "
         "'2 bölmeli gardırop', '3 bölmeli sol raflı orta askılı'), her bölmeyi 'zones' dizisinde tanımla. "
         "Her bölme için name, width_ratio, shelf_count, door_type, drawer_count, has_hanging_rod parametrelerini doldur. "
+        "Çatı eğimi, tavan eğimi, mansard çatı veya merdiven altı dolap istenmişse has_slope=true yap, "
+        "eğimin alçak tarafını slope_side ('left' veya 'right') ve alçak kenar boyunu slope_start_height_mm olarak yaz. "
+        "L-Köşe dönüş modülü veya 90 derece köşe dolap istenmişse is_corner_module=true yap. "
+        "Lamello Cabineo 12 veya 3-eksen bağlantı istenmişse fastener_type='cabineo_12' seç. "
+        "Ayarlı plastik ayak istenmişse plinth_type='adjustable_legs' seç. "
+        "Süpürgelik kertmesi varsa has_baseboard_notch=true, kolon kertmesi varsa has_column_notch=true yap. "
         "Hiçbir kesim veya delik hesabı yapma, sadece şema parametrelerini çıkar."
     )
 
@@ -485,9 +529,40 @@ class SemanticParserEngine:
             0.0, min(height_mm - 260.0, appliance_niche_height_mm)
         )
 
-        # 8. Çoklu Bölme (Zones) Tespiti
+        # 8. Çoklu Bölme (Zones) veya Elbise Askılığı Tespiti
         zones: list[CabinetZone] = []
-        if any(k in text for k in ("bölmeli", "bolmeli", "dikmeli", "kolonlu")) or (
+        is_three_zones = any(
+            k in text
+            for k in ("3 bölmeli", "3 bolmeli", "üç bölmeli", "uc bolmeli", "orta bölme", "orta bolme", "ortası", "ortada")
+        )
+        if is_three_zones:
+            zones = [
+                CabinetZone(
+                    name="Sol Bölme",
+                    width_ratio=1.0,
+                    shelf_count=4,
+                    drawer_count=0,
+                    has_hanging_rod=False,
+                    door_type=DoorType.SINGLE_LEFT,
+                ),
+                CabinetZone(
+                    name="Orta Bölme",
+                    width_ratio=1.2,
+                    shelf_count=1,
+                    drawer_count=2,
+                    has_hanging_rod=True,
+                    door_type=DoorType.DOUBLE,
+                ),
+                CabinetZone(
+                    name="Sağ Bölme",
+                    width_ratio=1.0,
+                    shelf_count=1,
+                    drawer_count=0,
+                    has_hanging_rod=True,
+                    door_type=DoorType.SINGLE_RIGHT,
+                ),
+            ]
+        elif any(k in text for k in ("bölmeli", "bolmeli", "dikmeli", "kolonlu")) or (
             ("sol" in text or "solu" in text or "solda" in text)
             and ("sağ" in text or "sağı" in text or "sagda" in text)
         ):
@@ -545,6 +620,17 @@ class SemanticParserEngine:
                     door_type=DoorType.SINGLE_RIGHT,
                 ),
             ]
+        elif any(k in text for k in ("askılık", "askilik", "askı borusu", "aski borusu", "elbise askı")):
+            zones = [
+                CabinetZone(
+                    name="Ana Askı Bölmesi",
+                    width_ratio=1.0,
+                    shelf_count=1 if "raf" not in text else shelf_count,
+                    drawer_count=drawer_count,
+                    has_hanging_rod=True,
+                    door_type=door_type,
+                )
+            ]
 
         # 9. Çatı Eğimi (Merdiven Altı / Mansard Çatı) Tespiti
         has_slope = False
@@ -569,7 +655,7 @@ class SemanticParserEngine:
             )
         ):
             has_slope = True
-            if any(k in text for k in ("sağ tarafı eğimli", "sağa doğru", "sağ alçak", "sag alcak")):
+            if any(k in text for k in ("sağ", "sag")):
                 slope_side = "right"
             else:
                 slope_side = "left"
@@ -642,15 +728,16 @@ class SemanticParserEngine:
         )
 
     @classmethod
-    def parse_prompt(cls, prompt: str) -> CabinetConfig:
+    def parse_prompt(
+        cls, prompt: str, api_key_override: str | None = None
+    ) -> CabinetConfig:
         """Doğal dil istemini Gemini API (varsa) veya deterministik ayrıştırıcı ile CabinetConfig'e çevirir."""
         settings = get_settings()
-        api_key = settings.gemini_api_key.strip()
+        api_key = (api_key_override or settings.gemini_api_key or "").strip()
         if api_key:
             candidate_models = [
                 settings.gemini_model,
                 "gemini-2.5-flash",
-                "gemini-3.8-flash",
                 "gemini-2.0-flash",
             ]
             models_to_try: list[str] = []
@@ -707,12 +794,16 @@ class SemanticParserEngine:
             float(parsed.niche_height_mm or 0.0),
             float(parsed.appliance_niche_height_mm or 0.0),
         )
-        niche_offset = float(parsed.niche_bottom_offset_mm or 0.0)
+        niche_offset = max(0.0, float(parsed.niche_bottom_offset_mm or 0.0))
         is_bottom_niche = raw_niche_h > 0 and niche_offset <= 0
-        niche_h = (
+        clamped_niche_h = (
             max(0.0, min(height_mm - 260.0, raw_niche_h))
             if is_bottom_niche
-            else 0.0
+            else (
+                max(0.0, min(height_mm - niche_offset - 180.0, raw_niche_h))
+                if raw_niche_h > 0
+                else 0.0
+            )
         )
         has_plinth = False if is_bottom_niche else parsed.has_plinth
 
@@ -749,8 +840,8 @@ class SemanticParserEngine:
             drawer_front_height_mm=drawer_front_height,
             has_plinth=has_plinth,
             plinth_height_mm=parsed.plinth_height_mm if has_plinth else 0.0,
-            appliance_niche_height_mm=raw_niche_h,
-            niche_height_mm=raw_niche_h,
+            appliance_niche_height_mm=clamped_niche_h,
+            niche_height_mm=clamped_niche_h,
             niche_bottom_offset_mm=niche_offset,
             niche_color_hex=parsed.niche_color_hex or None,
             niche_back_open=parsed.niche_back_open,
@@ -762,13 +853,26 @@ class SemanticParserEngine:
             hidden_pvc_thickness_mm=parsed.hidden_pvc_thickness_mm,
             back_panel_type=parsed.back_panel_type,
             sheet_size=parsed.sheet_size,
+            fastener_type=parsed.fastener_type,
+            cutting_mode=parsed.cutting_mode,
+            plinth_type=parsed.plinth_type,
+            has_baseboard_notch=parsed.has_baseboard_notch,
+            baseboard_notch_height_mm=parsed.baseboard_notch_height_mm,
+            baseboard_notch_depth_mm=parsed.baseboard_notch_depth_mm,
+            has_column_notch=parsed.has_column_notch,
+            column_notch_width_mm=parsed.column_notch_width_mm,
+            column_notch_depth_mm=parsed.column_notch_depth_mm,
+            left_filler_width_mm=parsed.left_filler_width_mm,
+            right_filler_width_mm=parsed.right_filler_width_mm,
             additional_modules=[],
             zones=zones,
             has_slope=parsed.has_slope,
-            slope_side=parsed.slope_side,
-            slope_start_height_mm=parsed.slope_start_height_mm,
+            slope_side=parsed.slope_side if parsed.slope_side in ("left", "right") else "left",
+            slope_start_height_mm=max(300.0, min(height_mm, parsed.slope_start_height_mm)),
+            slope_angle_deg=parsed.slope_angle_deg,
             is_corner_module=parsed.is_corner_module,
-            corner_blind_width_mm=parsed.corner_blind_width_mm,
+            corner_angle_deg=parsed.corner_angle_deg,
+            corner_blind_width_mm=max(50.0, min(600.0, parsed.corner_blind_width_mm)),
         )
 
     @classmethod
@@ -777,10 +881,11 @@ class SemanticParserEngine:
         image_bytes: bytes,
         mime_type: str = "image/jpeg",
         prompt: str = "",
+        api_key_override: str | None = None,
     ) -> CabinetConfig:
         """Kullanıcının kağıt üzerine el ile çizdiği ölçülü dolap eskizini veya rölöve fotoğrafını CabinetConfig'e dönüştürür."""
         settings = get_settings()
-        api_key = settings.gemini_api_key.strip()
+        api_key = (api_key_override or settings.gemini_api_key or "").strip()
         user_prompt = (
             prompt.strip()
             or "Bu mobilya / dolap eskizindeki veya rölöve krokisindeki dış ölçüleri, "
@@ -793,7 +898,6 @@ class SemanticParserEngine:
                 settings.gemini_model.strip(),
                 "gemini-2.5-flash",
                 "gemini-2.0-flash",
-                "gemini-1.5-flash",
             ]
             models_to_try: list[str] = []
             for m in candidate_models:

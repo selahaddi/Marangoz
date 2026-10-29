@@ -1740,7 +1740,10 @@ class BOMEngine:
 
         total_handles = 0
         total_hinges = 0
-        has_zones = bool(config.zones and len(config.zones) > 1)
+        has_zones = bool(
+            config.zones
+            and (len(config.zones) > 1 or any(z.has_hanging_rod for z in config.zones))
+        )
 
         if has_zones:
             (

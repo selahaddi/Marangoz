@@ -579,10 +579,11 @@ def test_conversational_revision_engine_and_endpoint():
     with patch.object(
         RevisionEngine,
         "revise_config",
-        side_effect=lambda current_config, instruction, history=None: RevisionEngine._deterministic_mutate(current_config, instruction),
+        side_effect=lambda current_config, instruction, history=None, **kwargs: RevisionEngine._deterministic_mutate(current_config, instruction),
     ):
         res = client.post(
             "/api/v1/revise",
+            headers={"X-Gemini-Api-Key": "test-key-123"},
             json={
                 "current_config": cfg4.model_dump(),
                 "instruction": "bazasız tavandan tabana yap ve 1 raf daha ekle",
@@ -682,6 +683,50 @@ def test_sloped_ceiling_and_corner_module() -> None:
     )
     assert reverted_cfg.has_slope is False
     assert any("Düz Tavan" in d for d in diffs_revert)
+
+
+def test_ai_parsing_and_schema_parity() -> None:
+    """Yapay zeka ayrıştırma motorunun 3 bölmeli, tek bölmeli askılıklı, çatı eğimli ve L-köşe ayrıştırma yeteneklerini doğrular."""
+    # 1. 3 Bölmeli Gardırop
+    p_3zone = SemanticParserEngine._deterministic_rule_parse(
+        "3 bölmeli gardırop, genişlik 180 cm, boy 210 cm, sol raflı, orta askılıklı çekmeceli, sağ askılı"
+    )
+    assert len(p_3zone.zones or []) == 3
+    assert p_3zone.width_mm == 1800.0
+
+    # 2. 1 Bölmeli Askılıklı Dolap
+    p_rod = SemanticParserEngine._deterministic_rule_parse(
+        "tek gözlü askılıklı gardırop genişlik 90 cm boy 200 cm"
+    )
+    assert len(p_rod.zones or []) == 1
+    assert p_rod.zones[0].has_hanging_rod is True
+
+    # 3. Çatı Eğimi Ayrıştırma
+    p_slope = SemanticParserEngine._deterministic_rule_parse(
+        "çatı katı eğimli dolap, sağ tarafı alçak 130 cm'den başlayan mansard dolap"
+    )
+    assert p_slope.has_slope is True
+    assert p_slope.slope_side == "right"
+    assert p_slope.slope_start_height_mm == 1300.0
+
+    # 4. L-Köşe Modülü Ayrıştırma
+    p_corner = SemanticParserEngine._deterministic_rule_parse(
+        "l-köşe modülü köşe dolap genişlik 100 cm derinlik 60 cm"
+    )
+    assert p_corner.is_corner_module is True
+    assert p_corner.corner_blind_width_mm == 100.0
+
+    # 5. FastAPI /api/v1/parse uç noktasında X-Gemini-Api-Key başlığı desteği
+    res = client.post(
+        "/api/v1/parse",
+        headers={"X-Gemini-Api-Key": "user-custom-key-xyz"},
+        json={"prompt": "90x210x60 cm beyaz gardırop"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["data"]["width_mm"] == 900.0
+
 
 
 

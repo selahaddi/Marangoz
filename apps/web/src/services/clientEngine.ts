@@ -2925,9 +2925,49 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     }
   }
 
-  // Çoklu Bölme (Zones) Tespiti
+  // Çoklu Bölme (Zones) veya Elbise Askılığı Tespiti
   let zones: CabinetZone[] | undefined = undefined;
-  if (
+  const isThreeZones =
+    text.includes("3 bölmeli") ||
+    text.includes("3 bolmeli") ||
+    text.includes("üç bölmeli") ||
+    text.includes("uc bolmeli") ||
+    text.includes("orta bölme") ||
+    text.includes("orta bolme") ||
+    text.includes("ortası") ||
+    text.includes("ortada");
+
+  if (isThreeZones) {
+    zones = [
+      {
+        id: "z_1",
+        name: "Sol Bölme",
+        width_ratio: 1.0,
+        shelf_count: 4,
+        drawer_count: 0,
+        has_hanging_rod: false,
+        door_type: "single_left",
+      },
+      {
+        id: "z_2",
+        name: "Orta Bölme",
+        width_ratio: 1.2,
+        shelf_count: 1,
+        drawer_count: 2,
+        has_hanging_rod: true,
+        door_type: "double",
+      },
+      {
+        id: "z_3",
+        name: "Sağ Bölme",
+        width_ratio: 1.0,
+        shelf_count: 1,
+        drawer_count: 0,
+        has_hanging_rod: true,
+        door_type: "single_right",
+      },
+    ];
+  } else if (
     text.includes("bölmeli") ||
     text.includes("bolmeli") ||
     text.includes("dikmeli") ||
@@ -2998,7 +3038,73 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
         door_type: "single_right",
       },
     ];
+  } else if (
+    text.includes("askılık") ||
+    text.includes("askilik") ||
+    text.includes("askı borusu") ||
+    text.includes("aski borusu") ||
+    text.includes("elbise askı")
+  ) {
+    zones = [
+      {
+        id: "z_1",
+        name: "Ana Askı Bölmesi",
+        width_ratio: 1.0,
+        shelf_count: text.includes("raf") ? shelfCount : 1,
+        drawer_count: drawerCount,
+        has_hanging_rod: true,
+        door_type: doorType,
+      },
+    ];
   }
+
+  // Çatı Eğimi (Merdiven Altı / Mansard) ve L-Köşe Modülü Tespiti
+  let hasSlope = false;
+  let slopeSide: "left" | "right" = "left";
+  let slopeStartHeightMm = 1200.0;
+  if (
+    text.includes("merdiven altı") ||
+    text.includes("merdiven alti") ||
+    text.includes("çatı eğimi") ||
+    text.includes("cati egimi") ||
+    text.includes("tavan eğimi") ||
+    text.includes("tavan egimi") ||
+    text.includes("mansard") ||
+    text.includes("eğimli dolap") ||
+    text.includes("egimli dolap") ||
+    text.includes("eğimli tavan") ||
+    text.includes("egimli tavan") ||
+    text.includes("çatı katı") ||
+    text.includes("cati kati")
+  ) {
+    hasSlope = true;
+    if (
+      text.includes("sağ tarafı eğimli") ||
+      text.includes("sağa doğru") ||
+      text.includes("sağ alçak") ||
+      text.includes("sag alcak")
+    ) {
+      slopeSide = "right";
+    }
+    const mSlopeH =
+      text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?(?:'den|den|'dan|dan)?\s*(?:başlayan|alçalan|yükselen|başlayıp)/) ||
+      text.match(/alçak\s*(?:tarafı?|dikme|kenar)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
+    if (mSlopeH) {
+      slopeStartHeightMm = toMm(mSlopeH[1], mSlopeH[2]);
+    } else {
+      slopeStartHeightMm = Math.max(400, heightMm - 600);
+    }
+  }
+
+  const isCornerModule =
+    text.includes("l-köşe") ||
+    text.includes("l köşe") ||
+    text.includes("l-kose") ||
+    text.includes("l kose") ||
+    text.includes("köşe dolap") ||
+    text.includes("kose dolap") ||
+    text.includes("köşe modül") ||
+    text.includes("kose modul");
 
   return {
     name,
@@ -3017,6 +3123,12 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     niche_back_open: nicheBackOpen,
     additional_modules: [],
     zones,
+    has_slope: hasSlope,
+    slope_side: slopeSide,
+    slope_start_height_mm: slopeStartHeightMm,
+    is_corner_module: isCornerModule,
+    corner_blind_width_mm: 100.0,
+    corner_angle_deg: 90.0,
     has_plinth: hasPlinth,
     plinth_height_mm: plinthHeightMm,
     plinth_type: plinthType,
@@ -4091,11 +4203,6 @@ function generateSingleModuleParts(
     width_1_mm: config.hidden_pvc_thickness_mm,
     width_2_mm: config.hidden_pvc_thickness_mm,
   };
-  const [sideCutL, sideCutW, sideDedL, sideDedW] = computeCutDimensions(
-    h,
-    d,
-    sideEdge
-  );
 
   const sideGrooves: GroovePath[] = [];
   if (config.back_panel_type === "grooved_8mm") {
@@ -4122,31 +4229,60 @@ function generateSingleModuleParts(
   }
   const sideNotchInfo = sideNotchNotes.join(" | ");
 
+  const hasSlope = Boolean(config.has_slope);
+  const slopeSide = config.slope_side || "left";
+  const slopeStartH = config.slope_start_height_mm ?? 1200.0;
+  const leftH = hasSlope && slopeSide === "left" ? slopeStartH : h;
+  const rightH = hasSlope && slopeSide === "right" ? slopeStartH : h;
+
+  const [solCutL, solCutW, solDedL, solDedW] = computeCutDimensions(
+    leftH,
+    d,
+    sideEdge
+  );
+  const [sagCutL, sagCutW, sagDedL, sagDedW] = computeCutDimensions(
+    rightH,
+    d,
+    sideEdge
+  );
+
+  const solDrills = sideDrills.filter((dp) => dp.x_mm <= leftH - 20.0);
+  const sagDrills = sideDrills.filter((dp) => dp.x_mm <= rightH - 20.0);
+
+  const solName =
+    hasSlope && slopeSide === "left"
+      ? `${labelPrefix}Sol Yan Eğimli Dikme (Alçak Taraf)`
+      : `${labelPrefix}Sol Yan Dikme`;
+  const sagName =
+    hasSlope && slopeSide === "right"
+      ? `${labelPrefix}Sağ Yan Eğimli Dikme (Alçak Taraf)`
+      : `${labelPrefix}Sağ Yan Dikme`;
+
   parts.push({
     part_id: padId(partCounter++),
     code: `${prefix}YAN_SOL`,
-    name: `${labelPrefix}Sol Yan Dikme`,
+    name: solName,
     material: config.body_material,
     thickness_mm: t,
     quantity: 1,
-    net_length_mm: h,
+    net_length_mm: leftH,
     net_width_mm: d,
-    cut_length_mm: sideCutL,
-    cut_width_mm: sideCutW,
-    pvc_deduction_length_mm: sideDedL,
-    pvc_deduction_width_mm: sideDedW,
+    cut_length_mm: solCutL,
+    cut_width_mm: solCutW,
+    pvc_deduction_length_mm: solDedL,
+    pvc_deduction_width_mm: solDedW,
     edge_band: sideEdge,
-    area_m2: round4((h * d) / 1_000_000.0),
+    area_m2: round4((leftH * d) / 1_000_000.0),
     grain_direction: "length",
-    drills: sideDrills,
+    drills: solDrills,
     grooves: sideGrooves,
     notch_info: sideNotchInfo,
     transform_3d: {
       center_x_mm: round2(xOffsetMm - w / 2.0 + t / 2.0),
-      center_y_mm: round2(h / 2.0),
+      center_y_mm: round2(leftH / 2.0),
       center_z_mm: 0.0,
       size_x_mm: t,
-      size_y_mm: h,
+      size_y_mm: leftH,
       size_z_mm: d,
       color_hex: config.body_color_hex,
       is_door: false,
@@ -4159,28 +4295,28 @@ function generateSingleModuleParts(
   parts.push({
     part_id: padId(partCounter++),
     code: `${prefix}YAN_SAG`,
-    name: `${labelPrefix}Sağ Yan Dikme`,
+    name: sagName,
     material: config.body_material,
     thickness_mm: t,
     quantity: 1,
-    net_length_mm: h,
+    net_length_mm: rightH,
     net_width_mm: d,
-    cut_length_mm: sideCutL,
-    cut_width_mm: sideCutW,
-    pvc_deduction_length_mm: sideDedL,
-    pvc_deduction_width_mm: sideDedW,
+    cut_length_mm: sagCutL,
+    cut_width_mm: sagCutW,
+    pvc_deduction_length_mm: sagDedL,
+    pvc_deduction_width_mm: sagDedW,
     edge_band: sideEdge,
-    area_m2: round4((h * d) / 1_000_000.0),
+    area_m2: round4((rightH * d) / 1_000_000.0),
     grain_direction: "length",
-    drills: sideDrills,
+    drills: sagDrills,
     grooves: sideGrooves,
     notch_info: sideNotchInfo,
     transform_3d: {
       center_x_mm: round2(xOffsetMm + w / 2.0 - t / 2.0),
-      center_y_mm: round2(h / 2.0),
+      center_y_mm: round2(rightH / 2.0),
       center_z_mm: 0.0,
       size_x_mm: t,
-      size_y_mm: h,
+      size_y_mm: rightH,
       size_z_mm: d,
       color_hex: config.body_color_hex,
       is_door: false,
@@ -4190,18 +4326,41 @@ function generateSingleModuleParts(
     },
   });
 
-  // Üst ve Alt Tabla
+  // Üst ve Alt Tabla (Çatı Eğimi Geometrisi)
   const horizEdge: EdgeBandSpec = {
     length_1_mm: config.front_pvc_thickness_mm,
     length_2_mm: config.hidden_pvc_thickness_mm,
     width_1_mm: 0.0,
     width_2_mm: 0.0,
   };
+
+  let topLen = innerW;
+  let rotZ = 0.0;
+  let topCenterY = round2(h - t / 2.0);
+  let topName = `${labelPrefix}Üst Tabla`;
+  let isTopSloped = false;
+
+  if (hasSlope) {
+    const deltaH = Math.abs(h - slopeStartH);
+    topLen = round2(Math.sqrt(innerW ** 2 + deltaH ** 2));
+    const slopeDeg = round2((Math.atan2(deltaH, Math.max(1.0, innerW)) * 180) / Math.PI);
+    rotZ = slopeSide === "left" ? slopeDeg : -slopeDeg;
+    topCenterY = round2((slopeStartH + h) / 2.0);
+    topName = `${labelPrefix}Açılı Eğimli Üst Tabla`;
+    isTopSloped = true;
+  }
+
   const [horizCutL, horizCutW, horizDedL, horizDedW] = computeCutDimensions(
+    topLen,
+    d,
+    horizEdge
+  );
+  const [altCutL, altCutW, altDedL, altDedW] = computeCutDimensions(
     innerW,
     d,
     horizEdge
   );
+
   const horizDrills: DrillPoint[] = [];
   const camOffset = isCabineo
     ? MC.CABINEO_POCKET_OFFSET_FROM_EDGE_MM
@@ -4239,7 +4398,7 @@ function generateSingleModuleParts(
           {
             x_start_mm: 0.0,
             y_start_mm: MC.BACK_GROOVE_OFFSET_FROM_REAR_MM,
-            width_mm: innerW,
+            width_mm: topLen,
             length_mm: MC.BACK_GROOVE_WIDTH_MM,
             depth_mm: MC.BACK_GROOVE_DEPTH_MM,
             layer: MC.LAYER_GROOVE_BACK,
@@ -4250,24 +4409,24 @@ function generateSingleModuleParts(
   parts.push({
     part_id: padId(partCounter++),
     code: `${prefix}TABLA_UST`,
-    name: `${labelPrefix}Üst Tabla`,
+    name: topName,
     material: config.body_material,
     thickness_mm: t,
     quantity: 1,
-    net_length_mm: innerW,
+    net_length_mm: topLen,
     net_width_mm: d,
     cut_length_mm: horizCutL,
     cut_width_mm: horizCutW,
     pvc_deduction_length_mm: horizDedL,
     pvc_deduction_width_mm: horizDedW,
     edge_band: horizEdge,
-    area_m2: round4((innerW * d) / 1_000_000.0),
+    area_m2: round4((topLen * d) / 1_000_000.0),
     grain_direction: "length",
     drills: horizDrills,
     grooves: horizGrooves,
     transform_3d: {
       center_x_mm: xOffsetMm,
-      center_y_mm: round2(h - t / 2.0),
+      center_y_mm: topCenterY,
       center_z_mm: 0.0,
       size_x_mm: innerW,
       size_y_mm: t,
@@ -4277,6 +4436,8 @@ function generateSingleModuleParts(
       is_drawer: false,
       hinge_side: null,
       module_index: moduleIdx,
+      rotation_z_deg: rotZ,
+      is_sloped: isTopSloped,
     },
   });
 
@@ -4292,10 +4453,10 @@ function generateSingleModuleParts(
     quantity: 1,
     net_length_mm: innerW,
     net_width_mm: d,
-    cut_length_mm: horizCutL,
-    cut_width_mm: horizCutW,
-    pvc_deduction_length_mm: horizDedL,
-    pvc_deduction_width_mm: horizDedW,
+    cut_length_mm: altCutL,
+    cut_width_mm: altCutW,
+    pvc_deduction_length_mm: altDedL,
+    pvc_deduction_width_mm: altDedW,
     edge_band: horizEdge,
     area_m2: round4((innerW * d) / 1_000_000.0),
     grain_direction: "length",
@@ -4592,10 +4753,20 @@ function generateSingleModuleParts(
       });
     }
   } else {
+    const trapHStart = slopeSide === "left" ? slopeStartH : h;
+    const trapHEnd = slopeSide === "left" ? h : slopeStartH;
+    const arkalikNotch = hasSlope
+      ? `[ACILI-CATI-EGIMI] ${slopeSide.toUpperCase()} ${trapHStart.toFixed(0)}➔${trapHEnd.toFixed(0)}mm`
+      : "";
+
     parts.push({
       part_id: padId(partCounter++),
       code: `${prefix}ARKALIK`,
-      name: `${labelPrefix}Arkalık Paneli`,
+      name: hasSlope
+        ? `${labelPrefix}Eğimli Çatı Arkalık Paneli`
+        : nicheH > 0
+        ? `${labelPrefix}Üst Dolap Arkalık Paneli`
+        : `${labelPrefix}Arkalık Paneli`,
       material: backMat,
       thickness_mm: backT,
       quantity: 1,
@@ -4610,6 +4781,10 @@ function generateSingleModuleParts(
       grain_direction: "length",
       drills: [],
       grooves: [],
+      notch_info: arkalikNotch,
+      is_trapezoid: hasSlope,
+      trapezoid_h_start_mm: hasSlope ? trapHStart : undefined,
+      trapezoid_h_end_mm: hasSlope ? trapHEnd : undefined,
       transform_3d: {
         center_x_mm: xOffsetMm,
         center_y_mm: round2(baseOffsetY + (h - baseOffsetY) / 2.0),
@@ -4630,7 +4805,10 @@ function generateSingleModuleParts(
   let totalHinges = 0;
   let totalGasStruts = 0;
 
-  const hasZones = Boolean(config.zones && config.zones.length > 1);
+  const hasZones = Boolean(
+    config.zones &&
+      (config.zones.length > 1 || config.zones.some((z) => z.has_hanging_rod))
+  );
   if (hasZones) {
     const zRes = generateZonesParts(
       config,
@@ -5155,6 +5333,52 @@ function generateSingleModuleParts(
         },
       });
     }
+  }
+
+  // 7b. L-Köşe Dönüş Kör Paneli
+  if (config.is_corner_module) {
+    const cornerW = config.corner_blind_width_mm || 100.0;
+    const cornerEdge: EdgeBandSpec = {
+      length_1_mm: config.front_pvc_thickness_mm,
+      length_2_mm: 0.0,
+      width_1_mm: 0.0,
+      width_2_mm: 0.0,
+    };
+    const [ccL, ccW, cdL, cdW] = computeCutDimensions(h, cornerW, cornerEdge);
+    parts.push({
+      part_id: padId(partCounter++),
+      code: `${prefix}KOR_KAPAMA_KOSE`,
+      name: `${labelPrefix}L-Köşe Kör Kapama Paneli`,
+      material: doorMat,
+      thickness_mm: t,
+      quantity: 1,
+      net_length_mm: h,
+      net_width_mm: cornerW,
+      cut_length_mm: ccL,
+      cut_width_mm: ccW,
+      pvc_deduction_length_mm: cdL,
+      pvc_deduction_width_mm: cdW,
+      edge_band: cornerEdge,
+      area_m2: round4((h * cornerW) / 1_000_000.0),
+      grain_direction: "length",
+      drills: [],
+      grooves: [],
+      notch_info: `L-Köşe ${config.corner_angle_deg ?? 90}° Dönüş Kör Paneli`,
+      transform_3d: {
+        center_x_mm: round2(xOffsetMm + w / 2.0 - cornerW / 2.0),
+        center_y_mm: round2(h / 2.0),
+        center_z_mm: round2(d / 2.0 - t / 2.0),
+        size_x_mm: cornerW,
+        size_y_mm: h,
+        size_z_mm: t,
+        color_hex: config.door_color_hex,
+        is_door: false,
+        is_drawer: false,
+        hinge_side: null,
+        module_index: moduleIdx,
+        corner_rotation_y_deg: config.corner_angle_deg ?? 90,
+      },
+    });
   }
 
   // 8. 3-Eksen CNC Router Nesting Vakum Tutunma Sekmesi (Holding Tabs) Hesabı

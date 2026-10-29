@@ -120,6 +120,13 @@ class RevisionEngine:
         new_zones_len = len(new_cfg.zones or [])
         if old_zones_len != new_zones_len:
             diffs.append(f"Dikey Bölmeler: {old_zones_len} Bölme ➔ {new_zones_len} Bölme")
+        elif new_zones_len > 0 and old_cfg.zones != new_cfg.zones:
+            diffs.append("İç Bölme (Zone) Donanımı Güncellendi")
+
+        if getattr(old_cfg, "has_baseboard_notch", False) != getattr(new_cfg, "has_baseboard_notch", False):
+            diffs.append("Süpürgelik Kertmesi: " + ("Aktif (80×15mm)" if new_cfg.has_baseboard_notch else "İptal"))
+        if getattr(old_cfg, "has_column_notch", False) != getattr(new_cfg, "has_column_notch", False):
+            diffs.append("Kolon Kertmesi: " + ("Aktif (120×120mm)" if new_cfg.has_column_notch else "İptal"))
 
         if getattr(old_cfg, "has_slope", False) != getattr(new_cfg, "has_slope", False):
             if new_cfg.has_slope:
@@ -127,6 +134,12 @@ class RevisionEngine:
                 diffs.append(f"Çatı Eğimi: Aktif ({side_tr} Alçak {new_cfg.slope_start_height_mm:.0f} mm)")
             else:
                 diffs.append("Çatı Eğimi: İptal (Düz Tavan)")
+        elif getattr(new_cfg, "has_slope", False) and (
+            old_cfg.slope_side != new_cfg.slope_side
+            or old_cfg.slope_start_height_mm != new_cfg.slope_start_height_mm
+        ):
+            side_tr = "Sol" if new_cfg.slope_side == "left" else "Sağ"
+            diffs.append(f"Çatı Eğimi Güncellendi: {side_tr} Alçak {new_cfg.slope_start_height_mm:.0f} mm")
 
         if getattr(old_cfg, "is_corner_module", False) != getattr(new_cfg, "is_corner_module", False):
             diffs.append("L-Köşe Modülü: " + ("Aktif (90° Kör Panelli)" if new_cfg.is_corner_module else "İptal"))
@@ -317,13 +330,92 @@ class RevisionEngine:
                 updated_dict["door_material"] = mat_label
                 reasons.append(f"Renk şeması {word.capitalize()} olarak güncellendi")
 
-        # 10. Bağlantı Tipi
+        # 10. Bağlantı Tipi ve Kesim Modu
         if "cabineo" in text or "lamello" in text or "3 eksen" in text:
             updated_dict["fastener_type"] = FastenerType.CABINEO_12
             reasons.append("Bağlantı sistemi Lamello Cabineo 12 (3-Eksen CNC) olarak ayarlandı")
         elif "minifiks" in text or "minifix" in text:
             updated_dict["fastener_type"] = FastenerType.MINIFIX_DOWEL
             reasons.append("Bağlantı sistemi Minifiks + Kavela olarak ayarlandı")
+
+        if any(k in text for k in ("cnc router", "freze kesim", "nesting freze")):
+            updated_dict["cutting_mode"] = CuttingMode.CNC_ROUTER
+            reasons.append("Kesim modu CNC Router Freze olarak ayarlandı")
+
+        if any(k in text for k in ("kör çıta", "kor cita", "kapama çıtası")):
+            updated_dict["left_filler_width_mm"] = 40.0
+            updated_dict["right_filler_width_mm"] = 40.0
+            reasons.append("Sol ve sağ 40 mm duvar kör kapama çıtaları eklendi")
+
+        # 10b. Çoklu Dikey Bölme (Zones) & Askılık Revizyonu
+        if any(k in text for k in ("bölmeleri kaldır", "tek bölmeli yap", "tek gövde yap")):
+            updated_dict["zones"] = []
+            reasons.append("İç dikmeler kaldırıldı, tek gövdeye dönüştürüldü")
+        elif any(k in text for k in ("3 bölmeli yap", "üç bölmeli yap", "3 bölmeye ayır")):
+            updated_dict["zones"] = [
+                CabinetZone(
+                    name="Sol Bölme",
+                    width_ratio=1.0,
+                    shelf_count=4,
+                    drawer_count=0,
+                    has_hanging_rod=False,
+                    door_type=DoorType.SINGLE_LEFT,
+                ).model_dump(),
+                CabinetZone(
+                    name="Orta Bölme",
+                    width_ratio=1.2,
+                    shelf_count=1,
+                    drawer_count=2,
+                    has_hanging_rod=True,
+                    door_type=DoorType.DOUBLE,
+                ).model_dump(),
+                CabinetZone(
+                    name="Sağ Bölme",
+                    width_ratio=1.0,
+                    shelf_count=1,
+                    drawer_count=0,
+                    has_hanging_rod=True,
+                    door_type=DoorType.SINGLE_RIGHT,
+                ).model_dump(),
+            ]
+            reasons.append("Dolap içi 3 dikey bölmeye (Sol Raflı, Orta Askı+Çekmece, Sağ Askılı) ayrıldı")
+        elif any(k in text for k in ("2 bölmeli yap", "iki bölmeli yap", "2 bölmeye ayır", "ortadan böl")):
+            updated_dict["zones"] = [
+                CabinetZone(
+                    name="Sol Bölme",
+                    width_ratio=1.0,
+                    shelf_count=4,
+                    drawer_count=0,
+                    has_hanging_rod=False,
+                    door_type=DoorType.SINGLE_LEFT,
+                ).model_dump(),
+                CabinetZone(
+                    name="Sağ Bölme",
+                    width_ratio=1.0,
+                    shelf_count=1,
+                    drawer_count=2,
+                    has_hanging_rod=True,
+                    door_type=DoorType.SINGLE_RIGHT,
+                ).model_dump(),
+            ]
+            reasons.append("Dolap içi 2 dikey bölmeye (Sol 4 Raflı, Sağ Askılıklı ve 2 Çekmeceli) ayrıldı")
+        elif any(k in text for k in ("askılık ekle", "askı borusu ekle", "elbise askısı ekle", "askılıklı yap")):
+            existing_zones = updated_dict.get("zones") or []
+            if existing_zones:
+                existing_zones[-1]["has_hanging_rod"] = True
+                updated_dict["zones"] = existing_zones
+            else:
+                updated_dict["zones"] = [
+                    CabinetZone(
+                        name="Ana Askı Bölmesi",
+                        width_ratio=1.0,
+                        shelf_count=1,
+                        drawer_count=updated_dict.get("drawer_count", 0),
+                        has_hanging_rod=True,
+                        door_type=updated_dict.get("door_type", DoorType.DOUBLE),
+                    ).model_dump()
+                ]
+            reasons.append("Elbise askı borusu eklendi")
 
         # 11. Faz 4: Çatı Eğimi (Mansard Çatı / Merdiven Altı) Revizyonu
         if any(k in text for k in ("eğimi kaldır", "egimi kaldir", "çatı eğimini kaldır", "düz tavan", "düz tavan yap", "düz yap")):
@@ -376,10 +468,11 @@ class RevisionEngine:
         current_config: CabinetConfig,
         instruction: str,
         history: list[ChatMessage],
+        api_key_override: str | None = None,
     ) -> tuple[CabinetConfig, str, list[str]]:
-        """Gemini 2.5/3.8 Flash kullanarak akıllı cerrahi revizyon uygular."""
+        """Gemini 2.5/2.0 Flash kullanarak akıllı cerrahi revizyon uygular."""
         settings = get_settings()
-        api_key = settings.gemini_api_key.strip()
+        api_key = (api_key_override or settings.gemini_api_key or "").strip()
         if not api_key:
             return cls._deterministic_mutate(current_config, instruction)
 
@@ -400,7 +493,7 @@ class RevisionEngine:
         candidate_models = [
             settings.gemini_model,
             "gemini-2.5-flash",
-            "gemini-3.8-flash",
+            "gemini-2.0-flash",
         ]
         models_to_try: list[str] = []
         for m in candidate_models:
@@ -416,6 +509,10 @@ class RevisionEngine:
                     response_schema=CabinetParseSchema,
                     temperature=0.0,
                 )
+                if model_name.startswith("gemini-2.5"):
+                    gen_config.thinking_config = types.ThinkingConfig(
+                        thinking_budget=0
+                    )
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
@@ -424,6 +521,8 @@ class RevisionEngine:
                 if response and response.text:
                     parsed_schema = CabinetParseSchema.model_validate_json(response.text)
                     new_config = SemanticParserEngine._parsed_schema_to_config(parsed_schema)
+                    if current_config.additional_modules:
+                        new_config.additional_modules = list(current_config.additional_modules)
                     diff_summary = cls.compute_diff(current_config, new_config)
                     assistant_msg = (
                         f"Revizyon uygulandı: {', '.join(diff_summary)}"
@@ -443,13 +542,15 @@ class RevisionEngine:
         current_config: CabinetConfig,
         instruction: str,
         history: list[ChatMessage] | None = None,
+        api_key_override: str | None = None,
     ) -> tuple[CabinetConfig, str, list[str]]:
         """Mevcut dolap üzerinde revizyon uygular, güncellenmiş nesneyi ve özetini döndürür."""
         hist = history or []
         try:
             settings = get_settings()
-            if settings.gemini_api_key.strip():
-                return cls._gemini_mutate(current_config, instruction, hist)
+            effective_key = (api_key_override or settings.gemini_api_key or "").strip()
+            if effective_key:
+                return cls._gemini_mutate(current_config, instruction, hist, api_key_override=effective_key)
         except Exception as e:
             logger.warning("Revizyon motoru API çağırma hatası, deterministiğe düşülüyor: %s", e)
 

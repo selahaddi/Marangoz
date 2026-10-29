@@ -4,7 +4,12 @@ import type {
   RevisionResponse,
   RevisionResponseData,
 } from "../types/cabinet";
-import { getStoredGeminiApiKey } from "./geminiClient";
+import {
+  getStoredGeminiApiKey,
+  normalizeGeminiConfig,
+  RESPONSE_SCHEMA,
+  type GeminiRawConfig,
+} from "./geminiClient";
 
 const API_BASE = "/api/v1";
 
@@ -303,21 +308,126 @@ export function mutateCabinetDeterministic(
     }
   }
 
-  // 10. Süpürgelik Kertmesi ve Kör Çıtalar
+  // 10. Süpürgelik, Kolon Kertmesi, Kör Çıtalar ve Bağlantı Donanımı
   if (text.includes("süpürgelik") || text.includes("supurgelik")) {
     updated.has_baseboard_notch = true;
     updated.baseboard_notch_height_mm = 80.0;
     updated.baseboard_notch_depth_mm = 15.0;
     reasons.push("Arka süpürgelik L-kertmesi (80x15 mm) aktif edildi");
   }
+  if (text.includes("kolon kertmesi") || text.includes("kiriş kertmesi")) {
+    updated.has_column_notch = true;
+    updated.column_notch_width_mm = 120.0;
+    updated.column_notch_depth_mm = 120.0;
+    reasons.push("Arka kolon kertmesi (120x120 mm) aktif edildi");
+  }
   if (text.includes("kör çıta") || text.includes("kor cita") || text.includes("rölöve")) {
     updated.left_filler_width_mm = 40.0;
     updated.right_filler_width_mm = 40.0;
     reasons.push("Sağ ve sol rölöve kör çıtaları (40 mm) eklendi");
   }
+  if (text.includes("ayarlı ayak") || text.includes("plastik ayak")) {
+    updated.plinth_type = "adjustable_legs";
+    reasons.push("Ayarlı plastik ayak ve klipsli baza sistemine geçildi");
+  }
+  if (text.includes("cabineo") || text.includes("lamello") || text.includes("3 eksen")) {
+    updated.fastener_type = "cabineo_12";
+    reasons.push("Bağlantı sistemi Lamello Cabineo 12 (3-Eksen CNC) yapıldı");
+  } else if (text.includes("minifiks") || text.includes("minifix")) {
+    updated.fastener_type = "minifix_dowel";
+    reasons.push("Bağlantı sistemi Minifiks + Kavela yapıldı");
+  }
+  if (text.includes("cnc router") || text.includes("freze kesim")) {
+    updated.cutting_mode = "cnc_router";
+    reasons.push("Kesim modu CNC Router Freze olarak ayarlandı");
+  }
+
+  // 10b. Çoklu Dikey Bölme (Zones) & Askılık
+  if (text.includes("bölmeleri kaldır") || text.includes("tek bölmeli yap") || text.includes("tek gövde yap")) {
+    updated.zones = [];
+    reasons.push("İç dikmeler kaldırıldı, tek gövdeye dönüştürüldü");
+  } else if (text.includes("3 bölmeli yap") || text.includes("üç bölmeli yap") || text.includes("3 bölmeye ayır")) {
+    updated.zones = [
+      {
+        id: "z_1",
+        name: "Sol Bölme",
+        width_ratio: 1.0,
+        shelf_count: 4,
+        drawer_count: 0,
+        has_hanging_rod: false,
+        door_type: "single_left",
+      },
+      {
+        id: "z_2",
+        name: "Orta Bölme",
+        width_ratio: 1.2,
+        shelf_count: 1,
+        drawer_count: 2,
+        has_hanging_rod: true,
+        door_type: "double",
+      },
+      {
+        id: "z_3",
+        name: "Sağ Bölme",
+        width_ratio: 1.0,
+        shelf_count: 1,
+        drawer_count: 0,
+        has_hanging_rod: true,
+        door_type: "single_right",
+      },
+    ];
+    reasons.push("Dolap içi 3 dikey bölmeye (Sol Raflı, Orta Askı+Çekmece, Sağ Askılı) ayrıldı");
+  } else if (text.includes("2 bölmeli yap") || text.includes("iki bölmeli yap") || text.includes("2 bölmeye ayır") || text.includes("ortadan böl")) {
+    updated.zones = [
+      {
+        id: "z_1",
+        name: "Sol Bölme",
+        width_ratio: 1.0,
+        shelf_count: 4,
+        drawer_count: 0,
+        has_hanging_rod: false,
+        door_type: "single_left",
+      },
+      {
+        id: "z_2",
+        name: "Sağ Bölme",
+        width_ratio: 1.0,
+        shelf_count: 1,
+        drawer_count: 2,
+        has_hanging_rod: true,
+        door_type: "single_right",
+      },
+    ];
+    reasons.push("Dolap içi 2 dikey bölmeye (Sol 4 Raflı, Sağ Askılıklı ve 2 Çekmeceli) ayrıldı");
+  } else if (text.includes("askılık ekle") || text.includes("askı borusu ekle") || text.includes("elbise askısı ekle") || text.includes("askılıklı yap")) {
+    if (updated.zones && updated.zones.length > 0) {
+      updated.zones[updated.zones.length - 1].has_hanging_rod = true;
+    } else {
+      updated.zones = [
+        {
+          id: "z_1",
+          name: "Ana Askı Bölmesi",
+          width_ratio: 1.0,
+          shelf_count: 1,
+          drawer_count: updated.drawer_count ?? 0,
+          has_hanging_rod: true,
+          door_type: updated.door_type ?? "double",
+        },
+      ];
+    }
+    reasons.push("Elbise askı borusu eklendi");
+  }
 
   // 11. Çatı Eğimi (Mansard Çatı / Merdiven Altı)
   if (
+    text.includes("eğimi kaldır") ||
+    text.includes("egimi kaldir") ||
+    text.includes("çatı eğimini kaldır") ||
+    text.includes("düz tavan")
+  ) {
+    updated.has_slope = false;
+    reasons.push("Çatı eğimi kaldırıldı (düz tavan)");
+  } else if (
     text.includes("çatı") ||
     text.includes("cati") ||
     text.includes("merdiven") ||
@@ -325,50 +435,43 @@ export function mutateCabinetDeterministic(
     text.includes("egim") ||
     text.includes("mansard")
   ) {
-    if (text.includes("eğimi kaldır") || text.includes("düz yap") || text.includes("düz tavan")) {
-      updated.has_slope = false;
-      reasons.push("Çatı eğimi kaldırıldı (düz tavan)");
+    updated.has_slope = true;
+    if (text.includes("sağ") || text.includes("sag")) {
+      updated.slope_side = "right";
     } else {
-      updated.has_slope = true;
-      if (text.includes("sağ") || text.includes("sag")) {
-        updated.slope_side = "right";
-      } else {
-        updated.slope_side = "left";
-      }
-      const mSlH =
-        text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?(?:'den|den|'dan|dan)?\s*(?:başlayan|alçalan|yükselen|başlayıp)/) ||
-        text.match(/alçak\s*(?:tarafı?|dikme|kenar)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
-      if (mSlH) {
-        updated.slope_start_height_mm = parseUnit(mSlH[1], mSlH[2]);
-      } else {
-        updated.slope_start_height_mm = Math.max(400, updated.height_mm - 600);
-      }
-      const deltaH = Math.abs(updated.height_mm - updated.slope_start_height_mm);
-      updated.slope_angle_deg =
-        Math.round(Math.atan2(deltaH, Math.max(1, updated.width_mm)) * (180 / Math.PI) * 10) / 10;
-      reasons.push(
-        `Çatı / merdiven eğimi (${updated.slope_side === "left" ? "Sol" : "Sağ"} başlangıç: ${updated.slope_start_height_mm.toFixed(0)} mm) uygulandı`
-      );
+      updated.slope_side = "left";
     }
+    const mSlH =
+      text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?(?:'den|den|'dan|dan)?\s*(?:başlayan|alçalan|yükselen|başlayıp)/) ||
+      text.match(/alçak\s*(?:tarafı?|dikme|kenar)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
+    if (mSlH) {
+      updated.slope_start_height_mm = parseUnit(mSlH[1], mSlH[2]);
+    } else {
+      updated.slope_start_height_mm = Math.max(400, updated.height_mm - 600);
+    }
+    const deltaH = Math.abs(updated.height_mm - updated.slope_start_height_mm);
+    updated.slope_angle_deg =
+      Math.round(Math.atan2(deltaH, Math.max(1, updated.width_mm)) * (180 / Math.PI) * 10) / 10;
+    reasons.push(
+      `Çatı / merdiven eğimi (${updated.slope_side === "left" ? "Sol" : "Sağ"} başlangıç: ${updated.slope_start_height_mm.toFixed(0)} mm) uygulandı`
+    );
   }
 
   // 12. L-Köşe Modülü
-  if (
+  if (text.includes("köşe iptal") || text.includes("düz modül yap")) {
+    updated.is_corner_module = false;
+    reasons.push("Köşe dönüşü iptal edildi");
+  } else if (
     text.includes("l-köşe") ||
     text.includes("l köşe") ||
     text.includes("l-kose") ||
     text.includes("köşe modül") ||
     text.includes("köşe dolap")
   ) {
-    if (text.includes("köşe iptal") || text.includes("düz yap")) {
-      updated.is_corner_module = false;
-      reasons.push("Köşe dönüşü iptal edildi");
-    } else {
-      updated.is_corner_module = true;
-      updated.corner_blind_width_mm = 100.0;
-      updated.corner_angle_deg = 90.0;
-      reasons.push("L-Köşe 90° dönüş ve kör kapama paneli uygulandı");
-    }
+    updated.is_corner_module = true;
+    updated.corner_blind_width_mm = 100.0;
+    updated.corner_angle_deg = 90.0;
+    reasons.push("L-Köşe 90° dönüş ve kör kapama paneli uygulandı");
   }
 
   const diffs = computeCabinetDiff(currentConfig, updated);
@@ -391,13 +494,17 @@ export async function reviseCabinet(
   customApiKey?: string
 ): Promise<RevisionResponseData> {
   const apiKey = (customApiKey || getStoredGeminiApiKey() || "").trim();
+  const reqHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) {
+    reqHeaders["x-gemini-api-key"] = apiKey;
+  }
 
   // 1. FastAPI /api/v1/revise (yerel veya backend proxy)
   if (isLocalHost) {
     try {
       const res = await fetch(`${API_BASE}/revise`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: reqHeaders,
         body: JSON.stringify({
           current_config: currentConfig,
           instruction,
@@ -415,11 +522,11 @@ export async function reviseCabinet(
     }
   }
 
-  // 2. Vercel /api/revise (eğer varsa)
+  // 2. Vercel /api/revise
   try {
     const res = await fetch("/api/revise", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: reqHeaders,
       body: JSON.stringify({
         current_config: currentConfig,
         instruction,
@@ -438,45 +545,68 @@ export async function reviseCabinet(
 
   // 3. Tarayıcıda doğrudan Gemini API (Kullanıcının anahtarı varsa)
   if (apiKey) {
-    try {
-      const prompt = `MEVCUT DOLAP:\n${JSON.stringify(currentConfig, null, 2)}\n\nKULLANICI REVİZYON TALEBİ:\n${instruction}`;
-      const systemPrompt =
-        "Sen mobilya CAD/CAM revizyon motorusun. Mevcut dolap JSON şemasını al, kullanıcının talimatını uygulayarak güncellenmiş tek bir JSON döndür. " +
-        "Kullanıcının değiştirmediği tüm alanları kesinlikle KORU. Asla silme veya varsayılana sıfırlama. " +
-        "Ölçüleri mm cinsinden yaz. 120 cm -> 1200 mm. Renkleri hex koduna çevir (#374151 vb.).";
+    const historyText = history
+      .slice(-4)
+      .map((m) => `- ${m.role}: ${m.content}`)
+      .join("\n");
+    const prompt =
+      `MEVCUT DOLAP PARAMETRELERİ (JSON):\n${JSON.stringify(currentConfig, null, 2)}\n\n` +
+      (historyText ? `Önceki Sohbet Geçmişi:\n${historyText}\n\n` : "") +
+      `KULLANICI REVİZYON TALEBİ:\n"${instruction}"\n\n` +
+      "Lütfen yalnızca kullanıcının talep ettiği değişiklikleri uygulayarak şemaya uygun güncellenmiş JSON parametrelerini üret.";
+    const systemPrompt =
+      "Sen mobilya CAD/CAM revizyon motorusun. Mevcut dolap JSON şemasını al, kullanıcının talimatını uygulayarak güncellenmiş tek bir JSON döndür. " +
+      "Kullanıcının değiştirmediği tüm alanları (bölmeler, kertmeler, bağlantı tipi, eğim vb.) kesinlikle KORU. Asla silme veya varsayılana sıfırlama. " +
+      "Ölçüleri mm cinsinden yaz (120 cm -> 1200 mm). Renkleri hex koduna çevir (#374151 vb.).";
 
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            generationConfig: {
-              responseMimeType: "application/json",
-              temperature: 0.1,
-            },
-          }),
+    for (const model of ["gemini-2.5-flash", "gemini-2.0-flash"]) {
+      try {
+        const generationConfig: Record<string, unknown> = {
+          response_mime_type: "application/json",
+          response_schema: RESPONSE_SCHEMA,
+          temperature: 0,
+        };
+        if (model.startsWith("gemini-2.5")) {
+          generationConfig.thinkingConfig = { thinkingBudget: 0 };
         }
-      );
 
-      if (res.ok) {
-        const json = await res.json();
-        const rawText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (rawText) {
-          const parsed = JSON.parse(rawText) as CabinetConfig;
-          const merged: CabinetConfig = { ...currentConfig, ...parsed };
-          const diffs = computeCabinetDiff(currentConfig, merged);
-          return {
-            updated_config: merged,
-            assistant_message: `Dolap başarıyla revize edildi:\n${diffs.map((d) => `- ${d}`).join("\n")}`,
-            diff_summary: diffs,
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: systemPrompt }] },
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig,
+            }),
+          }
+        );
+
+        if (res.ok) {
+          const json = (await res.json()) as {
+            candidates?: { content?: { parts?: { text?: string }[] } }[];
           };
+          const rawText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawText) {
+            const normalized = normalizeGeminiConfig(JSON.parse(rawText) as GeminiRawConfig);
+            if (currentConfig.additional_modules?.length) {
+              normalized.additional_modules = [...currentConfig.additional_modules];
+            }
+            const diffs = computeCabinetDiff(currentConfig, normalized);
+            return {
+              updated_config: normalized,
+              assistant_message:
+                diffs.length > 0
+                  ? `Dolap başarıyla revize edildi:\n${diffs.map((d) => `- ${d}`).join("\n")}`
+                  : "İstediğiniz düzenlemeler uygulandı.",
+              diff_summary: diffs,
+            };
+          }
         }
+      } catch {
+        // Sonraki modeli dene
       }
-    } catch {
-      // Gemini doğrudan çağrısı başarısızsa kural tabanlı motora düş
     }
   }
 
