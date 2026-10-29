@@ -93,10 +93,11 @@ const SAMPLE_WARDROBE_SKETCH_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://w
 
 const POPULAR_PRESET_IDS = [
   "bedroom_wardrobe_2drawer_90",
+  "kitchen_coffee_station_tall_90",
+  "special_slope_stairs_left_90",
+  "special_corner_kitchen_base_100",
+  "bedroom_wardrobe_2zone_equal_160",
   "kitchen_fridge_enclosure",
-  "kitchen_full_line",
-  "bedroom_dresser_4drawer_90",
-  "bathroom_vanity_2drawer_80",
   "living_tv_console_180",
 ];
 
@@ -490,7 +491,7 @@ export function App() {
               className="inline-flex items-center gap-1 rounded-lg border border-indigo-500/40 bg-indigo-600/20 px-2.5 py-1 text-[11px] font-bold text-indigo-300 hover:bg-indigo-600 hover:text-white transition shadow-sm"
             >
               <LayoutGrid className="h-3 w-3" />
-              Tüm Şablonlar (29) →
+              Tüm Şablonlar ({ROOM_LINE_PRESETS.length}) →
             </button>
             <button
               type="button"

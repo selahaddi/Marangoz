@@ -112,7 +112,8 @@ export type CatalogCategoryId =
   | "bathroom"
   | "living"
   | "hallway"
-  | "office";
+  | "office"
+  | "special";
 
 export interface CatalogCategoryMeta {
   id: CatalogCategoryId;

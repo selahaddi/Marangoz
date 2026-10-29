@@ -175,7 +175,7 @@ export function TemplateCatalogDrawer({
                 Şablon Kütüphanesi &amp; Özel Tasarım Yöneticisi
               </h2>
               <p className="text-xs text-slate-400">
-                29 Fabrika Şablonu · {userPresets.length} Özel Tasarım · JSON Dışa/İçe Aktar
+                {ROOM_LINE_PRESETS.length} Fabrika Şablonu · {userPresets.length} Özel Tasarım · JSON Dışa/İçe Aktar
               </p>
             </div>
           </div>
@@ -202,7 +202,7 @@ export function TemplateCatalogDrawer({
               }`}
             >
               <LayoutGrid className="h-4 w-4" />
-              <span>Standart Fabrika Şablonları (29)</span>
+              <span>Standart Fabrika Şablonları ({ROOM_LINE_PRESETS.length})</span>
             </button>
 
             <button
