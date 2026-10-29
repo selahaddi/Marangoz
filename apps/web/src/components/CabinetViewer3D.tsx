@@ -67,7 +67,6 @@ function createNotchedSidePanelGeometry(
     const bbYCut = y_bot + baseboardH;
     const bbZCut = z_back + baseboardD;
     shape.lineTo(-z_back, bbYCut);
-    shape.lineTo(-z_back, bbYCut);
     shape.lineTo(-bbZCut, bbYCut);
     shape.lineTo(-bbZCut, y_bot);
   } else {
@@ -82,6 +81,206 @@ function createNotchedSidePanelGeometry(
   geom.translate(-sx / 2.0, 0, 0);
   geom.computeVertexNormals();
   return geom;
+}
+
+interface DrillsXRayProps {
+  part: PanelPart;
+  sx: number;
+  sy: number;
+  sz: number;
+}
+
+/**
+ * Röntgen (X-Ray) modunda Sistem 32 delikleri, Lamello Cabineo cepleri,
+ * çekmece ray montaj delikleri, menteşe tas delikleri ve arkalık kanallarını
+ * gerçekçi CAD/CAM pozisyonlarında 3D olarak görselleştirir.
+ */
+function PanelDrillsAndGroovesXRay({ part, sx, sy, sz }: DrillsXRayProps) {
+  if (
+    (!part.drills || part.drills.length === 0) &&
+    (!part.grooves || part.grooves.length === 0)
+  ) {
+    return null;
+  }
+
+  // Panel tipini ve kalınlık eksenini otomatik tespit et
+  const isDoor = Boolean(part.transform_3d?.is_door) || part.code.includes("KAPAK");
+  const isSide =
+    part.code.includes("YAN_") ||
+    part.code.includes("DIKME") ||
+    (sx <= sy && sx <= sz && !isDoor);
+  const isHoriz =
+    !isSide &&
+    (part.code.includes("TABLA_") ||
+      part.code.includes("RAF") ||
+      (sy <= sx && sy <= sz && !isDoor));
+
+  return (
+    <group renderOrder={10}>
+      {part.drills.map((drill, dIdx) => {
+        const rad = Math.max(0.003, (drill.diameter_mm || 5) / 2000.0);
+        const dep = Math.max(0.008, (drill.depth_mm || 12) / 1000.0);
+
+        const isCabineo =
+          drill.layer.includes("CABINEO") ||
+          drill.description?.toLowerCase().includes("cabineo");
+        const isSystem32 =
+          drill.layer.includes("SYSTEM32") ||
+          drill.layer.includes("SHELF_PIN") ||
+          drill.description?.toLowerCase().includes("raf");
+        const isSlide =
+          drill.layer.includes("SLIDE") ||
+          drill.description?.toLowerCase().includes("ray");
+        const isHinge =
+          drill.layer.includes("HINGE") ||
+          drill.description?.toLowerCase().includes("menteşe");
+        const isMinifix =
+          drill.layer.includes("MINIFIX") ||
+          drill.description?.toLowerCase().includes("minifiks");
+
+        const drillColor = isCabineo
+          ? "#F59E0B"
+          : isHinge
+          ? "#A855F7"
+          : isSystem32
+          ? "#06B6D4"
+          : isSlide
+          ? "#10B981"
+          : isMinifix
+          ? "#EC4899"
+          : "#38BDF8";
+
+        let posX = 0;
+        let posY = 0;
+        let posZ = 0;
+        let rot: [number, number, number] = [0, 0, 0];
+
+        if (isSide) {
+          // Yan dikme: kalınlık X'te, yükseklik Y'de, derinlik Z'de
+          // drill.x_mm: alt kenardan yukarıya yükseklik
+          // drill.y_mm: arkadan öne doğru derinlik
+          posY = -sy / 2.0 + drill.x_mm / 1000.0;
+          posZ = -sz / 2.0 + drill.y_mm / 1000.0;
+
+          const isRight = part.code.includes("SAG");
+          const isLeft = part.code.includes("SOL");
+          posX = isRight
+            ? -sx / 2.0 + dep / 2.0
+            : isLeft
+            ? sx / 2.0 - dep / 2.0
+            : 0;
+
+          rot = [0, 0, Math.PI / 2.0];
+        } else if (isHoriz) {
+          // Alt/Üst tabla ve raflar: kalınlık Y'de, genişlik X'te, derinlik Z'de
+          // drill.x_mm: sol kenardan sağa genişlik
+          // drill.y_mm: arkadan öne doğru derinlik
+          posX = -sx / 2.0 + drill.x_mm / 1000.0;
+          posZ = -sz / 2.0 + drill.y_mm / 1000.0;
+
+          const isTop = part.code.includes("UST");
+          posY = isTop ? -sy / 2.0 + dep / 2.0 : sy / 2.0 - dep / 2.0;
+
+          rot = [0, 0, 0];
+        } else {
+          // Kapaklar ve dik ön/arka paneller: kalınlık Z'de, genişlik X'te, yükseklik Y'de
+          // drill.x_mm: alt kenardan yukarıya yükseklik
+          // drill.y_mm: sol kenardan sağa genişlik
+          posY = -sy / 2.0 + drill.x_mm / 1000.0;
+          posX = -sx / 2.0 + drill.y_mm / 1000.0;
+          posZ = -sz / 2.0 + dep / 2.0;
+
+          rot = [Math.PI / 2.0, 0, 0];
+        }
+
+        return (
+          <mesh
+            key={`${part.part_id}-drill-${dIdx}`}
+            position={[posX, posY, posZ]}
+            rotation={rot}
+          >
+            <cylinderGeometry args={[rad, rad, dep, 16]} />
+            <meshStandardMaterial
+              color={drillColor}
+              emissive={drillColor}
+              emissiveIntensity={0.8}
+              roughness={0.2}
+              metalness={0.8}
+              toneMapped={false}
+            />
+          </mesh>
+        );
+      })}
+
+      {part.grooves.map((groove, gIdx) => {
+        let posX = 0;
+        let posY = 0;
+        let posZ = 0;
+        let boxArgs: [number, number, number] = [0.008, 0.008, 0.008];
+
+        if (isSide) {
+          // Yan dikmedeki arkalık kanalı
+          const gDepthX = Math.max(0.005, groove.depth_mm / 1000.0);
+          const gSpanY = Math.max(0.01, groove.width_mm / 1000.0);
+          const gWidthZ = Math.max(0.004, groove.length_mm / 1000.0);
+
+          posY = -sy / 2.0 + (groove.x_start_mm + groove.width_mm / 2.0) / 1000.0;
+          posZ = -sz / 2.0 + (groove.y_start_mm + groove.length_mm / 2.0) / 1000.0;
+
+          const isRight = part.code.includes("SAG");
+          const isLeft = part.code.includes("SOL");
+          posX = isRight
+            ? -sx / 2.0 + gDepthX / 2.0
+            : isLeft
+            ? sx / 2.0 - gDepthX / 2.0
+            : 0;
+
+          boxArgs = [gDepthX, gSpanY, gWidthZ];
+        } else if (isHoriz) {
+          // Alt/Üst tabladaki arkalık kanalı
+          const gSpanX = Math.max(0.01, groove.width_mm / 1000.0);
+          const gDepthY = Math.max(0.005, groove.depth_mm / 1000.0);
+          const gWidthZ = Math.max(0.004, groove.length_mm / 1000.0);
+
+          posX = -sx / 2.0 + (groove.x_start_mm + groove.width_mm / 2.0) / 1000.0;
+          posZ = -sz / 2.0 + (groove.y_start_mm + groove.length_mm / 2.0) / 1000.0;
+
+          const isTop = part.code.includes("UST");
+          posY = isTop ? -sy / 2.0 + gDepthY / 2.0 : sy / 2.0 - gDepthY / 2.0;
+
+          boxArgs = [gSpanX, gDepthY, gWidthZ];
+        } else {
+          // Ön/arka paneller
+          const gSpanX = Math.max(0.01, groove.width_mm / 1000.0);
+          const gSpanY = Math.max(0.01, groove.length_mm / 1000.0);
+          const gDepthZ = Math.max(0.005, groove.depth_mm / 1000.0);
+
+          posX = -sx / 2.0 + (groove.x_start_mm + groove.width_mm / 2.0) / 1000.0;
+          posY = -sy / 2.0 + (groove.y_start_mm + groove.length_mm / 2.0) / 1000.0;
+          posZ = -sz / 2.0 + gDepthZ / 2.0;
+
+          boxArgs = [gSpanX, gSpanY, gDepthZ];
+        }
+
+        return (
+          <mesh
+            key={`${part.part_id}-groove-${gIdx}`}
+            position={[posX, posY, posZ]}
+          >
+            <boxGeometry args={boxArgs} />
+            <meshStandardMaterial
+              color="#F97316"
+              emissive="#F97316"
+              emissiveIntensity={0.8}
+              roughness={0.2}
+              metalness={0.5}
+              toneMapped={false}
+            />
+          </mesh>
+        );
+      })}
+    </group>
+  );
 }
 
 function PanelMesh3D({
@@ -116,8 +315,8 @@ function PanelMesh3D({
     t3d.is_door || t3d.is_drawer
       ? explodeFactor * 0.28
       : part.code === "ARKALIK"
-      ? -explodeFactor * 0.25
-      : baseCz * explodeFactor * 0.3;
+        ? -explodeFactor * 0.25
+        : baseCz * explodeFactor * 0.3;
 
   // Çekmece parçası ise tıklandığında veya global açıldığında +280 mm öne doğru teleskopik ray hareketi
   const drawerSlideZ = t3d.is_drawer && isOpen ? 0.28 : 0.0;
@@ -129,8 +328,8 @@ function PanelMesh3D({
   const displayColor = isSelected
     ? "#38BDF8"
     : hovered
-    ? "#7DD3FC"
-    : t3d.color_hex;
+      ? "#7DD3FC"
+      : t3d.color_hex;
 
   // Yan dikmelerde süpürgelik veya kolon kertmesi varsa gerçekçi CSG kesik geometri üret
   const isNotchedSide =
@@ -162,8 +361,62 @@ function PanelMesh3D({
 
       return (
         <group position={[cx, pivotY, cz]} rotation={[openAngleX, 0, 0]}>
+          <group position={[0, offsetY, 0]}>
+            <mesh
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleOpen();
+                onSelect();
+              }}
+              onPointerOver={(e) => {
+                e.stopPropagation();
+                setHovered(true);
+              }}
+              onPointerOut={() => setHovered(false)}
+              castShadow
+              receiveShadow
+            >
+              <boxGeometry args={[sx, sy, sz]} />
+              <meshStandardMaterial
+                color={displayColor}
+                roughness={xrayMode ? 0.1 : 0.45}
+                metalness={0.08}
+                wireframe={wireframe}
+                transparent={xrayMode}
+                opacity={xrayMode ? 0.35 : 1.0}
+                depthWrite={!xrayMode}
+              />
+              <Edges threshold={15} color={isSelected ? "#0284C7" : xrayMode ? "#38BDF8" : "#334155"} />
+              {isSelected && (
+                <Html position={[0, sy / 2 + 0.06, 0]} center distanceFactor={3.5}>
+                  <div className="pointer-events-none whitespace-nowrap rounded-md border border-sky-400/50 bg-slate-900/95 px-2.5 py-1 text-xs font-medium text-sky-200 shadow-lg">
+                    {part.part_id} {part.name} ({part.cut_length_mm}×{part.cut_width_mm} mm)
+                  </div>
+                </Html>
+              )}
+            </mesh>
+            {xrayMode && (
+              <PanelDrillsAndGroovesXRay part={part} sx={sx} sy={sy} sz={sz} />
+            )}
+          </group>
+        </group>
+      );
+    }
+
+    const isLeftHinge = t3d.hinge_side === "left";
+    const pivotX = isLeftHinge ? cx - sx / 2.0 : cx + sx / 2.0;
+    const offsetX = isLeftHinge ? sx / 2.0 : -sx / 2.0;
+    const openAngle = isOpen
+      ? isLeftHinge
+        ? -Math.PI * 0.58
+        : Math.PI * 0.58
+      : 0.0;
+
+    return (
+      <group position={[pivotX, cy, cz]} rotation={[0, openAngle, 0]}>
+        <group position={[offsetX, 0, 0]}>
           <mesh
-            position={[0, offsetY, 0]}
+            position={[0, 0, 0]}
             onClick={(e) => {
               e.stopPropagation();
               onToggleOpen();
@@ -180,55 +433,26 @@ function PanelMesh3D({
             <boxGeometry args={[sx, sy, sz]} />
             <meshStandardMaterial
               color={displayColor}
-              roughness={xrayMode ? 0.2 : 0.45}
+              roughness={xrayMode ? 0.1 : 0.45}
               metalness={0.08}
               wireframe={wireframe}
               transparent={xrayMode}
               opacity={xrayMode ? 0.35 : 1.0}
+              depthWrite={!xrayMode}
             />
             <Edges threshold={15} color={isSelected ? "#0284C7" : xrayMode ? "#38BDF8" : "#334155"} />
+            {isSelected && (
+              <Html position={[0, sy / 2 + 0.06, 0]} center distanceFactor={3.5}>
+                <div className="pointer-events-none whitespace-nowrap rounded-md border border-sky-400/50 bg-slate-900/95 px-2.5 py-1 text-xs font-medium text-sky-200 shadow-lg">
+                  {part.part_id} {part.name} ({part.cut_length_mm}×{part.cut_width_mm} mm)
+                </div>
+              </Html>
+            )}
           </mesh>
+          {xrayMode && (
+            <PanelDrillsAndGroovesXRay part={part} sx={sx} sy={sy} sz={sz} />
+          )}
         </group>
-      );
-    }
-
-    const isLeftHinge = t3d.hinge_side === "left";
-    const pivotX = isLeftHinge ? cx - sx / 2.0 : cx + sx / 2.0;
-    const offsetX = isLeftHinge ? sx / 2.0 : -sx / 2.0;
-    const openAngle = isOpen
-      ? isLeftHinge
-        ? -Math.PI * 0.58
-        : Math.PI * 0.58
-      : 0.0;
-
-    return (
-      <group position={[pivotX, cy, cz]} rotation={[0, openAngle, 0]}>
-        <mesh
-          position={[offsetX, 0, 0]}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleOpen();
-            onSelect();
-          }}
-          onPointerOver={(e) => {
-            e.stopPropagation();
-            setHovered(true);
-          }}
-          onPointerOut={() => setHovered(false)}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[sx, sy, sz]} />
-          <meshStandardMaterial
-            color={displayColor}
-            roughness={xrayMode ? 0.2 : 0.45}
-            metalness={0.08}
-            wireframe={wireframe}
-            transparent={xrayMode}
-            opacity={xrayMode ? 0.35 : 1.0}
-          />
-          <Edges threshold={15} color={isSelected ? "#0284C7" : xrayMode ? "#38BDF8" : "#334155"} />
-        </mesh>
       </group>
     );
   }
@@ -255,11 +479,12 @@ function PanelMesh3D({
         {!notchedGeometry && <boxGeometry args={[sx, sy, sz]} />}
         <meshStandardMaterial
           color={displayColor}
-          roughness={xrayMode ? 0.2 : 0.55}
+          roughness={xrayMode ? 0.1 : 0.55}
           metalness={0.05}
           wireframe={wireframe}
           transparent={xrayMode}
           opacity={xrayMode ? 0.35 : 1.0}
+          depthWrite={!xrayMode}
         />
         <Edges threshold={15} color={isSelected ? "#0284C7" : xrayMode ? "#38BDF8" : "#475569"} />
         {isSelected && (
@@ -273,43 +498,7 @@ function PanelMesh3D({
 
       {/* Röntgen Modunda Sistem 32 delikleri, Cabineo cepleri ve kanalların 3D renderı */}
       {xrayMode && (
-        <group>
-          {part.drills.map((drill, dIdx) => {
-            const dyLocal = (drill.y_mm - part.net_length_mm / 2.0) / 1000.0;
-            const dzLocal = -(drill.x_mm - part.net_width_mm / 2.0) / 1000.0;
-            const isCabineo = drill.layer.includes("CABINEO");
-            const isSystem32 = drill.layer.includes("SYSTEM32");
-            const drillColor = isCabineo ? "#F59E0B" : isSystem32 ? "#06B6D4" : "#10B981";
-            const rad = Math.max(0.003, drill.diameter_mm / 2000.0);
-            const dep = Math.max(0.005, drill.depth_mm / 1000.0);
-
-            return (
-              <mesh
-                key={`${part.part_id}-drill-${dIdx}`}
-                position={[0, dyLocal, dzLocal]}
-                rotation={[0, 0, Math.PI / 2.0]}
-              >
-                <cylinderGeometry args={[rad, rad, dep, 10]} />
-                <meshBasicMaterial color={drillColor} />
-              </mesh>
-            );
-          })}
-
-          {part.grooves.map((groove, gIdx) => {
-            const gyLocal = (groove.y_start_mm + groove.length_mm / 2.0 - part.net_length_mm / 2.0) / 1000.0;
-            const gzLocal = -(groove.x_start_mm + groove.width_mm / 2.0 - part.net_width_mm / 2.0) / 1000.0;
-            const gThick = Math.max(0.004, groove.depth_mm / 1000.0);
-            const gLen = Math.max(0.01, groove.length_mm / 1000.0);
-            const gWid = Math.max(0.004, groove.width_mm / 1000.0);
-
-            return (
-              <mesh key={`${part.part_id}-groove-${gIdx}`} position={[0, gyLocal, gzLocal]}>
-                <boxGeometry args={[gThick, gLen, gWid]} />
-                <meshBasicMaterial color="#F97316" />
-              </mesh>
-            );
-          })}
-        </group>
+        <PanelDrillsAndGroovesXRay part={part} sx={sx} sy={sy} sz={sz} />
       )}
     </group>
   );
@@ -410,11 +599,10 @@ export function CabinetViewer3D({
             <button
               type="button"
               onClick={toggleAllDoors}
-              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-                openPartIds.size > 0
-                  ? "border-sky-500 bg-sky-500/20 text-sky-300"
-                  : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
-              }`}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${openPartIds.size > 0
+                ? "border-sky-500 bg-sky-500/20 text-sky-300"
+                : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+                }`}
             >
               <DoorOpen className="h-3.5 w-3.5" />
               {openPartIds.size > 0
@@ -426,11 +614,10 @@ export function CabinetViewer3D({
           <button
             type="button"
             onClick={() => setXrayMode((prev) => !prev)}
-            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-              xrayMode
-                ? "border-amber-500 bg-amber-500/25 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.3)]"
-                : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
-            }`}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${xrayMode
+              ? "border-amber-500 bg-amber-500/25 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.3)]"
+              : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
           >
             <ScanLine className="h-3.5 w-3.5" />
             Röntgen (Delikler & Cepler)
@@ -439,11 +626,10 @@ export function CabinetViewer3D({
           <button
             type="button"
             onClick={() => setExplodeFactor((prev) => (prev > 0 ? 0 : 1))}
-            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-              explodeFactor > 0
-                ? "border-amber-500 bg-amber-500/20 text-amber-300"
-                : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
-            }`}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${explodeFactor > 0
+              ? "border-amber-500 bg-amber-500/20 text-amber-300"
+              : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
           >
             <Expand className="h-3.5 w-3.5" />
             {explodeFactor > 0 ? "Normal Montaj" : "Patlatılmış Görünüm"}
@@ -452,11 +638,10 @@ export function CabinetViewer3D({
           <button
             type="button"
             onClick={() => setWireframe((prev) => !prev)}
-            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-              wireframe
-                ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
-                : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
-            }`}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${wireframe
+              ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
+              : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
           >
             <Eye className="h-3.5 w-3.5" />
             Tel Kafes
@@ -534,6 +719,36 @@ export function CabinetViewer3D({
             enableDamping
           />
         </Canvas>
+
+        {/* Röntgen Modu Renk Rehberi (X-Ray Legend) */}
+        {xrayMode && (
+          <div className="absolute top-3 left-3 z-10 hidden sm:flex flex-col gap-1.5 rounded-lg border border-slate-700/80 bg-slate-900/90 p-2.5 text-[11px] shadow-xl backdrop-blur">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-200">
+              <ScanLine className="h-3.5 w-3.5 text-amber-400" />
+              <span>CNC Röntgen Renk Rehberi</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-300">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-amber-400 shadow-[0_0_6px_#f59e0b]" />
+              <span>Lamello Cabineo Cebi (Ø15) / Vidası (Ø5)</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-300">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-cyan-400 shadow-[0_0_6px_#06b6d4]" />
+              <span>Sistem 32 Raf Pimi Delikleri (Ø5)</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-300">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_6px_#10b981]" />
+              <span>Çekmece Rayı Montaj Delikleri (Ø5)</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-300">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-purple-400 shadow-[0_0_6px_#a855f7]" />
+              <span>Tas Menteşe Yuvası (Ø35)</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-300">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-orange-400 shadow-[0_0_6px_#f97316]" />
+              <span>Arkalık Montaj Kanalı (8×8.5 mm)</span>
+            </div>
+          </div>
+        )}
 
         {/* Seçili Parça Bilgi Kartı */}
         {selectedPart && (
