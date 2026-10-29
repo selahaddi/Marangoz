@@ -95,6 +95,18 @@ export function computeCabinetDiff(
     diffs.push(`Dikey Bölmeler: ${oldZonesLen} Bölme ➔ ${newZonesLen} Bölme`);
   }
 
+  if (Boolean(oldCfg.has_slope) !== Boolean(newCfg.has_slope)) {
+    if (newCfg.has_slope) {
+      const side = newCfg.slope_side === "left" ? "Sol" : "Sağ";
+      diffs.push(`Çatı Eğimi: Aktif (${side} Alçak ${(newCfg.slope_start_height_mm ?? 1200).toFixed(0)} mm)`);
+    } else {
+      diffs.push("Çatı Eğimi: İptal (Düz Tavan)");
+    }
+  }
+  if (Boolean(oldCfg.is_corner_module) !== Boolean(newCfg.is_corner_module)) {
+    diffs.push(`L-Köşe Modülü: ${newCfg.is_corner_module ? "Aktif (90° Kör Panelli)" : "İptal"}`);
+  }
+
   return diffs;
 }
 
@@ -302,6 +314,61 @@ export function mutateCabinetDeterministic(
     updated.left_filler_width_mm = 40.0;
     updated.right_filler_width_mm = 40.0;
     reasons.push("Sağ ve sol rölöve kör çıtaları (40 mm) eklendi");
+  }
+
+  // 11. Çatı Eğimi (Mansard Çatı / Merdiven Altı)
+  if (
+    text.includes("çatı") ||
+    text.includes("cati") ||
+    text.includes("merdiven") ||
+    text.includes("eğim") ||
+    text.includes("egim") ||
+    text.includes("mansard")
+  ) {
+    if (text.includes("eğimi kaldır") || text.includes("düz yap") || text.includes("düz tavan")) {
+      updated.has_slope = false;
+      reasons.push("Çatı eğimi kaldırıldı (düz tavan)");
+    } else {
+      updated.has_slope = true;
+      if (text.includes("sağ") || text.includes("sag")) {
+        updated.slope_side = "right";
+      } else {
+        updated.slope_side = "left";
+      }
+      const mSlH =
+        text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?(?:'den|den|'dan|dan)?\s*(?:başlayan|alçalan|yükselen|başlayıp)/) ||
+        text.match(/alçak\s*(?:tarafı?|dikme|kenar)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
+      if (mSlH) {
+        updated.slope_start_height_mm = parseUnit(mSlH[1], mSlH[2]);
+      } else {
+        updated.slope_start_height_mm = Math.max(400, updated.height_mm - 600);
+      }
+      const deltaH = Math.abs(updated.height_mm - updated.slope_start_height_mm);
+      updated.slope_angle_deg =
+        Math.round(Math.atan2(deltaH, Math.max(1, updated.width_mm)) * (180 / Math.PI) * 10) / 10;
+      reasons.push(
+        `Çatı / merdiven eğimi (${updated.slope_side === "left" ? "Sol" : "Sağ"} başlangıç: ${updated.slope_start_height_mm.toFixed(0)} mm) uygulandı`
+      );
+    }
+  }
+
+  // 12. L-Köşe Modülü
+  if (
+    text.includes("l-köşe") ||
+    text.includes("l köşe") ||
+    text.includes("l-kose") ||
+    text.includes("köşe modül") ||
+    text.includes("köşe dolap")
+  ) {
+    if (text.includes("köşe iptal") || text.includes("düz yap")) {
+      updated.is_corner_module = false;
+      reasons.push("Köşe dönüşü iptal edildi");
+    } else {
+      updated.is_corner_module = true;
+      updated.corner_blind_width_mm = 100.0;
+      updated.corner_angle_deg = 90.0;
+      reasons.push("L-Köşe 90° dönüş ve kör kapama paneli uygulandı");
+    }
   }
 
   const diffs = computeCabinetDiff(currentConfig, updated);

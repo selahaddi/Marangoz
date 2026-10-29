@@ -1089,6 +1089,129 @@ export function ParametricSidebar({
                   />
                   Arka Kolon Kertmesi (120×120 mm)
                 </label>
+
+                {/* Faz 4: Çatı Eğimi & Merdiven Altı */}
+                <div className="pt-2 border-t border-slate-800/60 space-y-2">
+                  <label className="flex items-center gap-2 text-slate-300 font-semibold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={activeModule.has_slope ?? false}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        const startH =
+                          activeModule.slope_start_height_mm ||
+                          Math.max(400, activeModule.height_mm - 600);
+                        const delta = Math.abs(activeModule.height_mm - startH);
+                        const angle =
+                          Math.round(
+                            Math.atan2(delta, activeModule.width_mm) *
+                              (180 / Math.PI) *
+                              10
+                          ) / 10;
+                        onUpdateActiveModule({
+                          has_slope: checked,
+                          slope_side: activeModule.slope_side || "left",
+                          slope_start_height_mm: startH,
+                          slope_angle_deg: angle,
+                        });
+                      }}
+                      className="rounded border-slate-700 bg-slate-950 text-indigo-500"
+                    />
+                    <span>Çatı Eğimi &amp; Merdiven Altı (Mansard)</span>
+                  </label>
+
+                  {activeModule.has_slope && (
+                    <div className="space-y-2 text-[11px] bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-slate-400 mb-0.5">Eğimli Taraf</label>
+                          <select
+                            value={activeModule.slope_side || "left"}
+                            onChange={(e) =>
+                              onUpdateActiveModule({
+                                slope_side: e.target.value as "left" | "right",
+                              })
+                            }
+                            className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200"
+                          >
+                            <option value="left">Sol Alçak</option>
+                            <option value="right">Sağ Alçak</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-slate-400 mb-0.5">Alçak Boy (mm)</label>
+                          <input
+                            type="number"
+                            min={300}
+                            max={activeModule.height_mm - 100}
+                            step={10}
+                            value={activeModule.slope_start_height_mm || 1200}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 1200;
+                              const delta = Math.abs(activeModule.height_mm - val);
+                              const angle =
+                                Math.round(
+                                  Math.atan2(delta, activeModule.width_mm) *
+                                    (180 / Math.PI) *
+                                    10
+                                ) / 10;
+                              onUpdateActiveModule({
+                                slope_start_height_mm: val,
+                                slope_angle_deg: angle,
+                              });
+                            }}
+                            className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-indigo-300 font-mono text-[10px]">
+                        <span>Açı: ~{activeModule.slope_angle_deg || 35}°</span>
+                        <span>Fark: {Math.abs(activeModule.height_mm - (activeModule.slope_start_height_mm || 1200))} mm</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Faz 4: L-Köşe Modülü */}
+                <div className="pt-2 border-t border-slate-800/60 space-y-2">
+                  <label className="flex items-center gap-2 text-slate-300 font-semibold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={activeModule.is_corner_module ?? false}
+                      onChange={(e) =>
+                        onUpdateActiveModule({
+                          is_corner_module: e.target.checked,
+                          corner_angle_deg: 90.0,
+                          corner_blind_width_mm:
+                            activeModule.corner_blind_width_mm || 100.0,
+                        })
+                      }
+                      className="rounded border-slate-700 bg-slate-950 text-indigo-500"
+                    />
+                    <span>L-Köşe Modülü (90° Kör Panelli)</span>
+                  </label>
+
+                  {activeModule.is_corner_module && (
+                    <div className="space-y-1.5 text-[11px] bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+                      <div>
+                        <label className="block text-slate-400 mb-0.5">Kör Kapama Paneli (mm)</label>
+                        <input
+                          type="number"
+                          min={40}
+                          max={300}
+                          step={10}
+                          value={activeModule.corner_blind_width_mm || 100}
+                          onChange={(e) =>
+                            onUpdateActiveModule({
+                              corner_blind_width_mm: parseFloat(e.target.value) || 100,
+                            })
+                          }
+                          className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

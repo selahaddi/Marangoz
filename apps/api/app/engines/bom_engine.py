@@ -6,6 +6,8 @@ docs/05_MULTI_MODULE_ROOMS_DRAWERS_AND_CNC_POST.md içerisindeki tüm kuralları
 %100 deterministik Python matematiği ile işletir.
 """
 
+import math
+
 from app.core.config import ManufacturingConstants as MC
 from app.schemas.cabinet import (
     BackPanelType,
@@ -1161,18 +1163,27 @@ class BOMEngine:
                     round(base_offset_y + t + lower_clear_h + t + mid_niche_h + t_half, 2)
                 )
 
-        # 1. Sol ve Sağ Yan Dikmeler
+        # 1. Sol ve Sağ Yan Dikmeler (Çatı Eğimi Desteği)
+        has_slope = getattr(config, "has_slope", False)
+        slope_side = getattr(config, "slope_side", "left")
+        slope_start_h = float(getattr(config, "slope_start_height_mm", 1200.0) or 1200.0)
+
+        left_h = slope_start_h if (has_slope and slope_side == "left") else h
+        right_h = slope_start_h if (has_slope and slope_side == "right") else h
+
         side_edge = EdgeBandSpec(
             length_1_mm=config.front_pvc_thickness_mm,
             length_2_mm=config.hidden_pvc_thickness_mm,
             width_1_mm=config.hidden_pvc_thickness_mm,
             width_2_mm=config.hidden_pvc_thickness_mm,
         )
-        side_cut_l, side_cut_w, side_ded_l, side_ded_w = cls.compute_cut_dimensions(
-            h, d, side_edge
+
+        # Sol Dikme
+        sol_cut_l, sol_cut_w, sol_ded_l, sol_ded_w = cls.compute_cut_dimensions(
+            left_h, d, side_edge
         )
-        side_drills = cls._build_side_panel_drills(
-            h,
+        sol_drills = cls._build_side_panel_drills(
+            left_h,
             d,
             base_offset_y,
             config.shelf_count,
@@ -1181,6 +1192,22 @@ class BOMEngine:
             fastener_type=config.fastener_type,
             niche_shelf_x_coords=niche_shelf_x_coords,
         )
+
+        # Sağ Dikme
+        sag_cut_l, sag_cut_w, sag_ded_l, sag_ded_w = cls.compute_cut_dimensions(
+            right_h, d, side_edge
+        )
+        sag_drills = cls._build_side_panel_drills(
+            right_h,
+            d,
+            base_offset_y,
+            config.shelf_count,
+            drawer_count,
+            drawer_front_h,
+            fastener_type=config.fastener_type,
+            niche_shelf_x_coords=niche_shelf_x_coords,
+        )
+
         side_notch_str = (
             f"Süpürgelik Kertmesi: {config.baseboard_notch_depth_mm:.0f}×{config.baseboard_notch_height_mm:.0f}mm"
             if config.has_baseboard_notch
@@ -1206,31 +1233,36 @@ class BOMEngine:
                 )
             )
 
+        sol_name = (
+            f"{label_prefix}Sol Yan Eğimli Dikme (Alçak Taraf)"
+            if (has_slope and slope_side == "left")
+            else f"{label_prefix}Sol Yan Dikme"
+        )
         parts.append(
             PanelPart(
                 part_id=f"P{part_counter:02d}",
                 code=f"{prefix}YAN_SOL",
-                name=f"{label_prefix}Sol Yan Dikme",
+                name=sol_name,
                 material=config.body_material,
                 thickness_mm=t,
                 quantity=1,
-                net_length_mm=h,
+                net_length_mm=left_h,
                 net_width_mm=d,
-                cut_length_mm=side_cut_l,
-                cut_width_mm=side_cut_w,
-                pvc_deduction_length_mm=side_ded_l,
-                pvc_deduction_width_mm=side_ded_w,
+                cut_length_mm=sol_cut_l,
+                cut_width_mm=sol_cut_w,
+                pvc_deduction_length_mm=sol_ded_l,
+                pvc_deduction_width_mm=sol_ded_w,
                 edge_band=side_edge,
-                area_m2=round((h * d) / 1_000_000.0, 4),
-                drills=side_drills,
+                area_m2=round((left_h * d) / 1_000_000.0, 4),
+                drills=sol_drills,
                 grooves=side_grooves,
                 notch_info=side_notch_str,
                 transform_3d=Box3DTransform(
                     center_x_mm=round(x_offset_mm - w / 2.0 + t / 2.0, 2),
-                    center_y_mm=round(h / 2.0, 2),
+                    center_y_mm=round(left_h / 2.0, 2),
                     center_z_mm=0.0,
                     size_x_mm=t,
-                    size_y_mm=h,
+                    size_y_mm=left_h,
                     size_z_mm=d,
                     color_hex=config.body_color_hex,
                     module_index=module_idx,
@@ -1239,31 +1271,36 @@ class BOMEngine:
         )
         part_counter += 1
 
+        sag_name = (
+            f"{label_prefix}Sağ Yan Eğimli Dikme (Alçak Taraf)"
+            if (has_slope and slope_side == "right")
+            else f"{label_prefix}Sağ Yan Dikme"
+        )
         parts.append(
             PanelPart(
                 part_id=f"P{part_counter:02d}",
                 code=f"{prefix}YAN_SAG",
-                name=f"{label_prefix}Sağ Yan Dikme",
+                name=sag_name,
                 material=config.body_material,
                 thickness_mm=t,
                 quantity=1,
-                net_length_mm=h,
+                net_length_mm=right_h,
                 net_width_mm=d,
-                cut_length_mm=side_cut_l,
-                cut_width_mm=side_cut_w,
-                pvc_deduction_length_mm=side_ded_l,
-                pvc_deduction_width_mm=side_ded_w,
+                cut_length_mm=sag_cut_l,
+                cut_width_mm=sag_cut_w,
+                pvc_deduction_length_mm=sag_ded_l,
+                pvc_deduction_width_mm=sag_ded_w,
                 edge_band=side_edge,
-                area_m2=round((h * d) / 1_000_000.0, 4),
-                drills=side_drills,
+                area_m2=round((right_h * d) / 1_000_000.0, 4),
+                drills=sag_drills,
                 grooves=side_grooves,
                 notch_info=side_notch_str,
                 transform_3d=Box3DTransform(
                     center_x_mm=round(x_offset_mm + w / 2.0 - t / 2.0, 2),
-                    center_y_mm=round(h / 2.0, 2),
+                    center_y_mm=round(right_h / 2.0, 2),
                     center_z_mm=0.0,
                     size_x_mm=t,
-                    size_y_mm=h,
+                    size_y_mm=right_h,
                     size_z_mm=d,
                     color_hex=config.body_color_hex,
                     module_index=module_idx,
@@ -1272,23 +1309,42 @@ class BOMEngine:
         )
         part_counter += 1
 
-        # 2. Üst ve Alt Tabla
+        # 2. Üst ve Alt Tabla (Çatı Eğimi Geometrisi)
         horiz_edge = EdgeBandSpec(
             length_1_mm=config.front_pvc_thickness_mm,
             length_2_mm=config.hidden_pvc_thickness_mm,
             width_1_mm=0.0,
             width_2_mm=0.0,
         )
-        horiz_cut_l, horiz_cut_w, horiz_ded_l, horiz_ded_w = cls.compute_cut_dimensions(
-            inner_w, d, horiz_edge
-        )
-        horiz_drills = cls._build_horizontal_panel_drills(
-            inner_w, d, fastener_type=config.fastener_type
-        )
+
         col_notch_str = (
             f"Kolon Kertmesi: {config.column_notch_width_mm:.0f}×{config.column_notch_depth_mm:.0f}mm"
             if config.has_column_notch
             else ""
+        )
+
+        if has_slope:
+            delta_h = abs(h - slope_start_h)
+            top_len = round(math.sqrt(inner_w**2 + delta_h**2), 2)
+            slope_deg = round(math.degrees(math.atan2(delta_h, max(1.0, inner_w))), 1)
+            rot_z = slope_deg if slope_side == "left" else -slope_deg
+            top_center_y = round((slope_start_h + h) / 2.0, 2)
+            top_name = f"{label_prefix}Açılı Eğimli Üst Tabla"
+            top_notch = f"Çatı Eğimi: {slope_deg:.1f}° ({rot_z:+.1f}°)"
+            is_top_sloped = True
+        else:
+            top_len = inner_w
+            rot_z = 0.0
+            top_center_y = round(h - t / 2.0, 2)
+            top_name = f"{label_prefix}Üst Tabla"
+            top_notch = col_notch_str
+            is_top_sloped = False
+
+        horiz_cut_l, horiz_cut_w, horiz_ded_l, horiz_ded_w = cls.compute_cut_dimensions(
+            top_len, d, horiz_edge
+        )
+        horiz_drills = cls._build_horizontal_panel_drills(
+            top_len, d, fastener_type=config.fastener_type
         )
 
         horiz_grooves: list[GroovePath] = []
@@ -1297,7 +1353,7 @@ class BOMEngine:
                 GroovePath(
                     x_start_mm=0.0,
                     y_start_mm=MC.BACK_GROOVE_OFFSET_FROM_REAR_MM,
-                    width_mm=inner_w,
+                    width_mm=top_len,
                     length_mm=MC.BACK_GROOVE_WIDTH_MM,
                     depth_mm=MC.BACK_GROOVE_DEPTH_MM,
                     layer=MC.LAYER_GROOVE_BACK,
@@ -1308,30 +1364,32 @@ class BOMEngine:
             PanelPart(
                 part_id=f"P{part_counter:02d}",
                 code=f"{prefix}TABLA_UST",
-                name=f"{label_prefix}Üst Tabla",
+                name=top_name,
                 material=config.body_material,
                 thickness_mm=t,
                 quantity=1,
-                net_length_mm=inner_w,
+                net_length_mm=top_len,
                 net_width_mm=d,
                 cut_length_mm=horiz_cut_l,
                 cut_width_mm=horiz_cut_w,
                 pvc_deduction_length_mm=horiz_ded_l,
                 pvc_deduction_width_mm=horiz_ded_w,
                 edge_band=horiz_edge,
-                area_m2=round((inner_w * d) / 1_000_000.0, 4),
+                area_m2=round((top_len * d) / 1_000_000.0, 4),
                 drills=horiz_drills,
                 grooves=horiz_grooves,
-                notch_info=col_notch_str,
+                notch_info=top_notch,
                 transform_3d=Box3DTransform(
                     center_x_mm=x_offset_mm,
-                    center_y_mm=round(h - t / 2.0, 2),
+                    center_y_mm=top_center_y,
                     center_z_mm=0.0,
                     size_x_mm=inner_w,
                     size_y_mm=t,
                     size_z_mm=d,
                     color_hex=config.body_color_hex,
                     module_index=module_idx,
+                    rotation_z_deg=rot_z,
+                    is_sloped=is_top_sloped,
                 ),
             )
         )
@@ -1627,14 +1685,26 @@ class BOMEngine:
                 )
                 part_counter += 1
         else:
+            trap_h_start = slope_start_h if (has_slope and slope_side == "left") else h
+            trap_h_end = h if (has_slope and slope_side == "left") else slope_start_h
+            arkalik_notch = (
+                f"[ACILI-CATI-EGIMI] {slope_side.upper()} {trap_h_start:.0f}➔{trap_h_end:.0f}mm"
+                if has_slope
+                else ""
+            )
+
             parts.append(
                 PanelPart(
                     part_id=f"P{part_counter:02d}",
                     code=f"{prefix}ARKALIK",
                     name=(
-                        f"{label_prefix}Üst Dolap Arkalık Paneli"
-                        if niche_h > 0.0
-                        else f"{label_prefix}Arkalık Paneli"
+                        f"{label_prefix}Eğimli Çatı Arkalık Paneli"
+                        if has_slope
+                        else (
+                            f"{label_prefix}Üst Dolap Arkalık Paneli"
+                            if niche_h > 0.0
+                            else f"{label_prefix}Arkalık Paneli"
+                        )
                     ),
                     material=back_mat,
                     thickness_mm=back_t,
@@ -1649,6 +1719,10 @@ class BOMEngine:
                     area_m2=round((back_l * back_w) / 1_000_000.0, 4),
                     drills=[],
                     grooves=[],
+                    notch_info=arkalik_notch,
+                    is_trapezoid=has_slope,
+                    trapezoid_h_start_mm=trap_h_start if has_slope else None,
+                    trapezoid_h_end_mm=trap_h_end if has_slope else None,
                     transform_3d=Box3DTransform(
                         center_x_mm=x_offset_mm,
                         center_y_mm=round(base_offset_y + (h - base_offset_y) / 2.0, 2),
@@ -2224,6 +2298,50 @@ class BOMEngine:
                     )
                 )
                 part_counter += 1
+
+        # L-Köşe Dönüş Kör Paneli
+        if getattr(config, "is_corner_module", False):
+            corner_w = float(getattr(config, "corner_blind_width_mm", 100.0) or 100.0)
+            corner_edge = EdgeBandSpec(
+                length_1_mm=config.front_pvc_thickness_mm,
+                length_2_mm=0.0,
+                width_1_mm=0.0,
+                width_2_mm=0.0,
+            )
+            cc_l, cc_w, cd_l, cd_w = cls.compute_cut_dimensions(h, corner_w, corner_edge)
+            parts.append(
+                PanelPart(
+                    part_id=f"P{part_counter:02d}",
+                    code=f"{prefix}KOR_KAPAMA_KOSE",
+                    name=f"{label_prefix}L-Köşe Kör Kapama Paneli",
+                    material=door_mat,
+                    thickness_mm=t,
+                    quantity=1,
+                    net_length_mm=h,
+                    net_width_mm=corner_w,
+                    cut_length_mm=cc_l,
+                    cut_width_mm=cc_w,
+                    pvc_deduction_length_mm=cd_l,
+                    pvc_deduction_width_mm=cd_w,
+                    edge_band=corner_edge,
+                    area_m2=round((h * corner_w) / 1_000_000.0, 4),
+                    drills=[],
+                    grooves=[],
+                    notch_info=f"L-Köşe {getattr(config, 'corner_angle_deg', 90.0):.0f}° Dönüş Kör Paneli",
+                    transform_3d=Box3DTransform(
+                        center_x_mm=round(x_offset_mm + w / 2.0 - corner_w / 2.0, 2),
+                        center_y_mm=round(h / 2.0, 2),
+                        center_z_mm=round(d / 2.0 - t / 2.0, 2),
+                        size_x_mm=corner_w,
+                        size_y_mm=h,
+                        size_z_mm=t,
+                        color_hex=config.door_color_hex,
+                        module_index=module_idx,
+                        corner_rotation_y_deg=float(getattr(config, "corner_angle_deg", 90.0) or 90.0),
+                    ),
+                )
+            )
+            part_counter += 1
 
         conn_count_per_corner = len(cls._connection_depth_coords(d))
         divider_count = max(0, len(config.zones) - 1) if has_zones else 0

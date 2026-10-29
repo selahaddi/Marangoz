@@ -599,6 +599,92 @@ def test_conversational_revision_engine_and_endpoint():
         assert len(res_data["data"]["diff_summary"]) >= 2
 
 
+def test_sloped_ceiling_and_corner_module() -> None:
+    """Faz 4: Çatı eğimi (mansard / merdiven altı) ve 90° L-Köşe kör panelli modül geometri & BOM hesaplamalarını doğrular."""
+    import math
+
+    # 1. Çatı Eğimi (Mansard / Merdiven Altı) Testi: Sol alçak (1200mm), Sağ tam boy (2100mm)
+    sloped_cfg = CabinetConfig(
+        name="Merdiven Altı Eğimli Dolap",
+        width_mm=900.0,
+        height_mm=2100.0,
+        depth_mm=580.0,
+        has_plinth=True,
+        plinth_height_mm=80.0,
+        has_slope=True,
+        slope_side="left",
+        slope_start_height_mm=1200.0,
+    )
+    bom_sloped = BOMEngine.generate_bom(sloped_cfg)
+    parts_by_code = {p.code: p for p in bom_sloped.parts}
+
+    # Sol dikme (kısa taraf): 1200 mm
+    yan_sol = parts_by_code["YAN_SOL"]
+    assert yan_sol.net_length_mm == 1200.0
+
+    # Sağ dikme (uzun taraf): 2100 mm
+    yan_sag = parts_by_code["YAN_SAG"]
+    assert yan_sag.net_length_mm == 2100.0
+
+    # Üst tabla hipotenüs boyu: inner_w = 900 - 36 = 864 mm, delta_h = 2100 - 1200 = 900 mm
+    # hipotenus = sqrt(864^2 + 900^2) = ~1247.6 mm
+    tabla_ust = parts_by_code["TABLA_UST"]
+    expected_hypotenuse = math.sqrt(864.0**2 + 900.0**2)
+    assert abs(tabla_ust.net_length_mm - round(expected_hypotenuse, 1)) < 1.0
+    assert tabla_ust.transform_3d is not None
+    assert tabla_ust.transform_3d.is_sloped is True
+    assert tabla_ust.transform_3d.rotation_z_deg > 0.0  # Sola eğimli (pozitif Z rotasyonu)
+
+    # Arkalık: trapezoid kesim
+    arkalik = parts_by_code["ARKALIK"]
+    assert arkalik.is_trapezoid is True
+    assert arkalik.net_length_mm == 1999.0
+    assert arkalik.trapezoid_h_start_mm == 1200.0
+    assert arkalik.trapezoid_h_end_mm == 2100.0
+    assert "ACILI-CATI-EGIMI" in arkalik.notch_info
+
+    # 2. 90° L-Köşe Kör Panelli Modül Testi
+    corner_cfg = CabinetConfig(
+        name="L-Köşe Kör Dolap Modülü",
+        width_mm=1000.0,
+        height_mm=850.0,
+        depth_mm=600.0,
+        is_corner_module=True,
+        corner_blind_width_mm=100.0,
+        corner_angle_deg=90.0,
+    )
+    bom_corner = BOMEngine.generate_bom(corner_cfg)
+    corner_parts = {p.code: p for p in bom_corner.parts}
+
+    assert "KOR_KAPAMA_KOSE" in corner_parts
+    kor_panel = corner_parts["KOR_KAPAMA_KOSE"]
+    assert kor_panel.net_width_mm == 100.0
+    assert kor_panel.transform_3d is not None
+    assert kor_panel.transform_3d.corner_rotation_y_deg == 90.0
+
+    # 3. Deterministik AI Revizyon Motoru Çatı Eğimi Mutasyonu
+    base_cfg = CabinetConfig(
+        name="Standart Dolap",
+        width_mm=900.0,
+        height_mm=2100.0,
+        depth_mm=580.0,
+    )
+    mutated_cfg, _, diffs_slope = RevisionEngine._deterministic_mutate(
+        base_cfg, "merdiven altı sol tarafı 120 cm çatı eğimi yap"
+    )
+    assert mutated_cfg.has_slope is True
+    assert mutated_cfg.slope_side == "left"
+    assert mutated_cfg.slope_start_height_mm == 1200.0
+    assert any("Çatı Eğimi" in d for d in diffs_slope)
+
+    reverted_cfg, _, diffs_revert = RevisionEngine._deterministic_mutate(
+        mutated_cfg, "çatı eğimini kaldır düz tavan yap"
+    )
+    assert reverted_cfg.has_slope is False
+    assert any("Düz Tavan" in d for d in diffs_revert)
+
+
+
 
 
 

@@ -95,6 +95,11 @@ class CabinetParseSchema(BaseModel):
         default_factory=list,
         description="İç dikmelerle ayrılmış dikey bölmeler listesi (örn: sol raflı, sağ askılı ve çekmeceli)",
     )
+    has_slope: bool = Field(default=False, description="Çatı veya merdiven altı eğimi var mı")
+    slope_side: str = Field(default="left", description="Eğimin alçak kenarı (left veya right)")
+    slope_start_height_mm: float = Field(default=1200.0, description="Eğimli alçak kenar boyu (mm)")
+    is_corner_module: bool = Field(default=False, description="L-Köşe dönüş modülü mü")
+    corner_blind_width_mm: float = Field(default=100.0, description="L-Köşe kör kapama paneli genişliği (mm)")
 
 
 class SemanticParserEngine:
@@ -541,6 +546,62 @@ class SemanticParserEngine:
                 ),
             ]
 
+        # 9. Çatı Eğimi (Merdiven Altı / Mansard Çatı) Tespiti
+        has_slope = False
+        slope_side = "left"
+        slope_start_height_mm = 1200.0
+        if any(
+            k in text
+            for k in (
+                "merdiven altı",
+                "merdiven alti",
+                "çatı eğimi",
+                "cati egimi",
+                "tavan eğimi",
+                "tavan egimi",
+                "mansard",
+                "eğimli dolap",
+                "egimli dolap",
+                "eğimli tavan",
+                "egimli tavan",
+                "çatı katı",
+                "cati kati",
+            )
+        ):
+            has_slope = True
+            if any(k in text for k in ("sağ tarafı eğimli", "sağa doğru", "sağ alçak", "sag alcak")):
+                slope_side = "right"
+            else:
+                slope_side = "left"
+
+            m_slope_h = re.search(
+                r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?(?:'den|den|'dan|dan)?\s*(?:başlayan|alçalan|yükselen|başlayıp)",
+                text,
+            ) or re.search(
+                r"alçak\s*(?:tarafı?|dikme|kenar)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?",
+                text,
+            )
+            if m_slope_h:
+                slope_start_height_mm = cls._to_mm(m_slope_h.group(1), m_slope_h.group(2))
+            else:
+                slope_start_height_mm = max(400.0, height_mm - 600.0)
+
+        # 10. L-Köşe Modülü Tespiti
+        is_corner_module = any(
+            k in text
+            for k in (
+                "l-köşe",
+                "l köşe",
+                "l-kose",
+                "l kose",
+                "köşe dolap",
+                "kose dolap",
+                "köşe modül",
+                "kose modul",
+            )
+        )
+        corner_blind_width_mm = 100.0
+
         return CabinetConfig(
             name=name,
             cabinet_type=cabinet_type,
@@ -573,6 +634,11 @@ class SemanticParserEngine:
             left_filler_width_mm=left_filler_width_mm,
             right_filler_width_mm=right_filler_width_mm,
             zones=zones,
+            has_slope=has_slope,
+            slope_side=slope_side,
+            slope_start_height_mm=slope_start_height_mm,
+            is_corner_module=is_corner_module,
+            corner_blind_width_mm=corner_blind_width_mm,
         )
 
     @classmethod
@@ -698,6 +764,11 @@ class SemanticParserEngine:
             sheet_size=parsed.sheet_size,
             additional_modules=[],
             zones=zones,
+            has_slope=parsed.has_slope,
+            slope_side=parsed.slope_side,
+            slope_start_height_mm=parsed.slope_start_height_mm,
+            is_corner_module=parsed.is_corner_module,
+            corner_blind_width_mm=parsed.corner_blind_width_mm,
         )
 
     @classmethod

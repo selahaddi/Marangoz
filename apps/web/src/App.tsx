@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Archive,
+  Bookmark,
   Box,
   Calculator,
   Camera,
@@ -490,6 +491,15 @@ export function App() {
             >
               <LayoutGrid className="h-3 w-3" />
               Tüm Şablonlar (29) →
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTemplateDrawer(true)}
+              className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/20 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-500 hover:text-slate-950 transition shadow-sm"
+              title="Kendi tasarımlarınızı kaydedin veya JSON olarak içe/dışa aktarın"
+            >
+              <Bookmark className="h-3 w-3" />
+              Özel Tasarımlar &amp; JSON
             </button>
           </div>
 
@@ -1007,9 +1017,17 @@ export function App() {
         isOpen={showTemplateDrawer}
         onClose={() => setShowTemplateDrawer(false)}
         activePresetId={activePresetId}
+        currentConfig={config}
         onSelectPreset={(preset) => {
           handleSelectRoomPreset(preset);
           setShowTemplateDrawer(false);
+        }}
+        onSelectCustomConfig={(customCfg) => {
+          setConfig(customCfg);
+          setActivePresetId(null);
+          setActiveModuleIndex(0);
+          setShowTemplateDrawer(false);
+          void runGeneration(customCfg);
         }}
         onSelectPrompt={(p) => {
           setPrompt(p);

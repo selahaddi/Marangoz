@@ -1,5 +1,6 @@
 """Parametrik dolap tasarımı, BOM, CNC delik ve Nesting Pydantic V2 şemaları."""
 
+import math
 from enum import StrEnum
 from typing import Generic, TypeVar
 
@@ -346,6 +347,46 @@ class CabinetConfig(BaseModel):
         default=PlinthType.WOOD_PLINTH,
         description="Alt baza tipi (wood_plinth veya adjustable_legs)",
     )
+    # Faz 4: Çatı Eğimi (Mansard Çatı / Merdiven Altı Eğimli Dolap)
+    has_slope: bool = Field(
+        default=False,
+        description="Çatı veya merdiven altı eğimi var mı?",
+    )
+    slope_side: str = Field(
+        default="left",
+        pattern=r"^(left|right)$",
+        description="Eğimin başladığı alçak kenar ('left' veya 'right')",
+    )
+    slope_start_height_mm: float = Field(
+        default=1200.0,
+        ge=300.0,
+        le=2800.0,
+        description="Eğimli tarafın başlangıç alçak dikme boyu (mm)",
+    )
+    slope_angle_deg: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=75.0,
+        description="Hesaplanan veya belirtilen çatı eğim açısı (derece)",
+    )
+
+    # Faz 4: L-Köşe Modülü
+    is_corner_module: bool = Field(
+        default=False,
+        description="L-Köşe dönüş modülü mü?",
+    )
+    corner_angle_deg: float = Field(
+        default=90.0,
+        ge=45.0,
+        le=135.0,
+        description="Köşe dönüş açısı (derece, genelde 90.0)",
+    )
+    corner_blind_width_mm: float = Field(
+        default=100.0,
+        ge=40.0,
+        le=300.0,
+        description="L-Köşe birleşim kör kapama paneli genişliği (mm)",
+    )
 
     @field_validator("front_pvc_thickness_mm", "hidden_pvc_thickness_mm")
     @classmethod
@@ -377,6 +418,15 @@ class CabinetConfig(BaseModel):
             raise ValueError(
                 "Gövde net yüksekliği (toplam yükseklik - baza) en az 200 mm olmalıdır."
             )
+
+        if self.has_slope:
+            if self.slope_start_height_mm >= self.height_mm:
+                self.slope_start_height_mm = max(300.0, self.height_mm - 400.0)
+            delta_h = self.height_mm - self.slope_start_height_mm
+            self.slope_angle_deg = round(
+                math.degrees(math.atan2(delta_h, max(1.0, self.width_mm))), 1
+            )
+
         return self
 
 
@@ -428,6 +478,13 @@ class Box3DTransform(BaseModel):
     module_index: int = Field(
         default=1, ge=1, description="Çoklu modül hattındaki modül sıra numarası"
     )
+    rotation_z_deg: float = Field(
+        default=0.0, description="Z ekseni etrafında dönme açısı (eğimli üst tabla için)"
+    )
+    is_sloped: bool = Field(default=False, description="Eğimli parça mı?")
+    corner_rotation_y_deg: float = Field(
+        default=0.0, description="L-Köşe dönüşü için Y ekseni dönme açısı"
+    )
 
 
 class PanelPart(BaseModel):
@@ -474,6 +531,18 @@ class PanelPart(BaseModel):
     notch_info: str = Field(
         default="",
         description="Süpürgelik veya kolon kertme bilgisi",
+    )
+    is_trapezoid: bool = Field(
+        default=False,
+        description="Parça yamuk (çatı eğimli açılı) kesim mi?",
+    )
+    trapezoid_h_start_mm: float | None = Field(
+        default=None,
+        description="Eğimli parçanın kısa kenar yüksekliği (mm)",
+    )
+    trapezoid_h_end_mm: float | None = Field(
+        default=None,
+        description="Eğimli parçanın uzun kenar yüksekliği (mm)",
     )
     transform_3d: Box3DTransform = Field(description="3D sahne yerleşim verisi")
 

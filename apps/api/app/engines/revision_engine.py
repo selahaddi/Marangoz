@@ -121,6 +121,16 @@ class RevisionEngine:
         if old_zones_len != new_zones_len:
             diffs.append(f"Dikey Bölmeler: {old_zones_len} Bölme ➔ {new_zones_len} Bölme")
 
+        if getattr(old_cfg, "has_slope", False) != getattr(new_cfg, "has_slope", False):
+            if new_cfg.has_slope:
+                side_tr = "Sol" if new_cfg.slope_side == "left" else "Sağ"
+                diffs.append(f"Çatı Eğimi: Aktif ({side_tr} Alçak {new_cfg.slope_start_height_mm:.0f} mm)")
+            else:
+                diffs.append("Çatı Eğimi: İptal (Düz Tavan)")
+
+        if getattr(old_cfg, "is_corner_module", False) != getattr(new_cfg, "is_corner_module", False):
+            diffs.append("L-Köşe Modülü: " + ("Aktif (90° Kör Panelli)" if new_cfg.is_corner_module else "İptal"))
+
         return diffs
 
     @classmethod
@@ -315,6 +325,39 @@ class RevisionEngine:
             updated_dict["fastener_type"] = FastenerType.MINIFIX_DOWEL
             reasons.append("Bağlantı sistemi Minifiks + Kavela olarak ayarlandı")
 
+        # 11. Faz 4: Çatı Eğimi (Mansard Çatı / Merdiven Altı) Revizyonu
+        if any(k in text for k in ("eğimi kaldır", "egimi kaldir", "çatı eğimini kaldır", "düz tavan", "düz tavan yap", "düz yap")):
+            updated_dict["has_slope"] = False
+            reasons.append("Çatı eğimi kaldırıldı, tavan düz yapıldı")
+        elif any(k in text for k in ("çatı eğimi", "cati egimi", "merdiven altı", "merdiven alti", "eğimli yap", "egimli yap", "mansard")):
+            updated_dict["has_slope"] = True
+            if any(k in text for k in ("sağ tarafı eğimli", "sağa alçalan", "sağ alçak", "sag alcak")):
+                updated_dict["slope_side"] = "right"
+            else:
+                updated_dict["slope_side"] = "left"
+
+            m_sl_h = re.search(
+                r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?(?:'den|den|'dan|dan)?\s*(?:başlayan|alçalan|yükselen|başlayıp)",
+                text,
+            ) or re.search(
+                r"alçak\s*(?:tarafı?|dikme|kenar)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?",
+                text,
+            )
+            if m_sl_h:
+                updated_dict["slope_start_height_mm"] = cls._to_mm(m_sl_h.group(1), m_sl_h.group(2))
+            reasons.append(
+                f"Çatı / merdiven altı eğimi ({updated_dict.get('slope_side', 'left')}, başlangıç: {updated_dict.get('slope_start_height_mm', 1200):.0f} mm) uygulandı"
+            )
+
+        # 12. Faz 4: L-Köşe Modülü Revizyonu
+        if any(k in text for k in ("l-köşe yap", "l köşe yap", "köşe modülü yap", "köşe dolap yap")):
+            updated_dict["is_corner_module"] = True
+            updated_dict["corner_blind_width_mm"] = 100.0
+            reasons.append("L-Köşe 90° dönüş modülü ve kör kapama paneli tanımlandı")
+        elif any(k in text for k in ("köşe iptal", "düz modül yap")):
+            updated_dict["is_corner_module"] = False
+            reasons.append("Köşe dönüşü iptal edildi, standart düz modüle çevrildi")
+
         new_config = CabinetConfig.model_validate(updated_dict)
         diff_summary = cls.compute_diff(current_config, new_config)
 
@@ -411,3 +454,4 @@ class RevisionEngine:
             logger.warning("Revizyon motoru API çağırma hatası, deterministiğe düşülüyor: %s", e)
 
         return cls._deterministic_mutate(current_config, instruction)
+

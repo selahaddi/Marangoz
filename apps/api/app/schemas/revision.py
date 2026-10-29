@@ -36,3 +36,4 @@ class RevisionResponse(BaseModel):
     success: bool = True
     message: str = "Tasarım başarıyla revize edildi"
     data: RevisionResponseData
+

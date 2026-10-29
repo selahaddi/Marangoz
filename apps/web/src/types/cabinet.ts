@@ -97,6 +97,13 @@ export interface CabinetConfig {
   column_notch_width_mm?: number;
   column_notch_depth_mm?: number;
   plinth_type?: PlinthType;
+  has_slope?: boolean;
+  slope_side?: "left" | "right";
+  slope_start_height_mm?: number;
+  slope_angle_deg?: number;
+  is_corner_module?: boolean;
+  corner_angle_deg?: number;
+  corner_blind_width_mm?: number;
 }
 
 export type CatalogCategoryId =
@@ -157,6 +164,9 @@ export interface Box3DTransform {
   is_niche?: boolean;
   hinge_side: string | null;
   module_index: number;
+  rotation_z_deg?: number;
+  is_sloped?: boolean;
+  corner_rotation_y_deg?: number;
 }
 
 export interface PanelPart {
@@ -180,6 +190,9 @@ export interface PanelPart {
   holding_tabs_count?: number;
   notch_info?: string;
   is_true_shape?: boolean;
+  is_trapezoid?: boolean;
+  trapezoid_h_start_mm?: number;
+  trapezoid_h_end_mm?: number;
   transform_3d: Box3DTransform;
 }
 
@@ -297,4 +310,15 @@ export interface RevisionResponse {
   message: string;
   data: RevisionResponseData;
 }
+
+export interface UserCustomPreset {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  config: CabinetConfig;
+  tags?: string[];
+}
+
 

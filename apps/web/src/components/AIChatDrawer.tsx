@@ -28,13 +28,15 @@ interface AIChatDrawerProps {
 const QUICK_REVISION_CHIPS: string[] = [
   "Genişliği 120 cm yap",
   "Altına 2 çekmece ekle",
-  "Kapakları antrasit yap",
+  "Merdiven altı eğimli dolap yap",
+  "Sol tarafı 120 cm çatı eğimi ver",
+  "90° L-Köşe mutfak dolabı yap",
   "Ortaya ahşap kahve nişi ekle",
+  "Kapakları antrasit yap",
   "Tavandan tabana bazasız yap",
-  "3 raf daha ekle",
+  "Çatı eğimini kaldır (düz tavan yap)",
   "Üst kalkar kapaklı buzdolabı dolabına çevir",
   "Arka süpürgelik kertmesi ekle",
-  "Sağ ve sol rölöve kör çıtaları ekle",
   "Açık raflı yap (kapakları kaldır)",
 ];
 
@@ -355,3 +357,4 @@ export function AIChatDrawer({
     </div>
   );
 }
+

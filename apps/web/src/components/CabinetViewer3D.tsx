@@ -500,8 +500,12 @@ function PanelMesh3D({
     );
   }
 
+  const rotZ = t3d.rotation_z_deg ? (t3d.rotation_z_deg * Math.PI) / 180.0 : 0.0;
+  const rotY = t3d.corner_rotation_y_deg ? (t3d.corner_rotation_y_deg * Math.PI) / 180.0 : 0.0;
+  const geomSx = t3d.is_sloped ? part.net_length_mm / 1000.0 : sx;
+
   return (
-    <group position={[cx, cy, cz]}>
+    <group position={[cx, cy, cz]} rotation={[0, rotY, rotZ]}>
       <mesh
         onClick={(e) => {
           e.stopPropagation();
@@ -519,7 +523,7 @@ function PanelMesh3D({
         receiveShadow
         geometry={notchedGeometry ?? undefined}
       >
-        {!notchedGeometry && <boxGeometry args={[sx, sy, sz]} />}
+        {!notchedGeometry && <boxGeometry args={[geomSx, sy, sz]} />}
         <meshStandardMaterial
           color={displayColor}
           roughness={xrayMode ? 0.1 : 0.55}
