@@ -556,6 +556,74 @@ export function ParametricSidebar({
                             </label>
                           </div>
                         </div>
+
+                        {/* Bölme Açık Niş / Cihaz Boşluğu */}
+                        <div className="pt-2 border-t border-slate-800/60">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[11px] font-semibold text-slate-300">Bölme İçi Açık Niş / Cihaz</span>
+                            {((currentZone.niche_height_mm ?? currentZone.appliance_niche_height_mm ?? 0) > 0) && (
+                              <button
+                                type="button"
+                                onClick={() => updateZone({ niche_height_mm: 0, appliance_niche_height_mm: 0, niche_bottom_offset_mm: 0 })}
+                                className="text-[10px] text-red-400 hover:text-red-300"
+                              >
+                                Nişi Kaldır
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] text-slate-400 mb-0.5">Niş Yüksekliği (mm)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={2000}
+                                value={currentZone.niche_height_mm ?? currentZone.appliance_niche_height_mm ?? 0}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  updateZone({ niche_height_mm: val, appliance_niche_height_mm: val });
+                                }}
+                                placeholder="0 = Nişsiz"
+                                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-400 mb-0.5">Tabandan Kot (mm)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={2000}
+                                value={currentZone.niche_bottom_offset_mm ?? 0}
+                                onChange={(e) => updateZone({ niche_bottom_offset_mm: Number(e.target.value) })}
+                                placeholder="0 = Alt Niş"
+                                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
+                              />
+                            </div>
+                          </div>
+                          {((currentZone.niche_height_mm ?? currentZone.appliance_niche_height_mm ?? 0) > 0) && (
+                            <div className="mt-2 flex items-center justify-between">
+                              <label className="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(currentZone.niche_back_open)}
+                                  onChange={(e) => updateZone({ niche_back_open: e.target.checked })}
+                                  className="rounded border-slate-700 bg-slate-900 text-amber-500"
+                                />
+                                Arkalık Açık (Priz/Hava)
+                              </label>
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-400">Aksan:</span>
+                                <input
+                                  type="color"
+                                  value={currentZone.niche_color_hex || "#9C6644"}
+                                  onChange={(e) => updateZone({ niche_color_hex: e.target.value })}
+                                  className="h-5 w-5 rounded cursor-pointer border-0 bg-transparent p-0"
+                                  title="Açık Niş Aksan Rengi"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })()}
@@ -781,7 +849,7 @@ export function ParametricSidebar({
           )}
         </div>
 
-        {/* GRUP 5: Baza, Niş & Duvar Kertmeleri */}
+        {/* GRUP 5: Açık Niş, Cihaz, Baza & Kertmeler */}
         <div className="rounded-xl border border-slate-800/90 bg-slate-950/60 overflow-hidden">
           <button
             type="button"
@@ -790,7 +858,7 @@ export function ParametricSidebar({
           >
             <div className="flex items-center gap-2">
               <Layers className="h-4 w-4 text-indigo-400" />
-              <span>5. Baza, Niş &amp; Kertmeler</span>
+              <span>5. Açık Niş, Cihaz &amp; Baza</span>
             </div>
             {openSections.base_notches ? (
               <ChevronDown className="h-4 w-4 text-slate-400" />
@@ -801,24 +869,180 @@ export function ParametricSidebar({
 
           {openSections.base_notches && (
             <div className="p-3 pt-1 space-y-3 border-t border-slate-800/60 text-xs">
+              {/* Niş Hızlı Şablonları */}
               <div>
-                <label className="block text-slate-300 font-medium mb-1">
-                  Buzdolabı / Alt Cihaz Niş Yüksekliği
+                <label className="block text-slate-300 font-medium mb-1.5">
+                  Niş Tipi &amp; Hızlı Hazır Ayarlar
                 </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={2200}
-                  value={activeModule.appliance_niche_height_mm ?? 0}
-                  onChange={(e) =>
-                    onUpdateActiveModule({
-                      appliance_niche_height_mm: Number(e.target.value),
-                    })
-                  }
-                  placeholder="0 = Kapalı dolap, örn: 1850 mm"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-slate-100"
-                />
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateActiveModule({
+                        niche_height_mm: 0,
+                        appliance_niche_height_mm: 0,
+                        niche_bottom_offset_mm: 0,
+                        has_plinth: true,
+                      })
+                    }
+                    className={`px-2 py-1.5 rounded-lg border text-[11px] font-medium text-left transition ${
+                      ((activeModule.niche_height_mm ?? activeModule.appliance_niche_height_mm ?? 0) === 0)
+                        ? "border-amber-500 bg-amber-500/15 text-amber-300"
+                        : "border-slate-800 bg-slate-900/80 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Nişsiz Dolap
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateActiveModule({
+                        niche_height_mm: 1850,
+                        appliance_niche_height_mm: 1850,
+                        niche_bottom_offset_mm: 0,
+                        has_plinth: false,
+                        door_type: "flap_up",
+                      })
+                    }
+                    className={`px-2 py-1.5 rounded-lg border text-[11px] font-medium text-left transition ${
+                      ((activeModule.niche_height_mm ?? activeModule.appliance_niche_height_mm ?? 0) > 0 &&
+                        (activeModule.niche_bottom_offset_mm ?? 0) <= 0)
+                        ? "border-amber-500 bg-amber-500/15 text-amber-300"
+                        : "border-slate-800 bg-slate-900/80 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Alt Buzdolabı (185 cm)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateActiveModule({
+                        niche_height_mm: 450,
+                        appliance_niche_height_mm: 450,
+                        niche_bottom_offset_mm: 850,
+                        niche_color_hex: "#9C6644",
+                        niche_back_open: false,
+                      })
+                    }
+                    className={`px-2 py-1.5 rounded-lg border text-[11px] font-medium text-left transition ${
+                      ((activeModule.niche_height_mm ?? activeModule.appliance_niche_height_mm ?? 0) === 450 &&
+                        (activeModule.niche_bottom_offset_mm ?? 0) === 850)
+                        ? "border-amber-500 bg-amber-500/15 text-amber-300"
+                        : "border-slate-800 bg-slate-900/80 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Kahve Barı / Köşesi
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateActiveModule({
+                        niche_height_mm: 600,
+                        appliance_niche_height_mm: 600,
+                        niche_bottom_offset_mm: 800,
+                        niche_back_open: true,
+                        niche_color_hex: "#2D3134",
+                      })
+                    }
+                    className={`px-2 py-1.5 rounded-lg border text-[11px] font-medium text-left transition ${
+                      ((activeModule.niche_height_mm ?? activeModule.appliance_niche_height_mm ?? 0) === 600)
+                        ? "border-amber-500 bg-amber-500/15 text-amber-300"
+                        : "border-slate-800 bg-slate-900/80 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Ankastre Fırın (60 cm)
+                  </button>
+                </div>
               </div>
+
+              {/* Parametrik Niş Ayarları */}
+              {((activeModule.niche_height_mm ?? activeModule.appliance_niche_height_mm ?? 0) > 0) && (
+                <div className="space-y-2.5 p-2.5 rounded-lg border border-slate-800 bg-slate-900/50">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">
+                        Niş Yüksekliği (mm)
+                      </label>
+                      <input
+                        type="number"
+                        min={100}
+                        max={2200}
+                        value={activeModule.niche_height_mm ?? activeModule.appliance_niche_height_mm ?? 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          onUpdateActiveModule({
+                            niche_height_mm: val,
+                            appliance_niche_height_mm: val,
+                          });
+                        }}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">
+                        Tabandan Kot (mm)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={2200}
+                        value={activeModule.niche_bottom_offset_mm ?? 0}
+                        onChange={(e) =>
+                          onUpdateActiveModule({
+                            niche_bottom_offset_mm: Number(e.target.value),
+                          })
+                        }
+                        placeholder="0 = Alt Niş"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={activeModule.niche_back_open ?? false}
+                        onChange={(e) =>
+                          onUpdateActiveModule({
+                            niche_back_open: e.target.checked,
+                          })
+                        }
+                        className="rounded border-slate-700 bg-slate-950 text-amber-500"
+                      />
+                      <span>Arkalık Açık (Priz/Havalandırma)</span>
+                    </label>
+                  </div>
+
+                  <div className="pt-1 flex items-center justify-between">
+                    <span className="text-slate-300 font-medium">Niş Aksan Rengi:</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={activeModule.niche_color_hex || "#9C6644"}
+                        onChange={(e) =>
+                          onUpdateActiveModule({
+                            niche_color_hex: e.target.value,
+                          })
+                        }
+                        className="h-6 w-7 rounded cursor-pointer border-0 bg-transparent p-0"
+                        title="Niş Aksan Rengi"
+                      />
+                      <input
+                        type="text"
+                        value={activeModule.niche_color_hex || ""}
+                        onChange={(e) =>
+                          onUpdateActiveModule({
+                            niche_color_hex: e.target.value,
+                          })
+                        }
+                        placeholder="#9C6644"
+                        className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100 uppercase"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-slate-300 font-medium mb-1">

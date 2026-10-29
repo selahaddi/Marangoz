@@ -50,7 +50,11 @@ export interface CabinetZone {
   drawer_count: number; // 0..6
   drawer_front_height_mm?: number;
   has_hanging_rod?: boolean; // Elbise askı borusu
-  appliance_niche_height_mm?: number; // Bu bölmedeki açık cihaz/niş yüksekliği
+  appliance_niche_height_mm?: number; // Geriye dönük uyumluluk
+  niche_height_mm?: number; // Açık niş / cihaz boşluğu yüksekliği (mm)
+  niche_bottom_offset_mm?: number; // 0 = alt açık niş, >0 = orta açık niş (kahve istasyonu/fırın)
+  niche_color_hex?: string; // Niş içi ve arka paneli kontrast rengi
+  niche_back_open?: boolean; // Niş arkalığı açık mı (duvar prizi, havalandırma)
   door_color_hex?: string; // Bu bölmeye özel kapak rengi
 }
 
@@ -65,6 +69,10 @@ export interface CabinetConfig {
   drawer_count: number;
   drawer_front_height_mm: number;
   appliance_niche_height_mm?: number;
+  niche_height_mm?: number; // Açık niş / cihaz boşluğu yüksekliği (mm)
+  niche_bottom_offset_mm?: number; // 0 = alt açık niş (buzdolabı), >0 = orta açık niş (kahve köşesi/fırın)
+  niche_color_hex?: string; // Açık niş içi ve arka paneli kontrast rengi
+  niche_back_open?: boolean; // Niş arkalığı açık mı
   additional_modules?: CabinetConfig[];
   zones?: CabinetZone[];
   has_plinth: boolean;
@@ -146,6 +154,7 @@ export interface Box3DTransform {
   is_door: boolean;
   is_drawer: boolean;
   is_hanging_rod?: boolean;
+  is_niche?: boolean;
   hinge_side: string | null;
   module_index: number;
 }

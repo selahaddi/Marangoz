@@ -42,6 +42,10 @@ class ZoneParseSchema(BaseModel):
     drawer_front_height_mm: float = Field(default=180.0, description="Çekmece klapa yüksekliği (mm)")
     has_hanging_rod: bool = Field(default=False, description="Bu bölmede elbise askı borusu var mı")
     appliance_niche_height_mm: float = Field(default=0.0, description="Bölme alt nişi (mm)")
+    niche_height_mm: float = Field(default=0.0, description="Bölme açık niş yüksekliği (mm)")
+    niche_bottom_offset_mm: float = Field(default=0.0, description="Niş alt başlangıç mesafesi (mm). 0 ise zemin/alt niş, >0 ise orta açık niş")
+    niche_color_hex: str = Field(default="", description="Niş arka/iç aksan rengi hex kodu")
+    niche_back_open: bool = Field(default=False, description="Niş arkalığı açık (priz/havalandırma için arkalıksız)")
     door_color_hex: str = Field(default="", description="Bölme kapağı özel rengi")
 
 
@@ -62,6 +66,22 @@ class CabinetParseSchema(BaseModel):
     appliance_niche_height_mm: float = Field(
         default=0.0,
         description="Alt açık cihaz/buzdolabı niş boşluğu yüksekliği (mm). Yoksa 0.",
+    )
+    niche_height_mm: float = Field(
+        default=0.0,
+        description="Açık niş yüksekliği (mm). Kahve barı, fırın, mikrodalga veya solo cihaz için.",
+    )
+    niche_bottom_offset_mm: float = Field(
+        default=0.0,
+        description="Niş alt kotu (mm). 0 ise zemin nişi, >0 ise orta açık niş.",
+    )
+    niche_color_hex: str = Field(
+        default="",
+        description="Niş içi veya arkalık aksan rengi hex kodu",
+    )
+    niche_back_open: bool = Field(
+        default=False,
+        description="Niş arkası açık mı (duvar/priz/havalandırma için arkalıksız)",
     )
     body_material: str = Field(default="18mm Beyaz Suntalam", description="Gövde malzemesi")
     door_material: str = Field(default="", description="Kapak malzemesi (belirtilmişse)")
@@ -87,7 +107,11 @@ class SemanticParserEngine:
         "Ölçüler santimetre (cm) verilmişse milimetreye (mm) çevir (örn: 235 cm -> 2350 mm). "
         "Toplam dış ölçüleri width_mm, height_mm, depth_mm olarak yaz; alt kısımda buzdolabı veya "
         "cihaz için açık bir niş/boşluk yüksekliği tarif edilmişse (örn: 185 cm açık niş) bunu "
-        "appliance_niche_height_mm alanına mm cinsinden (1850) yaz ve has_plinth=false yap. "
+        "appliance_niche_height_mm ve niche_height_mm alanına mm cinsinden (1850) yaz, niche_bottom_offset_mm=0 ve has_plinth=false yap. "
+        "Orta açık niş, kahve istasyonu / kahve köşesi, ankastre fırın veya mikrodalga boşluğu varsa "
+        "niche_height_mm ve niche_bottom_offset_mm değerlerini doldur (örn: yerden 85 cm yükseklikte 45 cm niş -> niche_bottom_offset_mm=850, niche_height_mm=450). "
+        "Arkalık açık veya priz/havalandırma istenmişse niche_back_open=true yap. "
+        "Niş arka/iç rengi belirtilmişse (örn: ahşap kontrast niş) niche_color_hex alanını doldur. "
         "Gazlı pistonlu / yukarı doğru açılan kalkar kapak istenmişse door_type='flap_up' seç. "
         "İstemde açıkça raf adedi belirtilmemişse ve üst kalkar kapaklı niş dolabıysa shelf_count=0 ver. "
         "Eğer kullanıcı dolabın içini dikey bölmelere / kolonlara ayırmışsa (örn: 'sol tarafı 4 raflı, sağ tarafı askılıklı ve 2 çekmeceli', "
@@ -238,8 +262,19 @@ class SemanticParserEngine:
                 width_mm = d1 if d1 != depth_mm else sorted_dims[1]
                 height_mm = d2 if d2 not in (width_mm, depth_mm) else sorted_dims[2]
 
-        # 2b. Alt Cihaz / Buzdolabı Niş Boşluğu Tespiti
+        # 2b. Açık Niş, Cihaz & Ankastre Tespiti (Alt Niş vs. Orta Açık Niş)
         appliance_niche_height_mm = 0.0
+        niche_height_mm = 0.0
+        niche_bottom_offset_mm = 0.0
+        niche_color_hex = ""
+        niche_back_open = False
+
+        is_coffee = any(k in text for k in ("kahve barı", "kahve bari", "kahve köşesi", "kahve kosesi", "kahve istasyonu"))
+        is_oven = any(k in text for k in ("ankastre fırın", "ankastre firin", "fırın nişi", "firin nisi", "fırın", "firin"))
+        is_micro = any(k in text for k in ("mikrodalga", "mikro dalga"))
+        is_mid_niche_keyword = is_coffee or is_oven or is_micro or any(k in text for k in ("orta niş", "orta nis", "açık niş", "acik nis"))
+        is_bottom_niche_keyword = any(k in text for k in ("buzdolab", "çamaşır makine", "camasir makine"))
+
         niche_match = (
             re.search(
                 r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde\s*)?(?:açık\s*)?(?:bir\s*)?(?:niş|nis|boşluk|bosluk)",
@@ -251,15 +286,41 @@ class SemanticParserEngine:
             )
         )
         if niche_match:
-            appliance_niche_height_mm = cls._to_mm(
-                niche_match.group(1), niche_match.group(2)
-            )
-        elif "buzdolab" in text and any(
-            k in text for k in ("niş", "nis", "boşluk", "bosluk", "çevreleme", "gömme")
-        ):
-            appliance_niche_height_mm = min(1850.0, max(0.0, height_mm - 450.0))
+            niche_height_mm = cls._to_mm(niche_match.group(1), niche_match.group(2))
+        elif is_coffee:
+            niche_height_mm = 450.0
+        elif is_oven:
+            niche_height_mm = 600.0
+        elif is_micro:
+            niche_height_mm = 380.0
+        elif "buzdolab" in text:
+            niche_height_mm = min(1850.0, max(0.0, height_mm - 450.0))
 
-        if appliance_niche_height_mm > 0:
+        appliance_niche_height_mm = niche_height_mm
+
+        # Başlangıç alt kotu (0 = alt niş, >0 = orta açık niş)
+        offset_match = (
+            re.search(r"(?:tabandan|yerden|alttan|zeminden)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", text)
+            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yükseklikten|kotundan|üzerinde|uzerinde)", text)
+        )
+        if offset_match:
+            niche_bottom_offset_mm = cls._to_mm(offset_match.group(1), offset_match.group(2))
+        elif is_mid_niche_keyword and not is_bottom_niche_keyword:
+            niche_bottom_offset_mm = 850.0
+
+        if any(k in text for k in ("arkalıksız", "arkaliksiz", "arkalık açık", "arkalik acik", "priz")) or is_oven or (is_coffee and "açık" in text):
+            niche_back_open = True
+
+        if any(k in text for k in ("ahşap niş", "ahsap nis", "meşe niş", "mese nis")):
+            niche_color_hex = "#9C6644"
+        elif any(k in text for k in ("antrasit niş", "siyah niş")):
+            niche_color_hex = "#2D3134"
+        elif "beyaz niş" in text:
+            niche_color_hex = "#F8FAFC"
+        elif "ceviz niş" in text:
+            niche_color_hex = "#5C4033"
+
+        if niche_height_mm > 0 and niche_bottom_offset_mm <= 0:
             has_plinth = False
             plinth_height_mm = 0.0
 
@@ -492,6 +553,10 @@ class SemanticParserEngine:
             has_plinth=has_plinth,
             plinth_height_mm=plinth_height_mm,
             appliance_niche_height_mm=appliance_niche_height_mm,
+            niche_height_mm=niche_height_mm,
+            niche_bottom_offset_mm=niche_bottom_offset_mm,
+            niche_color_hex=niche_color_hex or None,
+            niche_back_open=niche_back_open,
             body_material=body_material,
             door_material=door_material,
             body_color_hex=body_color_hex,
@@ -572,11 +637,18 @@ class SemanticParserEngine:
         drawer_front_height = max(
             120.0, min(350.0, parsed.drawer_front_height_mm or 180.0)
         )
-        niche_h = max(
-            0.0,
-            min(height_mm - 260.0, parsed.appliance_niche_height_mm or 0.0),
+        raw_niche_h = max(
+            float(parsed.niche_height_mm or 0.0),
+            float(parsed.appliance_niche_height_mm or 0.0),
         )
-        has_plinth = False if niche_h > 0 else parsed.has_plinth
+        niche_offset = float(parsed.niche_bottom_offset_mm or 0.0)
+        is_bottom_niche = raw_niche_h > 0 and niche_offset <= 0
+        niche_h = (
+            max(0.0, min(height_mm - 260.0, raw_niche_h))
+            if is_bottom_niche
+            else 0.0
+        )
+        has_plinth = False if is_bottom_niche else parsed.has_plinth
 
         zones: list[CabinetZone] = []
         for z in parsed.zones:
@@ -590,7 +662,11 @@ class SemanticParserEngine:
                     drawer_count=max(0, min(6, z.drawer_count)),
                     drawer_front_height_mm=z.drawer_front_height_mm,
                     has_hanging_rod=z.has_hanging_rod,
-                    appliance_niche_height_mm=z.appliance_niche_height_mm,
+                    appliance_niche_height_mm=z.appliance_niche_height_mm or z.niche_height_mm,
+                    niche_height_mm=z.niche_height_mm or z.appliance_niche_height_mm,
+                    niche_bottom_offset_mm=z.niche_bottom_offset_mm,
+                    niche_color_hex=z.niche_color_hex or None,
+                    niche_back_open=z.niche_back_open,
                     door_color_hex=z.door_color_hex,
                 )
             )
@@ -607,7 +683,11 @@ class SemanticParserEngine:
             drawer_front_height_mm=drawer_front_height,
             has_plinth=has_plinth,
             plinth_height_mm=parsed.plinth_height_mm if has_plinth else 0.0,
-            appliance_niche_height_mm=niche_h,
+            appliance_niche_height_mm=raw_niche_h,
+            niche_height_mm=raw_niche_h,
+            niche_bottom_offset_mm=niche_offset,
+            niche_color_hex=parsed.niche_color_hex or None,
+            niche_back_open=parsed.niche_back_open,
             body_material=parsed.body_material,
             door_material=parsed.door_material or "",
             body_color_hex=parsed.body_color_hex,

@@ -132,6 +132,18 @@ class CabinetZone(BaseModel):
     appliance_niche_height_mm: float = Field(
         default=0.0, ge=0.0, le=2200.0, description="Açık niş / cihaz boşluğu yüksekliği (mm)"
     )
+    niche_height_mm: float = Field(
+        default=0.0, ge=0.0, le=2200.0, description="Açık niş / cihaz boşluğu yüksekliği (mm)"
+    )
+    niche_bottom_offset_mm: float = Field(
+        default=0.0, ge=0.0, le=2200.0, description="Nişin alt başlangıç kotu (0 = alt açık niş, >0 = orta açık niş)"
+    )
+    niche_color_hex: str | None = Field(
+        default=None,
+        pattern=r"^(#[0-9A-Fa-f]{6})?$",
+        description="Açık niş içi ve arka paneli kontrast rengi (HEX)",
+    )
+    niche_back_open: bool = Field(default=False, description="Niş arkalığı açık mı (duvar prizi, havalandırma)")
     door_color_hex: str | None = Field(default=None, description="Bu bölmenin kapağına özel renk (HEX)")
 
 
@@ -195,6 +207,27 @@ class CabinetConfig(BaseModel):
         ge=0.0,
         le=2200.0,
         description="Alt kısımda bırakılacak açık cihaz / buzdolabı niş yüksekliği (mm)",
+    )
+    niche_height_mm: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2200.0,
+        description="Açık niş / cihaz boşluğu yüksekliği (mm). appliance_niche_height_mm ile geriye dönük uyumludur.",
+    )
+    niche_bottom_offset_mm: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2200.0,
+        description="Nişin bazadan/zeminden başlangıç yüksekliği mm (0 = alt açık niş/buzdolabı, >0 = orta niş/kahve köşesi/fırın)",
+    )
+    niche_color_hex: str | None = Field(
+        default=None,
+        pattern=r"^(#[0-9A-Fa-f]{6})?$",
+        description="Açık niş içi ve arka paneli için kontrast renk (HEX)",
+    )
+    niche_back_open: bool = Field(
+        default=False,
+        description="Niş arkalığı açık/menfezli mi (duvar prizi, kablo geçişi veya ankastre fırın arkası için)",
     )
     additional_modules: list["CabinetConfig"] = Field(
         default_factory=list,
@@ -387,6 +420,7 @@ class Box3DTransform(BaseModel):
     is_door: bool = Field(default=False, description="Kapak parçası mı?")
     is_drawer: bool = Field(default=False, description="Çekmece parçası mı?")
     is_hanging_rod: bool = Field(default=False, description="Elbise askı borusu mu?")
+    is_niche: bool = Field(default=False, description="Niş içi veya niş arka paneli mi?")
     hinge_side: str | None = Field(
         default=None, description="Kapak menteşe yönü (left / right / None)"
     )

@@ -35,7 +35,11 @@ const SYSTEM_INSTRUCTION =
   "Tüm ölçüleri milimetreye çevir (örn: 235 cm -> 2350, 85 cm -> 850). " +
   "İç niş, cihaz veya boşluk ölçülerini dış ölçü sanma; toplam dış ölçüleri width_mm, height_mm, depth_mm olarak yaz. " +
   "Eğer alt kısımda buzdolabı veya cihaz için açık niş/boşluk yüksekliği tarif edilmişse (örn: 185 cm niş), " +
-  "bunu appliance_niche_height_mm alanına mm olarak (1850) yaz ve has_plinth=false yap. " +
+  "bunu appliance_niche_height_mm ve niche_height_mm alanına mm olarak (1850) yaz, niche_bottom_offset_mm=0 ve has_plinth=false yap. " +
+  "Orta açık niş, kahve istasyonu / kahve barı, ankastre fırın veya mikrodalga nişi varsa " +
+  "niche_height_mm ve niche_bottom_offset_mm (yerden kot mm) doldur (örn: yerden 85 cm yükseklikte 45 cm niş -> niche_bottom_offset_mm=850, niche_height_mm=450). " +
+  "Arkalık açık veya priz/havalandırma istenmişse niche_back_open=true yap. " +
+  "Niş arka/iç rengi belirtilmişse (örn. ahşap niş) niche_color_hex alanını doldur. " +
   "Gazlı pistonlu / yukarı doğru açılan kalkar kapak istenmişse door_type='flap_up' seç. " +
   "İstemde açıkça raf adedi belirtilmemişse ve üst kalkar kapaklı niş dolabıysa shelf_count=0 ver. " +
   "Eğer kullanıcı dolap içini dikey bölmelere ayırmışsa (sol tarafı raflı, sağ tarafı askılı ve çekmeceli, vb.), 'zones' dizisinde tanımla. " +
@@ -57,6 +61,10 @@ const RESPONSE_SCHEMA = {
     drawer_count: { type: "INTEGER" },
     drawer_front_height_mm: { type: "NUMBER" },
     appliance_niche_height_mm: { type: "NUMBER" },
+    niche_height_mm: { type: "NUMBER" },
+    niche_bottom_offset_mm: { type: "NUMBER" },
+    niche_color_hex: { type: "STRING" },
+    niche_back_open: { type: "BOOLEAN" },
     has_plinth: { type: "BOOLEAN" },
     plinth_height_mm: { type: "NUMBER" },
     body_material: { type: "STRING" },
@@ -79,6 +87,10 @@ const RESPONSE_SCHEMA = {
           drawer_front_height_mm: { type: "NUMBER" },
           has_hanging_rod: { type: "BOOLEAN" },
           appliance_niche_height_mm: { type: "NUMBER" },
+          niche_height_mm: { type: "NUMBER" },
+          niche_bottom_offset_mm: { type: "NUMBER" },
+          niche_color_hex: { type: "STRING" },
+          niche_back_open: { type: "BOOLEAN" },
           door_color_hex: { type: "STRING" },
         },
       },
@@ -98,6 +110,10 @@ interface GeminiRawConfig {
   drawer_count?: unknown;
   drawer_front_height_mm?: unknown;
   appliance_niche_height_mm?: unknown;
+  niche_height_mm?: unknown;
+  niche_bottom_offset_mm?: unknown;
+  niche_color_hex?: unknown;
+  niche_back_open?: unknown;
   has_plinth?: unknown;
   plinth_height_mm?: unknown;
   body_material?: unknown;
@@ -138,9 +154,16 @@ const isHex = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-fA-
 
 export function normalizeGeminiConfig(raw: GeminiRawConfig): CabinetConfig {
   const heightMm = clamp(raw.height_mm, 300, 2750, 2100);
-  const nicheH = clamp(raw.appliance_niche_height_mm, 0, Math.max(0, heightMm - 260), 0);
+  const rawNicheH = clamp(
+    raw.niche_height_mm ?? raw.appliance_niche_height_mm,
+    0,
+    Math.max(0, heightMm - 260),
+    0
+  );
+  const nicheOffset = clamp(raw.niche_bottom_offset_mm, 0, heightMm, 0);
+  const isBottomNiche = rawNicheH > 0 && nicheOffset <= 0;
   const hasPlinth =
-    nicheH > 0 ? false : typeof raw.has_plinth === "boolean" ? raw.has_plinth : true;
+    isBottomNiche ? false : typeof raw.has_plinth === "boolean" ? raw.has_plinth : true;
   const cabinetType = CABINET_TYPES.find((t) => t === raw.cabinet_type) ?? "wardrobe";
   const doorType = DOOR_TYPES.find((t) => t === raw.door_type) ?? "double";
 
@@ -155,7 +178,11 @@ export function normalizeGeminiConfig(raw: GeminiRawConfig): CabinetConfig {
     drawer_count: Math.round(clamp(z.drawer_count, 0, 6, 0)),
     drawer_front_height_mm: typeof z.drawer_front_height_mm === "number" ? z.drawer_front_height_mm : 180,
     has_hanging_rod: Boolean(z.has_hanging_rod),
-    appliance_niche_height_mm: typeof z.appliance_niche_height_mm === "number" ? z.appliance_niche_height_mm : 0,
+    appliance_niche_height_mm: typeof z.appliance_niche_height_mm === "number" ? z.appliance_niche_height_mm : (typeof z.niche_height_mm === "number" ? z.niche_height_mm : 0),
+    niche_height_mm: typeof z.niche_height_mm === "number" ? z.niche_height_mm : (typeof z.appliance_niche_height_mm === "number" ? z.appliance_niche_height_mm : undefined),
+    niche_bottom_offset_mm: typeof z.niche_bottom_offset_mm === "number" ? z.niche_bottom_offset_mm : undefined,
+    niche_color_hex: isHex(z.niche_color_hex) ? z.niche_color_hex : undefined,
+    niche_back_open: typeof z.niche_back_open === "boolean" ? z.niche_back_open : undefined,
     door_color_hex: isHex(z.door_color_hex) ? z.door_color_hex : undefined,
   }));
 
@@ -169,7 +196,11 @@ export function normalizeGeminiConfig(raw: GeminiRawConfig): CabinetConfig {
     door_type: doorType,
     drawer_count: Math.round(clamp(raw.drawer_count, 0, 6, 0)),
     drawer_front_height_mm: clamp(raw.drawer_front_height_mm, 120, 350, 180),
-    appliance_niche_height_mm: nicheH,
+    appliance_niche_height_mm: rawNicheH,
+    niche_height_mm: rawNicheH,
+    niche_bottom_offset_mm: nicheOffset,
+    niche_color_hex: isHex(raw.niche_color_hex) ? raw.niche_color_hex : undefined,
+    niche_back_open: typeof raw.niche_back_open === "boolean" ? raw.niche_back_open : undefined,
     has_plinth: hasPlinth,
     plinth_height_mm: hasPlinth ? clamp(raw.plinth_height_mm, 50, 200, 80) : 0,
     body_material:

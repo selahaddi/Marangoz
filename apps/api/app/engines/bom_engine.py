@@ -95,6 +95,7 @@ class BOMEngine:
         drawer_count: int,
         drawer_front_height_mm: float,
         fastener_type: FastenerType = FastenerType.MINIFIX_DOWEL,
+        niche_shelf_x_coords: list[float] | None = None,
     ) -> list[DrillPoint]:
         """Yan dikme üzerindeki Minifiks+Kavela veya Lamello Cabineo, çekmece rayı ve raf pimi deliklerini üretir."""
         drills: list[DrillPoint] = []
@@ -140,6 +141,45 @@ class BOMEngine:
                                 description=f"{label} Kavela Deliği",
                             )
                         )
+
+        # Niş Ara Tablaları Delikleri
+        if niche_shelf_x_coords:
+            for s_conn_x in niche_shelf_x_coords:
+                for y_pos in conn_y_coords:
+                    if fastener_type == FastenerType.CABINEO_12:
+                        drills.append(
+                            DrillPoint(
+                                x_mm=s_conn_x,
+                                y_mm=y_pos,
+                                diameter_mm=MC.CABINEO_SCREW_DIAMETER_MM,
+                                depth_mm=MC.CABINEO_SCREW_DEPTH_MM,
+                                layer=MC.LAYER_CABINEO_SCREW,
+                                description="Niş Ara Tabla Cabineo Vida Karşılık Deliği",
+                            )
+                        )
+                    else:
+                        drills.append(
+                            DrillPoint(
+                                x_mm=s_conn_x,
+                                y_mm=y_pos,
+                                diameter_mm=MC.MINIFIX_BOLT_DIAMETER_MM,
+                                depth_mm=MC.MINIFIX_BOLT_DEPTH_MM,
+                                layer=MC.LAYER_MINIFIX_BOLT,
+                                description="Niş Ara Tabla Minifiks Mil Deliği",
+                            )
+                        )
+                        dowel_y = round(y_pos + MC.DOWEL_OFFSET_FROM_MINIFIX_MM, 2)
+                        if dowel_y <= depth_mm - 25.0:
+                            drills.append(
+                                DrillPoint(
+                                    x_mm=s_conn_x,
+                                    y_mm=dowel_y,
+                                    diameter_mm=MC.DOWEL_DIAMETER_MM,
+                                    depth_mm=MC.DOWEL_DEPTH_MM,
+                                    layer=MC.LAYER_DOWEL,
+                                    description="Niş Ara Tabla Kavela Deliği",
+                                )
+                            )
 
         # Çekmece Rayı Sistem 32 Montaj Delikleri (DRILL_SLIDE_D5)
         drawer_zone_h = drawer_count * drawer_front_height_mm
@@ -307,12 +347,15 @@ class BOMEngine:
         w = config.width_mm
         h = config.height_mm
         d = config.depth_mm
-        niche_h = min(
-            config.appliance_niche_height_mm,
-            max(0.0, h - 260.0),
+        raw_niche_h = max(
+            getattr(config, "niche_height_mm", 0.0) or 0.0,
+            getattr(config, "appliance_niche_height_mm", 0.0) or 0.0,
         )
-        plinth_h = config.plinth_height_mm if (config.has_plinth and niche_h <= 0.0) else 0.0
-        base_offset_y = max(plinth_h, niche_h)
+        niche_offset = getattr(config, "niche_bottom_offset_mm", 0.0) or 0.0
+        is_bottom_niche = raw_niche_h > 0.0 and niche_offset <= 0.0
+        niche_h = min(raw_niche_h, max(0.0, h - 260.0)) if is_bottom_niche else 0.0
+        plinth_h = config.plinth_height_mm if (config.has_plinth and not is_bottom_niche) else 0.0
+        base_offset_y = niche_h if is_bottom_niche else plinth_h
         inner_w = round(w - 2.0 * t, 2)
         clear_inner_h = round(h - base_offset_y - 2.0 * t, 2)
         is_grooved = config.back_panel_type == BackPanelType.GROOVED_8MM
@@ -418,11 +461,153 @@ class BOMEngine:
             zw = zc["width"]
             z_name = z.name or f"Bölme #{zi + 1}"
 
-            # 2a. Çekmeceler
+            z_raw_niche_h = max(
+                getattr(z, "niche_height_mm", 0.0) or 0.0,
+                getattr(z, "appliance_niche_height_mm", 0.0) or 0.0,
+            )
+            z_niche_offset = getattr(z, "niche_bottom_offset_mm", 0.0) or 0.0
+            z_is_mid_niche = z_raw_niche_h > 0.0 and z_niche_offset > 0.0
+
+            z_lower_clear_h = round(min(z_niche_offset, clear_inner_h - 180.0), 2) if z_is_mid_niche else 0.0
+            z_mid_niche_h = (
+                round(min(z_raw_niche_h, max(100.0, clear_inner_h - z_lower_clear_h - t)), 2)
+                if z_is_mid_niche
+                else 0.0
+            )
+            z_upper_clear_h = (
+                round(clear_inner_h - z_lower_clear_h - z_mid_niche_h - 2.0 * t, 2)
+                if z_is_mid_niche
+                else 0.0
+            )
+            z_has_upper_shelf = z_is_mid_niche and z_upper_clear_h >= 80.0
+
+            # 2a. Açık Niş Ara Tablaları (Varsa)
+            if z_is_mid_niche:
+                zh_edge = EdgeBandSpec(
+                    length_1_mm=config.front_pvc_thickness_mm,
+                    length_2_mm=config.hidden_pvc_thickness_mm,
+                    width_1_mm=0.0,
+                    width_2_mm=0.0,
+                )
+                zh_cut_l, zh_cut_w, zh_ded_l, zh_ded_w = cls.compute_cut_dimensions(zw, d, zh_edge)
+                n_color = z.niche_color_hex or config.niche_color_hex or config.body_color_hex
+
+                # Niş Alt Tablası
+                parts.append(
+                    PanelPart(
+                        part_id=f"P{part_counter:02d}",
+                        code=f"{prefix}Z{zi + 1}_TABLA_ARA_NIS_ALT",
+                        name=f"{label_prefix}{z_name} Niş Alt Tablası",
+                        material=config.body_material,
+                        thickness_mm=t,
+                        quantity=1,
+                        net_length_mm=zw,
+                        net_width_mm=d,
+                        cut_length_mm=zh_cut_l,
+                        cut_width_mm=zh_cut_w,
+                        pvc_deduction_length_mm=zh_ded_l,
+                        pvc_deduction_width_mm=zh_ded_w,
+                        edge_band=zh_edge,
+                        area_m2=round((zw * d) / 1_000_000.0, 4),
+                        grain_direction="length",
+                        drills=[],
+                        grooves=[],
+                        transform_3d=Box3DTransform(
+                            center_x_mm=zc["centerX"],
+                            center_y_mm=round(base_offset_y + t + z_lower_clear_h + t / 2.0, 2),
+                            center_z_mm=0.0,
+                            size_x_mm=zw,
+                            size_y_mm=t,
+                            size_z_mm=d,
+                            color_hex=n_color,
+                            is_niche=True,
+                            module_index=module_idx,
+                        ),
+                    )
+                )
+                part_counter += 1
+
+                # Niş Üst Tablası
+                if z_has_upper_shelf:
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}Z{zi + 1}_TABLA_ARA_NIS_UST",
+                            name=f"{label_prefix}{z_name} Niş Üst Tablası",
+                            material=config.body_material,
+                            thickness_mm=t,
+                            quantity=1,
+                            net_length_mm=zw,
+                            net_width_mm=d,
+                            cut_length_mm=zh_cut_l,
+                            cut_width_mm=zh_cut_w,
+                            pvc_deduction_length_mm=zh_ded_l,
+                            pvc_deduction_width_mm=zh_ded_w,
+                            edge_band=zh_edge,
+                            area_m2=round((zw * d) / 1_000_000.0, 4),
+                            grain_direction="length",
+                            drills=[],
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=zc["centerX"],
+                                center_y_mm=round(base_offset_y + t + z_lower_clear_h + t + z_mid_niche_h + t / 2.0, 2),
+                                center_z_mm=0.0,
+                                size_x_mm=zw,
+                                size_y_mm=t,
+                                size_z_mm=d,
+                                color_hex=n_color,
+                                is_niche=True,
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+
+                # Niş Arka Aksan Paneli
+                if not getattr(z, "niche_back_open", False) and (z.niche_color_hex or config.niche_color_hex):
+                    accent_color = z.niche_color_hex or config.niche_color_hex
+                    no_edge_back = EdgeBandSpec(length_1_mm=0.0, length_2_mm=0.0, width_1_mm=0.0, width_2_mm=0.0)
+                    back_z = round(-d / 2.0 + MC.BACK_GROOVE_OFFSET_FROM_REAR_MM + MC.BACK_GROOVE_WIDTH_MM / 2.0, 2) if is_grooved else round(-d / 2.0 - 4.0, 2)
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}Z{zi + 1}_ARKALIK_NIS_AKSAN",
+                            name=f"{label_prefix}{z_name} Açık Niş Aksan Arkalığı",
+                            material="8mm Kontrast MDF-Lam",
+                            thickness_mm=8.0,
+                            quantity=1,
+                            net_length_mm=z_mid_niche_h,
+                            net_width_mm=zw,
+                            cut_length_mm=z_mid_niche_h,
+                            cut_width_mm=zw,
+                            pvc_deduction_length_mm=0.0,
+                            pvc_deduction_width_mm=0.0,
+                            edge_band=no_edge_back,
+                            area_m2=round((z_mid_niche_h * zw) / 1_000_000.0, 4),
+                            grain_direction="length",
+                            drills=[],
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=zc["centerX"],
+                                center_y_mm=round(base_offset_y + t + z_lower_clear_h + t + z_mid_niche_h / 2.0, 2),
+                                center_z_mm=back_z,
+                                size_x_mm=zw,
+                                size_y_mm=z_mid_niche_h,
+                                size_z_mm=8.0,
+                                color_hex=accent_color,
+                                is_niche=True,
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+
+            # 2b. Çekmeceler
+            z_active_drawer_h = z_lower_clear_h if z_is_mid_niche else clear_inner_h
             z_drawer_count = z.drawer_count or 0
             z_drawer_front_h = z.drawer_front_height_mm or 180.0
-            if z_drawer_count > 0 and z_drawer_count * z_drawer_front_h > clear_inner_h - 40.0:
-                z_drawer_front_h = round((clear_inner_h - 20.0) / z_drawer_count, 2)
+            if z_drawer_count > 0 and z_drawer_count * z_drawer_front_h > z_active_drawer_h - 20.0:
+                z_drawer_front_h = round((z_active_drawer_h - 10.0) / z_drawer_count, 2)
             z_drawer_zone_h = round(z_drawer_count * z_drawer_front_h, 2)
 
             if z_drawer_count > 0:
@@ -614,11 +799,16 @@ class BOMEngine:
                     )
                     part_counter += 1
 
-            # 2b. Elbise Askılığı
-            z_remain_h = round(clear_inner_h - z_drawer_zone_h, 2)
+            # 2c. Elbise Askılığı
+            z_remain_h = z_upper_clear_h if z_is_mid_niche else round(clear_inner_h - z_drawer_zone_h, 2)
             if z.has_hanging_rod and z_remain_h > 300.0:
                 rod_l = round(zw - 4.0, 2)
                 no_edge = EdgeBandSpec(length_1_mm=0.0, length_2_mm=0.0, width_1_mm=0.0, width_2_mm=0.0)
+                rod_center_y = (
+                    round(base_offset_y + t + z_lower_clear_h + t + z_mid_niche_h + t + z_upper_clear_h - 70.0, 2)
+                    if z_is_mid_niche
+                    else round(base_offset_y + t + clear_inner_h - 70.0, 2)
+                )
                 parts.append(
                     PanelPart(
                         part_id=f"P{part_counter:02d}",
@@ -640,7 +830,7 @@ class BOMEngine:
                         grooves=[],
                         transform_3d=Box3DTransform(
                             center_x_mm=zc["centerX"],
-                            center_y_mm=round(base_offset_y + t + clear_inner_h - 70.0, 2),
+                            center_y_mm=rod_center_y,
                             center_z_mm=0.0,
                             size_x_mm=rod_l,
                             size_y_mm=30.0,
@@ -653,7 +843,7 @@ class BOMEngine:
                 )
                 part_counter += 1
 
-            # 2c. Raflar
+            # 2d. Raflar
             if z.shelf_count > 0 and z_remain_h > 120.0:
                 shelf_net_l = round(zw - MC.SHELF_WIDTH_CLEARANCE_MM, 2)
                 shelf_net_w = round(d - rear_loss - MC.SHELF_FRONT_SETBACK_MM, 2)
@@ -668,9 +858,14 @@ class BOMEngine:
                 )
                 step_h = z_remain_h / (z.shelf_count + 1)
                 shelf_z_center = round((rear_loss - MC.SHELF_FRONT_SETBACK_MM) / 2.0, 2)
+                shelf_base_y = (
+                    round(base_offset_y + t + z_lower_clear_h + t + z_mid_niche_h + t, 2)
+                    if z_is_mid_niche
+                    else round(base_offset_y + t + z_drawer_zone_h, 2)
+                )
 
                 for s_idx in range(1, z.shelf_count + 1):
-                    shelf_y = round(base_offset_y + t + z_drawer_zone_h + s_idx * step_h, 2)
+                    shelf_y = round(shelf_base_y + s_idx * step_h, 2)
                     parts.append(
                         PanelPart(
                             part_id=f"P{part_counter:02d}",
@@ -704,19 +899,27 @@ class BOMEngine:
                     )
                     part_counter += 1
 
-            # 2d. Kapaklar
-            z_door_avail_h = round(clear_inner_h - z_drawer_zone_h, 2)
-            if z.door_type and z.door_type != DoorType.NONE and z_door_avail_h >= 200.0:
-                door_net_h = round(z_door_avail_h + (2.0 * t if z_drawer_count == 0 else t) - 4.0, 2)
+            # 2e. Kapaklar (Yardımcı Kapak Motoru)
+            def _build_zone_door_cavity(
+                avail_h: float,
+                y_center: float,
+                door_code_suffix: str = "",
+                door_name_suffix: str = "",
+            ) -> None:
+                nonlocal part_counter, total_handles, total_hinges, total_gas_struts
+                if not z.door_type or z.door_type == DoorType.NONE or avail_h < 180.0:
+                    return
+
+                door_net_h = round(avail_h - 4.0, 2)
                 door_edge = EdgeBandSpec(
                     length_1_mm=config.front_pvc_thickness_mm,
                     length_2_mm=config.front_pvc_thickness_mm,
                     width_1_mm=config.front_pvc_thickness_mm,
                     width_2_mm=config.front_pvc_thickness_mm,
                 )
-                door_y_center = round(base_offset_y + z_drawer_zone_h + z_door_avail_h / 2.0, 2)
                 door_z_center = round(d / 2.0 + t / 2.0 + 1.5, 2)
                 door_color = z.door_color_hex or config.door_color_hex
+                code_mid = f"{door_code_suffix}_" if door_code_suffix else ""
 
                 if z.door_type == DoorType.FLAP_UP:
                     door_net_w = round(zw - 2.0 * MC.DOOR_OUTER_GAP_MM, 2)
@@ -728,8 +931,8 @@ class BOMEngine:
                     parts.append(
                         PanelPart(
                             part_id=f"P{part_counter:02d}",
-                            code=f"{prefix}Z{zi + 1}_KAPAK_KALKAR",
-                            name=f"{label_prefix}{z_name} Kalkar Kapak",
+                            code=f"{prefix}Z{zi + 1}_KAPAK_{code_mid}KALKAR",
+                            name=f"{label_prefix}{z_name} {door_name_suffix}Kalkar Kapak",
                             material=door_mat,
                             thickness_mm=t,
                             quantity=1,
@@ -746,7 +949,7 @@ class BOMEngine:
                             grooves=[],
                             transform_3d=Box3DTransform(
                                 center_x_mm=zc["centerX"],
-                                center_y_mm=door_y_center,
+                                center_y_mm=y_center,
                                 center_z_mm=door_z_center,
                                 size_x_mm=door_net_w,
                                 size_y_mm=door_net_h,
@@ -771,11 +974,11 @@ class BOMEngine:
                     parts.append(
                         PanelPart(
                             part_id=f"P{part_counter:02d}",
-                            code=f"{prefix}Z{zi + 1}_KAPAK_TEK",
+                            code=f"{prefix}Z{zi + 1}_KAPAK_{code_mid}TEK",
                             name=(
-                                f"{label_prefix}{z_name} Tek Kapak (Sol Menteşeli)"
+                                f"{label_prefix}{z_name} {door_name_suffix}Tek Kapak (Sol Menteşeli)"
                                 if hinge_left
-                                else f"{label_prefix}{z_name} Tek Kapak (Sağ Menteşeli)"
+                                else f"{label_prefix}{z_name} {door_name_suffix}Tek Kapak (Sağ Menteşeli)"
                             ),
                             material=door_mat,
                             thickness_mm=t,
@@ -793,7 +996,7 @@ class BOMEngine:
                             grooves=[],
                             transform_3d=Box3DTransform(
                                 center_x_mm=zc["centerX"],
-                                center_y_mm=door_y_center,
+                                center_y_mm=y_center,
                                 center_z_mm=door_z_center,
                                 size_x_mm=door_net_w,
                                 size_y_mm=door_net_h,
@@ -821,8 +1024,8 @@ class BOMEngine:
                         parts.append(
                             PanelPart(
                                 part_id=f"P{part_counter:02d}",
-                                code=f"{prefix}Z{zi + 1}_KAPAK_{side_code}",
-                                name=f"{label_prefix}{z_name} {side_label}",
+                                code=f"{prefix}Z{zi + 1}_KAPAK_{code_mid}{side_code}",
+                                name=f"{label_prefix}{z_name} {door_name_suffix}{side_label}",
                                 material=door_mat,
                                 thickness_mm=t,
                                 quantity=1,
@@ -839,7 +1042,7 @@ class BOMEngine:
                                 grooves=[],
                                 transform_3d=Box3DTransform(
                                     center_x_mm=round(zc["centerX"] + rel_cx, 2),
-                                    center_y_mm=door_y_center,
+                                    center_y_mm=y_center,
                                     center_z_mm=door_z_center,
                                     size_x_mm=door_net_w,
                                     size_y_mm=door_net_h,
@@ -852,6 +1055,31 @@ class BOMEngine:
                             )
                         )
                         part_counter += 1
+
+            if z_is_mid_niche:
+                if z_drawer_count == 0 and z_lower_clear_h >= 180.0:
+                    _build_zone_door_cavity(
+                        round(z_lower_clear_h + t, 2),
+                        round(base_offset_y + t / 2.0 + z_lower_clear_h / 2.0, 2),
+                        "ALT",
+                        "Alt ",
+                    )
+                if z_has_upper_shelf and z_upper_clear_h >= 180.0:
+                    _build_zone_door_cavity(
+                        round(z_upper_clear_h + t, 2),
+                        round(base_offset_y + t + z_lower_clear_h + t + z_mid_niche_h + t / 2.0 + z_upper_clear_h / 2.0, 2),
+                        "UST",
+                        "Üst ",
+                    )
+            else:
+                z_door_avail_h = round(clear_inner_h - z_drawer_zone_h, 2)
+                if z_door_avail_h >= 200.0:
+                    _build_zone_door_cavity(
+                        round(z_door_avail_h + (2.0 * t if z_drawer_count == 0 else t), 2),
+                        round(base_offset_y + z_drawer_zone_h + z_door_avail_h / 2.0, 2),
+                        "",
+                        "",
+                    )
 
         return parts, part_counter, total_handles, total_hinges, total_gas_struts
 
@@ -878,9 +1106,15 @@ class BOMEngine:
         w = config.width_mm
         h = config.height_mm
         d = config.depth_mm
-        plinth_h = config.plinth_height_mm if config.has_plinth else 0.0
-        niche_h = max(0.0, getattr(config, "appliance_niche_height_mm", 0.0))
-        base_offset_y = round(max(plinth_h, niche_h), 2)
+        raw_niche_h = max(
+            float(getattr(config, "niche_height_mm", 0.0) or 0.0),
+            float(getattr(config, "appliance_niche_height_mm", 0.0) or 0.0),
+        )
+        niche_offset = float(getattr(config, "niche_bottom_offset_mm", 0.0) or 0.0)
+        is_bottom_niche = raw_niche_h > 0 and niche_offset <= 0
+        niche_h = min(raw_niche_h, max(0.0, h - 260.0)) if is_bottom_niche else 0.0
+        plinth_h = config.plinth_height_mm if (config.has_plinth and not is_bottom_niche) else 0.0
+        base_offset_y = round(niche_h if is_bottom_niche else plinth_h, 2)
         door_mat = (
             config.door_material.strip()
             if getattr(config, "door_material", "") and config.door_material.strip()
@@ -890,12 +1124,42 @@ class BOMEngine:
         inner_w = round(w - (2.0 * t), 2)
         clear_inner_h = round(h - base_offset_y - (2.0 * t), 2)
 
+        # Açık Orta Niş Parametreleri
+        is_mid_niche = raw_niche_h > 0 and niche_offset > 0
+        lower_clear_h = (
+            round(min(niche_offset, clear_inner_h - 180.0), 2)
+            if is_mid_niche
+            else 0.0
+        )
+        mid_niche_h = (
+            round(min(raw_niche_h, max(100.0, clear_inner_h - lower_clear_h - t)), 2)
+            if is_mid_niche
+            else 0.0
+        )
+        upper_clear_h = (
+            round(clear_inner_h - lower_clear_h - mid_niche_h - 2.0 * t, 2)
+            if is_mid_niche
+            else 0.0
+        )
+        has_upper_niche_shelf = is_mid_niche and upper_clear_h >= 80.0
+
         # Çekmece bölgesi yüksekliği kontrolü
         drawer_count = config.drawer_count
         drawer_front_h = config.drawer_front_height_mm
-        if drawer_count * drawer_front_h > clear_inner_h - 40.0 and drawer_count > 0:
-            drawer_front_h = round((clear_inner_h - 20.0) / drawer_count, 2)
+        active_drawer_space = lower_clear_h if is_mid_niche else clear_inner_h
+        if drawer_count > 0 and (drawer_count * drawer_front_h > active_drawer_space - 20.0):
+            drawer_front_h = round((active_drawer_space - 10.0) / drawer_count, 2)
         drawer_zone_h = round(drawer_count * drawer_front_h, 2)
+
+        # Niş Ara Tablaları Delikleri
+        niche_shelf_x_coords: list[float] = []
+        if is_mid_niche:
+            t_half = t / 2.0
+            niche_shelf_x_coords.append(round(base_offset_y + t + lower_clear_h + t_half, 2))
+            if has_upper_niche_shelf:
+                niche_shelf_x_coords.append(
+                    round(base_offset_y + t + lower_clear_h + t + mid_niche_h + t_half, 2)
+                )
 
         # 1. Sol ve Sağ Yan Dikmeler
         side_edge = EdgeBandSpec(
@@ -915,6 +1179,7 @@ class BOMEngine:
             drawer_count,
             drawer_front_h,
             fastener_type=config.fastener_type,
+            niche_shelf_x_coords=niche_shelf_x_coords,
         )
         side_notch_str = (
             f"Süpürgelik Kertmesi: {config.baseboard_notch_depth_mm:.0f}×{config.baseboard_notch_height_mm:.0f}mm"
@@ -1109,8 +1374,122 @@ class BOMEngine:
         )
         part_counter += 1
 
-        # 3. Alt Baza Kayıtları (Cihaz nişi yoksa)
-        if config.has_plinth and plinth_h > 0.0 and niche_h <= 0.0:
+        # Açık Orta Niş Ara Tablaları ve Aksan Arkalığı
+        if is_mid_niche:
+            # 1. Niş Alt Tablası
+            parts.append(
+                PanelPart(
+                    part_id=f"P{part_counter:02d}",
+                    code=f"{prefix}TABLA_ARA_NIS_ALT",
+                    name=f"{label_prefix}Açık Niş Alt Tablası",
+                    material=config.body_material,
+                    thickness_mm=t,
+                    quantity=1,
+                    net_length_mm=inner_w,
+                    net_width_mm=d,
+                    cut_length_mm=horiz_cut_l,
+                    cut_width_mm=horiz_cut_w,
+                    pvc_deduction_length_mm=horiz_ded_l,
+                    pvc_deduction_width_mm=horiz_ded_w,
+                    edge_band=horiz_edge,
+                    area_m2=round((inner_w * d) / 1_000_000.0, 4),
+                    grain_direction="length",
+                    drills=horiz_drills,
+                    grooves=horiz_grooves,
+                    transform_3d=Box3DTransform(
+                        center_x_mm=x_offset_mm,
+                        center_y_mm=round(base_offset_y + t + lower_clear_h + t / 2.0, 2),
+                        center_z_mm=0.0,
+                        size_x_mm=inner_w,
+                        size_y_mm=t,
+                        size_z_mm=d,
+                        color_hex=config.niche_color_hex or config.body_color_hex,
+                        is_niche=True,
+                        module_index=module_idx,
+                    ),
+                )
+            )
+            part_counter += 1
+
+            # 2. Niş Üst Tablası (varsa)
+            if has_upper_niche_shelf:
+                parts.append(
+                    PanelPart(
+                        part_id=f"P{part_counter:02d}",
+                        code=f"{prefix}TABLA_ARA_NIS_UST",
+                        name=f"{label_prefix}Açık Niş Üst Tablası (Üst Dolap Tabanı)",
+                        material=config.body_material,
+                        thickness_mm=t,
+                        quantity=1,
+                        net_length_mm=inner_w,
+                        net_width_mm=d,
+                        cut_length_mm=horiz_cut_l,
+                        cut_width_mm=horiz_cut_w,
+                        pvc_deduction_length_mm=horiz_ded_l,
+                        pvc_deduction_width_mm=horiz_ded_w,
+                        edge_band=horiz_edge,
+                        area_m2=round((inner_w * d) / 1_000_000.0, 4),
+                        grain_direction="length",
+                        drills=horiz_drills,
+                        grooves=horiz_grooves,
+                        transform_3d=Box3DTransform(
+                            center_x_mm=x_offset_mm,
+                            center_y_mm=round(base_offset_y + t + lower_clear_h + t + mid_niche_h + t / 2.0, 2),
+                            center_z_mm=0.0,
+                            size_x_mm=inner_w,
+                            size_y_mm=t,
+                            size_z_mm=d,
+                            color_hex=config.niche_color_hex or config.body_color_hex,
+                            is_niche=True,
+                            module_index=module_idx,
+                        ),
+                    )
+                )
+                part_counter += 1
+
+            # 3. Niş Aksan Arkalığı (Eğer niche_back_open false ve niche_color_hex tanımlıysa)
+            if not config.niche_back_open and config.niche_color_hex:
+                liner_z = (
+                    round(-d / 2.0 + MC.BACK_GROOVE_OFFSET_FROM_REAR_MM + MC.BACK_GROOVE_WIDTH_MM / 2.0, 2)
+                    if config.back_panel_type == BackPanelType.GROOVED_8MM
+                    else round(-d / 2.0 - 4.0, 2)
+                )
+                parts.append(
+                    PanelPart(
+                        part_id=f"P{part_counter:02d}",
+                        code=f"{prefix}ARKALIK_NIS_AKSAN",
+                        name=f"{label_prefix}Açık Niş Arka Aksan Paneli",
+                        material="8mm Kontrast MDF-Lam",
+                        thickness_mm=8.0,
+                        quantity=1,
+                        net_length_mm=mid_niche_h,
+                        net_width_mm=inner_w,
+                        cut_length_mm=mid_niche_h,
+                        cut_width_mm=inner_w,
+                        pvc_deduction_length_mm=0.0,
+                        pvc_deduction_width_mm=0.0,
+                        edge_band=EdgeBandSpec(length_1_mm=0.0, length_2_mm=0.0, width_1_mm=0.0, width_2_mm=0.0),
+                        area_m2=round((mid_niche_h * inner_w) / 1_000_000.0, 4),
+                        grain_direction="length",
+                        drills=[],
+                        grooves=[],
+                        transform_3d=Box3DTransform(
+                            center_x_mm=x_offset_mm,
+                            center_y_mm=round(base_offset_y + t + lower_clear_h + t + mid_niche_h / 2.0, 2),
+                            center_z_mm=liner_z,
+                            size_x_mm=inner_w,
+                            size_y_mm=mid_niche_h,
+                            size_z_mm=8.0,
+                            color_hex=config.niche_color_hex,
+                            is_niche=True,
+                            module_index=module_idx,
+                        ),
+                    )
+                )
+                part_counter += 1
+
+        # 3. Alt Baza Kayıtları (Cihaz alt nişi yoksa)
+        if config.has_plinth and plinth_h > 0.0 and not is_bottom_niche:
             plinth_edge = EdgeBandSpec(
                 length_1_mm=config.hidden_pvc_thickness_mm,
                 length_2_mm=config.hidden_pvc_thickness_mm,
@@ -1156,7 +1535,7 @@ class BOMEngine:
                 )
                 part_counter += 1
 
-        # 6. Arkalık Paneli (Niş varsa yalnızca üst dolap arkalığı)
+        # 6. Arkalık Paneli
         no_edge = EdgeBandSpec(
             length_1_mm=0.0, length_2_mm=0.0, width_1_mm=0.0, width_2_mm=0.0
         )
@@ -1180,41 +1559,109 @@ class BOMEngine:
             back_w = round(w - 4.0, 2)
             back_z = round(-d / 2.0 - back_t / 2.0, 2)
 
-        parts.append(
-            PanelPart(
-                part_id=f"P{part_counter:02d}",
-                code=f"{prefix}ARKALIK",
-                name=(
-                    f"{label_prefix}Üst Dolap Arkalık Paneli"
-                    if niche_h > 0.0
-                    else f"{label_prefix}Arkalık Paneli"
-                ),
-                material=back_mat,
-                thickness_mm=back_t,
-                quantity=1,
-                net_length_mm=back_l,
-                net_width_mm=back_w,
-                cut_length_mm=back_l,
-                cut_width_mm=back_w,
-                pvc_deduction_length_mm=0.0,
-                pvc_deduction_width_mm=0.0,
-                edge_band=no_edge,
-                area_m2=round((back_l * back_w) / 1_000_000.0, 4),
-                drills=[],
-                grooves=[],
-                transform_3d=Box3DTransform(
-                    center_x_mm=x_offset_mm,
-                    center_y_mm=round(base_offset_y + (h - base_offset_y) / 2.0, 2),
-                    center_z_mm=back_z,
-                    size_x_mm=back_w,
-                    size_y_mm=back_l,
-                    size_z_mm=back_t,
-                    color_hex="#E5E0D5",
-                    module_index=module_idx,
-                ),
+        if is_mid_niche and config.niche_back_open:
+            lower_back_l = round(lower_clear_h + t, 2)
+            parts.append(
+                PanelPart(
+                    part_id=f"P{part_counter:02d}",
+                    code=f"{prefix}ARKALIK_ALT",
+                    name=f"{label_prefix}Alt Bölme Arkalık Paneli",
+                    material=back_mat,
+                    thickness_mm=back_t,
+                    quantity=1,
+                    net_length_mm=lower_back_l,
+                    net_width_mm=back_w,
+                    cut_length_mm=lower_back_l,
+                    cut_width_mm=back_w,
+                    pvc_deduction_length_mm=0.0,
+                    pvc_deduction_width_mm=0.0,
+                    edge_band=no_edge,
+                    area_m2=round((lower_back_l * back_w) / 1_000_000.0, 4),
+                    drills=[],
+                    grooves=[],
+                    transform_3d=Box3DTransform(
+                        center_x_mm=x_offset_mm,
+                        center_y_mm=round(base_offset_y + lower_back_l / 2.0, 2),
+                        center_z_mm=back_z,
+                        size_x_mm=back_w,
+                        size_y_mm=lower_back_l,
+                        size_z_mm=back_t,
+                        color_hex="#E5E0D5",
+                        module_index=module_idx,
+                    ),
+                )
             )
-        )
-        part_counter += 1
+            part_counter += 1
+
+            if has_upper_niche_shelf and upper_clear_h >= 80.0:
+                upper_back_l = round(upper_clear_h + t, 2)
+                parts.append(
+                    PanelPart(
+                        part_id=f"P{part_counter:02d}",
+                        code=f"{prefix}ARKALIK_UST",
+                        name=f"{label_prefix}Üst Bölme Arkalık Paneli",
+                        material=back_mat,
+                        thickness_mm=back_t,
+                        quantity=1,
+                        net_length_mm=upper_back_l,
+                        net_width_mm=back_w,
+                        cut_length_mm=upper_back_l,
+                        cut_width_mm=back_w,
+                        pvc_deduction_length_mm=0.0,
+                        pvc_deduction_width_mm=0.0,
+                        edge_band=no_edge,
+                        area_m2=round((upper_back_l * back_w) / 1_000_000.0, 4),
+                        drills=[],
+                        grooves=[],
+                        transform_3d=Box3DTransform(
+                            center_x_mm=x_offset_mm,
+                            center_y_mm=round(h - upper_back_l / 2.0, 2),
+                            center_z_mm=back_z,
+                            size_x_mm=back_w,
+                            size_y_mm=upper_back_l,
+                            size_z_mm=back_t,
+                            color_hex="#E5E0D5",
+                            module_index=module_idx,
+                        ),
+                    )
+                )
+                part_counter += 1
+        else:
+            parts.append(
+                PanelPart(
+                    part_id=f"P{part_counter:02d}",
+                    code=f"{prefix}ARKALIK",
+                    name=(
+                        f"{label_prefix}Üst Dolap Arkalık Paneli"
+                        if niche_h > 0.0
+                        else f"{label_prefix}Arkalık Paneli"
+                    ),
+                    material=back_mat,
+                    thickness_mm=back_t,
+                    quantity=1,
+                    net_length_mm=back_l,
+                    net_width_mm=back_w,
+                    cut_length_mm=back_l,
+                    cut_width_mm=back_w,
+                    pvc_deduction_length_mm=0.0,
+                    pvc_deduction_width_mm=0.0,
+                    edge_band=no_edge,
+                    area_m2=round((back_l * back_w) / 1_000_000.0, 4),
+                    drills=[],
+                    grooves=[],
+                    transform_3d=Box3DTransform(
+                        center_x_mm=x_offset_mm,
+                        center_y_mm=round(base_offset_y + (h - base_offset_y) / 2.0, 2),
+                        center_z_mm=back_z,
+                        size_x_mm=back_w,
+                        size_y_mm=back_l,
+                        size_z_mm=back_t,
+                        color_hex="#E5E0D5",
+                        module_index=module_idx,
+                    ),
+                )
+            )
+            part_counter += 1
 
 
         total_handles = 0
@@ -1443,7 +1890,8 @@ class BOMEngine:
 
             # 5. Hareketli Raflar
             remaining_clear_h = round(clear_inner_h - drawer_zone_h, 2)
-            if config.shelf_count > 0 and remaining_clear_h > 120.0:
+            shelf_avail_space = upper_clear_h if is_mid_niche else remaining_clear_h
+            if config.shelf_count > 0 and shelf_avail_space > 120.0:
                 shelf_net_l = round(inner_w - MC.SHELF_WIDTH_CLEARANCE_MM, 2)
                 if config.back_panel_type == BackPanelType.GROOVED_8MM:
                     rear_loss = MC.BACK_GROOVE_OFFSET_FROM_REAR_MM + MC.BACK_GROOVE_WIDTH_MM
@@ -1461,13 +1909,16 @@ class BOMEngine:
                     shelf_net_l, shelf_net_w, shelf_edge
                 )
 
-                step_h = remaining_clear_h / (config.shelf_count + 1)
+                step_h = shelf_avail_space / (config.shelf_count + 1)
                 shelf_z_center = round((rear_loss - MC.SHELF_FRONT_SETBACK_MM) / 2.0, 2)
+                shelf_base_y = (
+                    round(base_offset_y + t + lower_clear_h + t + mid_niche_h + t, 2)
+                    if is_mid_niche
+                    else round(base_offset_y + t + drawer_zone_h, 2)
+                )
 
                 for s_idx in range(1, config.shelf_count + 1):
-                    shelf_y = round(
-                        base_offset_y + t + drawer_zone_h + (s_idx * step_h), 2
-                    )
+                    shelf_y = round(shelf_base_y + (s_idx * step_h), 2)
                     parts.append(
                         PanelPart(
                             part_id=f"P{part_counter:02d}",
@@ -1500,21 +1951,28 @@ class BOMEngine:
                     )
                     part_counter += 1
 
-            # 7. Kapaklar (Çekmece/Niş bölgesinin üstünde kalan alan için)
+            # 7. Kapaklar
             total_hinges = 0
-            door_avail_h = round((h - base_offset_y - drawer_zone_h), 2)
-            if config.door_type != DoorType.NONE and door_avail_h >= 240.0:
-                door_net_h = round(door_avail_h - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+
+            def _build_cavity_doors(
+                avail_h: float,
+                y_center: float,
+                code_suffix: str = "",
+                name_prefix: str = "",
+            ) -> None:
+                nonlocal part_counter, total_hinges, total_handles
+                if config.door_type == DoorType.NONE or avail_h < 180.0:
+                    return
+
+                door_net_h = round(avail_h - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
                 door_edge = EdgeBandSpec(
                     length_1_mm=config.front_pvc_thickness_mm,
                     length_2_mm=config.front_pvc_thickness_mm,
                     width_1_mm=config.front_pvc_thickness_mm,
                     width_2_mm=config.front_pvc_thickness_mm,
                 )
-                door_y_center = round(
-                    base_offset_y + drawer_zone_h + (door_avail_h / 2.0), 2
-                )
                 door_z_center = round(d / 2.0 + t / 2.0 + 1.5, 2)
+                code_mid = f"{code_suffix}_" if code_suffix else ""
 
                 if config.door_type == DoorType.FLAP_UP:
                     door_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
@@ -1529,7 +1987,7 @@ class BOMEngine:
                             diameter_mm=MC.HINGE_CUP_DIAMETER_MM,
                             depth_mm=MC.HINGE_CUP_DEPTH_MM,
                             layer=MC.LAYER_HINGE_CUP,
-                            description="Üst Kalkar Kapak Sol Tas Menteşe Yuvası (Ø35mm)",
+                            description=f"{name_prefix}Üst Kalkar Kapak Sol Tas Menteşe Yuvası (Ø35mm)",
                         ),
                         DrillPoint(
                             x_mm=top_hinge_x,
@@ -1537,7 +1995,7 @@ class BOMEngine:
                             diameter_mm=MC.HINGE_CUP_DIAMETER_MM,
                             depth_mm=MC.HINGE_CUP_DEPTH_MM,
                             layer=MC.LAYER_HINGE_CUP,
-                            description="Üst Kalkar Kapak Sağ Tas Menteşe Yuvası (Ø35mm)",
+                            description=f"{name_prefix}Üst Kalkar Kapak Sağ Tas Menteşe Yuvası (Ø35mm)",
                         ),
                     ]
                     total_hinges += 2
@@ -1546,8 +2004,8 @@ class BOMEngine:
                     parts.append(
                         PanelPart(
                             part_id=f"P{part_counter:02d}",
-                            code=f"{prefix}KAPAK_KALKAR",
-                            name=f"{label_prefix}Üst Kalkar Kapak (Gazlı Pistonlu)",
+                            code=f"{prefix}KAPAK_{code_mid}KALKAR",
+                            name=f"{label_prefix}{name_prefix}Kalkar Kapak (Gazlı Pistonlu)",
                             material=door_mat,
                             thickness_mm=t,
                             quantity=1,
@@ -1563,7 +2021,7 @@ class BOMEngine:
                             grooves=[],
                             transform_3d=Box3DTransform(
                                 center_x_mm=x_offset_mm,
-                                center_y_mm=door_y_center,
+                                center_y_mm=y_center,
                                 center_z_mm=door_z_center,
                                 size_x_mm=door_net_w,
                                 size_y_mm=door_net_h,
@@ -1591,11 +2049,11 @@ class BOMEngine:
                     parts.append(
                         PanelPart(
                             part_id=f"P{part_counter:02d}",
-                            code=f"{prefix}KAPAK_TEK",
+                            code=f"{prefix}KAPAK_{code_mid}TEK",
                             name=(
-                                f"{label_prefix}Tek Kapak (Sol Menteşeli)"
+                                f"{label_prefix}{name_prefix}Tek Kapak (Sol Menteşeli)"
                                 if hinge_left
-                                else f"{label_prefix}Tek Kapak (Sağ Menteşeli)"
+                                else f"{label_prefix}{name_prefix}Tek Kapak (Sağ Menteşeli)"
                             ),
                             material=door_mat,
                             thickness_mm=t,
@@ -1612,7 +2070,7 @@ class BOMEngine:
                             grooves=[],
                             transform_3d=Box3DTransform(
                                 center_x_mm=x_offset_mm,
-                                center_y_mm=door_y_center,
+                                center_y_mm=y_center,
                                 center_z_mm=door_z_center,
                                 size_x_mm=door_net_w,
                                 size_y_mm=door_net_h,
@@ -1655,8 +2113,8 @@ class BOMEngine:
                         parts.append(
                             PanelPart(
                                 part_id=f"P{part_counter:02d}",
-                                code=f"{prefix}KAPAK_{side_code}",
-                                name=f"{label_prefix}{side_label}",
+                                code=f"{prefix}KAPAK_{code_mid}{side_code}",
+                                name=f"{label_prefix}{name_prefix}{side_label}",
                                 material=door_mat,
                                 thickness_mm=t,
                                 quantity=1,
@@ -1672,7 +2130,7 @@ class BOMEngine:
                                 grooves=[],
                                 transform_3d=Box3DTransform(
                                     center_x_mm=round(x_offset_mm + rel_cx, 2),
-                                    center_y_mm=door_y_center,
+                                    center_y_mm=y_center,
                                     center_z_mm=door_z_center,
                                     size_x_mm=door_net_w,
                                     size_y_mm=door_net_h,
@@ -1685,6 +2143,31 @@ class BOMEngine:
                             )
                         )
                         part_counter += 1
+
+            if is_mid_niche:
+                if drawer_count == 0 and lower_clear_h >= 180.0:
+                    _build_cavity_doors(
+                        round(lower_clear_h + t, 2),
+                        round(base_offset_y + t / 2.0 + lower_clear_h / 2.0, 2),
+                        "ALT",
+                        "Alt ",
+                    )
+                if has_upper_niche_shelf and upper_clear_h >= 180.0:
+                    _build_cavity_doors(
+                        round(upper_clear_h + t, 2),
+                        round(base_offset_y + t + lower_clear_h + t + mid_niche_h + t / 2.0 + upper_clear_h / 2.0, 2),
+                        "UST",
+                        "Üst ",
+                    )
+            else:
+                door_avail_h = round((h - base_offset_y - drawer_zone_h), 2)
+                if door_avail_h >= 240.0:
+                    _build_cavity_doors(
+                        door_avail_h,
+                        round(base_offset_y + drawer_zone_h + (door_avail_h / 2.0), 2),
+                        "",
+                        "",
+                    )
 
         # 8. Şantiye Rölöve Duvar Kapama Payları (Scribing Fillers / Kör Çıtalar)
         filler_edge = EdgeBandSpec(
@@ -1749,12 +2232,27 @@ class BOMEngine:
             if has_zones
             else drawer_count
         )
-        minifix_sets = (
+        intermediate_shelf_conn_units = (
+            (2 if has_upper_niche_shelf else 1) * (conn_count_per_corner * 2)
+            if is_mid_niche
+            else 0
+        )
+        base_conn_units = (
             conn_count_per_corner * 4
             + (divider_count * conn_count_per_corner * 2)
             + (effective_drawers * 4)
+            + intermediate_shelf_conn_units
         )
-        dowel_count = minifix_sets + (8 if config.has_plinth else 0)
+        minifix_sets = (
+            0
+            if config.fastener_type == FastenerType.CABINEO_12
+            else base_conn_units
+        )
+        dowel_count = (
+            0
+            if config.fastener_type == FastenerType.CABINEO_12
+            else base_conn_units + (8 if (config.has_plinth and not is_bottom_niche) else 0)
+        )
 
         return (
             parts,

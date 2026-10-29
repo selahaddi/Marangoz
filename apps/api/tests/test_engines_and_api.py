@@ -17,6 +17,7 @@ from app.main import app
 from app.schemas.cabinet import (
     BackPanelType,
     CabinetConfig,
+    CabinetType,
     CabinetZone,
     CuttingMode,
     DoorType,
@@ -438,6 +439,98 @@ def test_cabinet_zones_and_vertical_dividers() -> None:
     assert hw_codes["HRD-RAFP-05"] == 16.0
     # 2 çekmece rayı takımı
     assert any("HRD-CRAY" in c for c in hw_codes)
+
+
+def test_mid_niche_coffee_station_and_appliance_cutouts():
+    """Faz 2: Açık Niş, Kahve Barı, Ankastre Fırın ve Parçalı Kapak / Arkalık CAD/CAM Mühendislik Testi."""
+    # 1. Tekil Modül Açık Niş (Kahve Barı / Ankastre)
+    cfg_coffee = CabinetConfig(
+        name="Kahve Köşesi Dolabı",
+        cabinet_type=CabinetType.KITCHEN_BASE,
+        width_mm=900.0,
+        height_mm=2100.0,
+        depth_mm=600.0,
+        shelf_count=2,
+        door_type=DoorType.DOUBLE,
+        drawer_count=0,
+        has_plinth=True,
+        plinth_height_mm=80.0,
+        niche_height_mm=500.0,
+        niche_bottom_offset_mm=850.0,
+        niche_color_hex="#9C6644",
+        niche_back_open=True,
+    )
+    bom_coffee = BOMEngine.generate_bom(cfg_coffee)
+    part_codes = [p.code for p in bom_coffee.parts]
+
+    # Niş ara tablaları mevcut olmalı
+    assert "TABLA_ARA_NIS_ALT" in part_codes
+    assert "TABLA_ARA_NIS_UST" in part_codes
+
+    # Arkalık açık olduğu için ikiye bölünmeli
+    assert "ARKALIK_ALT" in part_codes
+    assert "ARKALIK_UST" in part_codes
+    assert "ARKALIK" not in part_codes
+
+    # Kapaklar niş boşluğunu açık bırakarak alt ve üst olarak ayrılmalı
+    assert "KAPAK_ALT_SOL" in part_codes
+    assert "KAPAK_ALT_SAG" in part_codes
+    assert "KAPAK_UST_SOL" in part_codes
+    assert "KAPAK_UST_SAG" in part_codes
+
+    # Niş ara tablası is_niche bayrağını taşımalı
+    nis_alt = next(p for p in bom_coffee.parts if p.code == "TABLA_ARA_NIS_ALT")
+    assert nis_alt.transform_3d.is_niche is True
+    assert nis_alt.transform_3d.color_hex == "#9C6644"
+
+    # Yan dikmelerde niş rafları için Minifix/Dowel veya Cabineo delikleri üretilmeli
+    yan_sol = next(p for p in bom_coffee.parts if p.code == "YAN_SOL")
+    nis_drills = [d for d in yan_sol.drills if "Niş Ara Tabla" in d.description]
+    assert len(nis_drills) > 0
+
+    # 2. Bölme Bazlı Açık Niş (Multi-Zone Niche)
+    cfg_zones_niche = CabinetConfig(
+        name="2 Bölmeli Ankastre Dolap",
+        cabinet_type=CabinetType.WARDROBE,
+        width_mm=1600.0,
+        height_mm=2200.0,
+        depth_mm=600.0,
+        zones=[
+            CabinetZone(
+                name="Ankastre Fırın Bölmesi",
+                width_ratio=1.0,
+                door_type=DoorType.DOUBLE,
+                niche_height_mm=600.0,
+                niche_bottom_offset_mm=800.0,
+                niche_color_hex="#2D3134",
+                niche_back_open=True,
+            ),
+            CabinetZone(
+                name="Kiler Bölmesi",
+                width_ratio=1.0,
+                shelf_count=4,
+                door_type=DoorType.SINGLE_RIGHT,
+            ),
+        ],
+    )
+    bom_zones = BOMEngine.generate_bom(cfg_zones_niche)
+    z_codes = [p.code for p in bom_zones.parts]
+
+    assert "Z1_TABLA_ARA_NIS_ALT" in z_codes
+    assert "Z1_TABLA_ARA_NIS_UST" in z_codes
+    assert "Z1_KAPAK_ALT_SOL" in z_codes
+    assert "Z1_KAPAK_UST_SOL" in z_codes
+    assert "Z2_KAPAK_TEK" in z_codes
+
+    # 3. Doğal Dil Ayrıştırıcısı (Semantic Parser) ile Kahve Barı Tespiti
+    prompt = "210 cm boyunda 90 cm genişliğinde kahve köşesi, 50 cm açık nişli ve arkası açık, üst ve alt çift kapaklı"
+    parsed_cfg = SemanticParserEngine._deterministic_rule_parse(prompt)
+    assert parsed_cfg.height_mm == 2100.0
+    assert parsed_cfg.width_mm == 900.0
+    assert parsed_cfg.niche_height_mm == 500.0
+    assert parsed_cfg.niche_bottom_offset_mm == 850.0
+    assert parsed_cfg.niche_back_open is True
+
 
 
 
