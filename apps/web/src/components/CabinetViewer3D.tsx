@@ -11,6 +11,7 @@ import {
   Layers,
   Maximize2,
   Minimize2,
+  Ruler,
   ScanLine,
   X as CloseIcon,
 } from "lucide-react";
@@ -127,6 +128,156 @@ function createTrapezoidPanelGeometry(
   geom.translate(0, 0, -sz / 2.0);
   geom.computeVertexNormals();
   return geom;
+}
+
+let cachedWoodBumpMap: THREE.CanvasTexture | null = null;
+
+/**
+ * Ahşap ve melamin paneller için sıfır harici ağ bağımlılığı olan,
+ * dinamik Canvas tabanlı mikro ahşap lifi PBR kabartma haritası (bump map) üretir.
+ */
+function getProceduralWoodBumpMap(): THREE.CanvasTexture {
+  if (cachedWoodBumpMap) return cachedWoodBumpMap;
+
+  if (typeof window === "undefined" || !window.document) {
+    return new THREE.CanvasTexture({} as HTMLCanvasElement);
+  }
+
+  const canvas = window.document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext("2d");
+
+  if (ctx) {
+    ctx.fillStyle = "#808080";
+    ctx.fillRect(0, 0, 512, 512);
+
+    const imgData = ctx.getImageData(0, 0, 512, 512);
+    const data = imgData.data;
+
+    // Sinüsoidal ahşap damarları ve mikro lif gürültüsü
+    for (let y = 0; y < 512; y++) {
+      for (let x = 0; x < 512; x++) {
+        const grainWave = Math.sin((x / 512) * 28 + Math.sin(y / 36) * 3.0);
+        const fineNoise = (Math.random() - 0.5) * 16;
+        const val = Math.min(255, Math.max(0, 128 + grainWave * 14 + fineNoise));
+        const idx = (y * 512 + x) * 4;
+        data[idx] = val;
+        data[idx + 1] = val;
+        data[idx + 2] = val;
+        data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(2, 2);
+  texture.needsUpdate = true;
+  cachedWoodBumpMap = texture;
+  return texture;
+}
+
+interface PBRMaterialParams {
+  roughness: number;
+  metalness: number;
+  bumpMap?: THREE.CanvasTexture;
+  bumpScale?: number;
+  transparent: boolean;
+  opacity: number;
+  depthWrite: boolean;
+}
+
+/**
+ * Malzeme ve renk türüne göre fiziksel tabanlı (PBR) render parametrelerini hesaplar.
+ */
+function getMaterialPBRParams(
+  part: PanelPart,
+  config: CabinetConfig,
+  xrayMode: boolean
+): PBRMaterialParams {
+  if (xrayMode) {
+    return {
+      roughness: 0.1,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+    };
+  }
+
+  const colorHex = (part.transform_3d?.color_hex || "").toLowerCase();
+  const matName = (part.material || config.body_material || "").toLowerCase();
+
+  const isWood =
+    matName.includes("meşe") ||
+    matName.includes("ceviz") ||
+    matName.includes("ahsap") ||
+    matName.includes("ahşap") ||
+    matName.includes("çam") ||
+    colorHex === "#d2b48c" ||
+    colorHex === "#c19a6b" ||
+    colorHex === "#8b5a2b" ||
+    colorHex === "#a0522d" ||
+    colorHex === "#deb887";
+
+  const isDarkMatte =
+    colorHex.includes("334155") ||
+    colorHex.includes("1e293b") ||
+    colorHex.includes("0f172a") ||
+    colorHex.includes("18181b") ||
+    colorHex.includes("27272a") ||
+    matName.includes("antrasit") ||
+    matName.includes("siyah");
+
+  const isWhiteSatin =
+    colorHex.includes("f8fafc") ||
+    colorHex.includes("ffffff") ||
+    colorHex.includes("f1f5f9") ||
+    matName.includes("beyaz");
+
+  if (isWood) {
+    const bumpMap = getProceduralWoodBumpMap();
+    return {
+      roughness: 0.44,
+      metalness: 0.04,
+      bumpMap,
+      bumpScale: 0.0018,
+      transparent: false,
+      opacity: 1.0,
+      depthWrite: true,
+    };
+  }
+
+  if (isDarkMatte) {
+    return {
+      roughness: 0.65,
+      metalness: 0.06,
+      transparent: false,
+      opacity: 1.0,
+      depthWrite: true,
+    };
+  }
+
+  if (isWhiteSatin) {
+    return {
+      roughness: 0.32,
+      metalness: 0.05,
+      transparent: false,
+      opacity: 1.0,
+      depthWrite: true,
+    };
+  }
+
+  return {
+    roughness: 0.48,
+    metalness: 0.05,
+    transparent: false,
+    opacity: 1.0,
+    depthWrite: true,
+  };
 }
 
 interface DrillsXRayProps {
@@ -403,6 +554,11 @@ function PanelMesh3D({
     typeof part.trapezoid_h_start_mm === "number" &&
     typeof part.trapezoid_h_end_mm === "number";
 
+  const pbr = useMemo(
+    () => getMaterialPBRParams(part, config, xrayMode),
+    [part, config, xrayMode]
+  );
+
   const trapezoidGeometry = useMemo(() => {
     if (!isTrapezoid) return null;
     let hStart = (part.trapezoid_h_start_mm ?? 0) / 1000.0;
@@ -444,12 +600,14 @@ function PanelMesh3D({
               {!trapezoidGeometry && <boxGeometry args={[sx, sy, sz]} />}
               <meshStandardMaterial
                 color={displayColor}
-                roughness={xrayMode ? 0.1 : 0.45}
-                metalness={0.08}
+                roughness={pbr.roughness}
+                metalness={pbr.metalness}
+                bumpMap={pbr.bumpMap}
+                bumpScale={pbr.bumpScale}
                 wireframe={wireframe}
-                transparent={xrayMode}
-                opacity={xrayMode ? 0.35 : 1.0}
-                depthWrite={!xrayMode}
+                transparent={pbr.transparent}
+                opacity={pbr.opacity}
+                depthWrite={pbr.depthWrite}
               />
               <Edges threshold={15} color={isSelected ? "#0284C7" : xrayMode ? "#38BDF8" : "#334155"} />
               {isSelected && (
@@ -499,12 +657,14 @@ function PanelMesh3D({
             {!trapezoidGeometry && <boxGeometry args={[sx, sy, sz]} />}
             <meshStandardMaterial
               color={displayColor}
-              roughness={xrayMode ? 0.1 : 0.45}
-              metalness={0.08}
+              roughness={pbr.roughness}
+              metalness={pbr.metalness}
+              bumpMap={pbr.bumpMap}
+              bumpScale={pbr.bumpScale}
               wireframe={wireframe}
-              transparent={xrayMode}
-              opacity={xrayMode ? 0.35 : 1.0}
-              depthWrite={!xrayMode}
+              transparent={pbr.transparent}
+              opacity={pbr.opacity}
+              depthWrite={pbr.depthWrite}
             />
             <Edges threshold={15} color={isSelected ? "#0284C7" : xrayMode ? "#38BDF8" : "#334155"} />
             {isSelected && (
@@ -580,12 +740,14 @@ function PanelMesh3D({
         {!notchedGeometry && !trapezoidGeometry && <boxGeometry args={[geomSx, sy, sz]} />}
         <meshStandardMaterial
           color={displayColor}
-          roughness={xrayMode ? 0.1 : 0.55}
-          metalness={0.05}
+          roughness={pbr.roughness}
+          metalness={pbr.metalness}
+          bumpMap={pbr.bumpMap}
+          bumpScale={pbr.bumpScale}
           wireframe={wireframe}
-          transparent={xrayMode}
-          opacity={xrayMode ? 0.35 : 1.0}
-          depthWrite={!xrayMode}
+          transparent={pbr.transparent}
+          opacity={pbr.opacity}
+          depthWrite={pbr.depthWrite}
         />
         <Edges threshold={15} color={isSelected ? "#0284C7" : xrayMode ? "#38BDF8" : "#475569"} />
         {isSelected && (
@@ -601,6 +763,169 @@ function PanelMesh3D({
       {xrayMode && (
         <PanelDrillsAndGroovesXRay part={part} sx={sx} sy={sy} sz={sz} />
       )}
+    </group>
+  );
+}
+
+/**
+ * 3D Mimari Rölöve Ölçü Çizgileri Bileşeni.
+ * Kabinin net genişlik (W), yükseklik (H / H-Sol / H-Sağ) ve derinlik (D)
+ * ölçü çizgilerini, çentiklerini ve mm etiketlerini 3D sahnede mimari rölöve standardında çizer.
+ */
+function CabinetDimensionLines({
+  parts,
+  config,
+}: {
+  parts: PanelPart[];
+  config: CabinetConfig;
+}) {
+  const bounds = useMemo(() => {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+
+    for (const part of parts) {
+      if (part.transform_3d.is_hanging_rod) continue;
+      const px = part.transform_3d.center_x_mm / 1000.0;
+      const py = part.transform_3d.center_y_mm / 1000.0;
+      const pz = part.transform_3d.center_z_mm / 1000.0;
+      const sx = part.transform_3d.size_x_mm / 1000.0;
+      const sy = part.transform_3d.size_y_mm / 1000.0;
+      const sz = part.transform_3d.size_z_mm / 1000.0;
+      minX = Math.min(minX, px - sx / 2);
+      maxX = Math.max(maxX, px + sx / 2);
+      minY = Math.min(minY, py - sy / 2);
+      maxY = Math.max(maxY, py + sy / 2);
+      minZ = Math.min(minZ, pz - sz / 2);
+      maxZ = Math.max(maxZ, pz + sz / 2);
+    }
+
+    if (minX === Infinity) return null;
+    return { minX, maxX, minY, maxY, minZ, maxZ };
+  }, [parts]);
+
+  if (!bounds) return null;
+
+  const { minX, maxX, minY, maxY, minZ, maxZ } = bounds;
+  const widthMm = Math.round((maxX - minX) * 1000);
+  const heightMm = Math.round((maxY - minY) * 1000);
+  const depthMm = Math.round((maxZ - minZ) * 1000);
+
+  const isSloped = Boolean(config.has_slope);
+  const slopeSide = config.slope_side || "left";
+  const hLeftMm = isSloped
+    ? slopeSide === "left"
+      ? (config.slope_start_height_mm ?? heightMm)
+      : heightMm
+    : heightMm;
+  const hRightMm = isSloped
+    ? slopeSide === "left"
+      ? heightMm
+      : (config.slope_start_height_mm ?? heightMm)
+    : heightMm;
+
+  const offsetAbove = maxY + 0.08;
+  const offsetFront = maxZ + 0.05;
+  const offsetLeft = minX - 0.08;
+  const offsetRight = maxX + 0.08;
+  const offsetBottom = minY - 0.04;
+
+  const tick = 0.035;
+  const lineThick = 0.002;
+
+  const actualLeftH = isSloped && slopeSide === "left" ? hLeftMm / 1000 : maxY - minY;
+  const actualRightH = slopeSide === "right" ? hRightMm / 1000 : maxY - minY;
+
+  return (
+    <group>
+      {/* 1. Genişlik (W) Üst Ölçü Çizgisi */}
+      <group position={[(minX + maxX) / 2, offsetAbove, offsetFront]}>
+        <mesh>
+          <boxGeometry args={[maxX - minX, lineThick, lineThick]} />
+          <meshBasicMaterial color="#06B6D4" />
+        </mesh>
+        <mesh position={[-(maxX - minX) / 2, 0, 0]}>
+          <boxGeometry args={[lineThick, tick, lineThick]} />
+          <meshBasicMaterial color="#06B6D4" />
+        </mesh>
+        <mesh position={[(maxX - minX) / 2, 0, 0]}>
+          <boxGeometry args={[lineThick, tick, lineThick]} />
+          <meshBasicMaterial color="#06B6D4" />
+        </mesh>
+        <Html center distanceFactor={4}>
+          <div className="pointer-events-none select-none whitespace-nowrap rounded border border-cyan-400/90 bg-slate-900/95 px-2 py-0.5 font-mono text-[11px] font-bold text-cyan-300 shadow-xl backdrop-blur">
+            G: {widthMm} mm
+          </div>
+        </Html>
+      </group>
+
+      {/* 2. Sol Yükseklik (H) Ölçü Çizgisi */}
+      <group position={[offsetLeft, minY + actualLeftH / 2, offsetFront]}>
+        <mesh>
+          <boxGeometry args={[lineThick, actualLeftH, lineThick]} />
+          <meshBasicMaterial color="#06B6D4" />
+        </mesh>
+        <mesh position={[0, -actualLeftH / 2, 0]}>
+          <boxGeometry args={[tick, lineThick, lineThick]} />
+          <meshBasicMaterial color="#06B6D4" />
+        </mesh>
+        <mesh position={[0, actualLeftH / 2, 0]}>
+          <boxGeometry args={[tick, lineThick, lineThick]} />
+          <meshBasicMaterial color="#06B6D4" />
+        </mesh>
+        <Html center distanceFactor={4}>
+          <div className="pointer-events-none select-none whitespace-nowrap rounded border border-cyan-400/90 bg-slate-900/95 px-2 py-0.5 font-mono text-[11px] font-bold text-cyan-300 shadow-xl backdrop-blur">
+            {isSloped ? `Y-Sol: ${hLeftMm} mm` : `Y: ${heightMm} mm`}
+          </div>
+        </Html>
+      </group>
+
+      {/* 3. Sağ Yükseklik Ölçü Çizgisi (Çatı eğimli dolaplar için) */}
+      {isSloped && (
+        <group position={[offsetRight, minY + actualRightH / 2, offsetFront]}>
+          <mesh>
+            <boxGeometry args={[lineThick, actualRightH, lineThick]} />
+            <meshBasicMaterial color="#38BDF8" />
+          </mesh>
+          <mesh position={[0, -actualRightH / 2, 0]}>
+            <boxGeometry args={[tick, lineThick, lineThick]} />
+            <meshBasicMaterial color="#38BDF8" />
+          </mesh>
+          <mesh position={[0, actualRightH / 2, 0]}>
+            <boxGeometry args={[tick, lineThick, lineThick]} />
+            <meshBasicMaterial color="#38BDF8" />
+          </mesh>
+          <Html center distanceFactor={4}>
+            <div className="pointer-events-none select-none whitespace-nowrap rounded border border-sky-400/90 bg-slate-900/95 px-2 py-0.5 font-mono text-[11px] font-bold text-sky-300 shadow-xl backdrop-blur">
+              Y-Sağ: {hRightMm} mm
+            </div>
+          </Html>
+        </group>
+      )}
+
+      {/* 4. Derinlik (D) Ölçü Çizgisi */}
+      <group position={[offsetRight, offsetBottom, (minZ + maxZ) / 2]}>
+        <mesh>
+          <boxGeometry args={[lineThick, lineThick, maxZ - minZ]} />
+          <meshBasicMaterial color="#06B6D4" />
+        </mesh>
+        <mesh position={[0, 0, (maxZ - minZ) / 2]}>
+          <boxGeometry args={[lineThick, tick, lineThick]} />
+          <meshBasicMaterial color="#06B6D4" />
+        </mesh>
+        <mesh position={[0, 0, -(maxZ - minZ) / 2]}>
+          <boxGeometry args={[lineThick, tick, lineThick]} />
+          <meshBasicMaterial color="#06B6D4" />
+        </mesh>
+        <Html center distanceFactor={4}>
+          <div className="pointer-events-none select-none whitespace-nowrap rounded border border-cyan-400/90 bg-slate-900/95 px-2 py-0.5 font-mono text-[11px] font-bold text-cyan-300 shadow-xl backdrop-blur">
+            D: {depthMm} mm
+          </div>
+        </Html>
+      </group>
     </group>
   );
 }
@@ -648,6 +973,7 @@ export function CabinetViewer3D({
   const [wireframe, setWireframe] = useState<boolean>(false);
   const [xrayMode, setXrayMode] = useState<boolean>(false);
   const [cameraView, setCameraView] = useState<"iso" | "front" | "side" | "top">("iso");
+  const [showDimensions, setShowDimensions] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
 
@@ -711,6 +1037,8 @@ export function CabinetViewer3D({
         setXrayMode((prev) => !prev);
       } else if (e.key.toLowerCase() === "e") {
         setExplodeFactor((prev) => (prev > 0 ? 0 : 1));
+      } else if (e.key.toLowerCase() === "d") {
+        setShowDimensions((prev) => !prev);
       } else if (e.key.toLowerCase() === "f") {
         setIsFullscreen((prev) => !prev);
       } else if (e.key === "1") {
@@ -877,6 +1205,20 @@ export function CabinetViewer3D({
 
           <button
             type="button"
+            onClick={() => setShowDimensions((prev) => !prev)}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+              showDimensions
+                ? "border-cyan-500 bg-cyan-500/20 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.25)]"
+                : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+            }`}
+            title="Rölöve Ölçü Çizgileri (Kısayol: D)"
+          >
+            <Ruler className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Ölçüler</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleDownloadGlb}
             title=".GLB 3D Modeli İndir"
             className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-200 transition hover:border-sky-500 hover:text-sky-300"
@@ -949,6 +1291,13 @@ export function CabinetViewer3D({
                 onToggleOpen={() => toggleIndividualPart(part.part_id)}
               />
             ))}
+
+            {showDimensions && (
+              <CabinetDimensionLines
+                parts={bom.parts}
+                config={bom.config}
+              />
+            )}
 
             <ContactShadows
               position={[0, -0.005, 0]}
@@ -1090,6 +1439,12 @@ export function CabinetViewer3D({
                   <span className="text-slate-300">Patlatılmış Montaj (Exploded)</span>
                   <kbd className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-200">
                     E
+                  </kbd>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-300">Rölöve Ölçü Çizgileri</span>
+                  <kbd className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 font-mono text-[11px] font-bold text-cyan-300">
+                    D
                   </kbd>
                 </div>
                 <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
