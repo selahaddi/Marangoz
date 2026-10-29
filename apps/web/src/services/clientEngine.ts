@@ -4350,7 +4350,7 @@ function generateSingleModuleParts(
     isTopSloped = true;
   }
 
-  const [horizCutL, horizCutW, horizDedL, horizDedW] = computeCutDimensions(
+  const [topCutL, topCutW, topDedL, topDedW] = computeCutDimensions(
     topLen,
     d,
     horizEdge
@@ -4361,44 +4361,64 @@ function generateSingleModuleParts(
     horizEdge
   );
 
-  const horizDrills: DrillPoint[] = [];
-  const camOffset = isCabineo
-    ? MC.CABINEO_POCKET_OFFSET_FROM_EDGE_MM
-    : MC.MINIFIX_CAM_CENTER_FROM_EDGE_MM;
-  for (const [camX, sideLabel] of [
-    [camOffset, "Sol"],
-    [round2(innerW - camOffset), "Sağ"],
-  ] as const) {
-    for (const yPos of connYCoords) {
-      if (isCabineo) {
-        horizDrills.push({
-          x_mm: camX,
-          y_mm: yPos,
-          diameter_mm: MC.CABINEO_POCKET_DIAMETER_MM,
-          depth_mm: MC.CABINEO_POCKET_DEPTH_MM,
-          layer: MC.LAYER_CABINEO_POCKET,
-          description: `${sideLabel} Lamello Cabineo 12 Gövde Yuvası (Saf Z-Ekseni Ø15mm, Z=-10.8mm)`,
-        });
-      } else {
-        horizDrills.push({
-          x_mm: camX,
-          y_mm: yPos,
-          diameter_mm: MC.MINIFIX_CAM_DIAMETER_MM,
-          depth_mm: MC.MINIFIX_CAM_DEPTH_MM,
-          layer: MC.LAYER_MINIFIX_CAM,
-          description: `${sideLabel} Yan Bağlantı Minifiks Gövde Yuvası`,
-        });
+  const buildHorizDrills = (len: number): DrillPoint[] => {
+    const drillsList: DrillPoint[] = [];
+    const camOffset = isCabineo
+      ? MC.CABINEO_POCKET_OFFSET_FROM_EDGE_MM
+      : MC.MINIFIX_CAM_CENTER_FROM_EDGE_MM;
+    for (const [camX, sideLabel] of [
+      [camOffset, "Sol"],
+      [round2(len - camOffset), "Sağ"],
+    ] as const) {
+      for (const yPos of connYCoords) {
+        if (isCabineo) {
+          drillsList.push({
+            x_mm: camX,
+            y_mm: yPos,
+            diameter_mm: MC.CABINEO_POCKET_DIAMETER_MM,
+            depth_mm: MC.CABINEO_POCKET_DEPTH_MM,
+            layer: MC.LAYER_CABINEO_POCKET,
+            description: `${sideLabel} Lamello Cabineo 12 Gövde Yuvası (Saf Z-Ekseni Ø15mm, Z=-10.8mm)`,
+          });
+        } else {
+          drillsList.push({
+            x_mm: camX,
+            y_mm: yPos,
+            diameter_mm: MC.MINIFIX_CAM_DIAMETER_MM,
+            depth_mm: MC.MINIFIX_CAM_DEPTH_MM,
+            layer: MC.LAYER_MINIFIX_CAM,
+            description: `${sideLabel} Yan Bağlantı Minifiks Gövde Yuvası`,
+          });
+        }
       }
     }
-  }
+    return drillsList;
+  };
 
-  const horizGrooves: GroovePath[] =
+  const topDrills = buildHorizDrills(topLen);
+  const altDrills = buildHorizDrills(innerW);
+
+  const topGrooves: GroovePath[] =
     config.back_panel_type === "grooved_8mm"
       ? [
           {
             x_start_mm: 0.0,
             y_start_mm: MC.BACK_GROOVE_OFFSET_FROM_REAR_MM,
             width_mm: topLen,
+            length_mm: MC.BACK_GROOVE_WIDTH_MM,
+            depth_mm: MC.BACK_GROOVE_DEPTH_MM,
+            layer: MC.LAYER_GROOVE_BACK,
+          },
+        ]
+      : [];
+
+  const altGrooves: GroovePath[] =
+    config.back_panel_type === "grooved_8mm"
+      ? [
+          {
+            x_start_mm: 0.0,
+            y_start_mm: MC.BACK_GROOVE_OFFSET_FROM_REAR_MM,
+            width_mm: innerW,
             length_mm: MC.BACK_GROOVE_WIDTH_MM,
             depth_mm: MC.BACK_GROOVE_DEPTH_MM,
             layer: MC.LAYER_GROOVE_BACK,
@@ -4415,15 +4435,15 @@ function generateSingleModuleParts(
     quantity: 1,
     net_length_mm: topLen,
     net_width_mm: d,
-    cut_length_mm: horizCutL,
-    cut_width_mm: horizCutW,
-    pvc_deduction_length_mm: horizDedL,
-    pvc_deduction_width_mm: horizDedW,
+    cut_length_mm: topCutL,
+    cut_width_mm: topCutW,
+    pvc_deduction_length_mm: topDedL,
+    pvc_deduction_width_mm: topDedW,
     edge_band: horizEdge,
     area_m2: round4((topLen * d) / 1_000_000.0),
     grain_direction: "length",
-    drills: horizDrills,
-    grooves: horizGrooves,
+    drills: topDrills,
+    grooves: topGrooves,
     transform_3d: {
       center_x_mm: xOffsetMm,
       center_y_mm: topCenterY,
@@ -4460,8 +4480,8 @@ function generateSingleModuleParts(
     edge_band: horizEdge,
     area_m2: round4((innerW * d) / 1_000_000.0),
     grain_direction: "length",
-    drills: horizDrills,
-    grooves: horizGrooves,
+    drills: altDrills,
+    grooves: altGrooves,
     transform_3d: {
       center_x_mm: xOffsetMm,
       center_y_mm: round2(baseOffsetY + t / 2.0),
@@ -4489,15 +4509,15 @@ function generateSingleModuleParts(
       quantity: 1,
       net_length_mm: innerW,
       net_width_mm: d,
-      cut_length_mm: horizCutL,
-      cut_width_mm: horizCutW,
-      pvc_deduction_length_mm: horizDedL,
-      pvc_deduction_width_mm: horizDedW,
+      cut_length_mm: altCutL,
+      cut_width_mm: altCutW,
+      pvc_deduction_length_mm: altDedL,
+      pvc_deduction_width_mm: altDedW,
       edge_band: horizEdge,
       area_m2: round4((innerW * d) / 1_000_000.0),
       grain_direction: "length",
-      drills: horizDrills,
-      grooves: horizGrooves,
+      drills: altDrills,
+      grooves: altGrooves,
       transform_3d: {
         center_x_mm: xOffsetMm,
         center_y_mm: round2(baseOffsetY + t + lowerClearH + t / 2.0),
@@ -4525,15 +4545,15 @@ function generateSingleModuleParts(
         quantity: 1,
         net_length_mm: innerW,
         net_width_mm: d,
-        cut_length_mm: horizCutL,
-        cut_width_mm: horizCutW,
-        pvc_deduction_length_mm: horizDedL,
-        pvc_deduction_width_mm: horizDedW,
+        cut_length_mm: altCutL,
+        cut_width_mm: altCutW,
+        pvc_deduction_length_mm: altDedL,
+        pvc_deduction_width_mm: altDedW,
         edge_band: horizEdge,
         area_m2: round4((innerW * d) / 1_000_000.0),
         grain_direction: "length",
-        drills: horizDrills,
-        grooves: horizGrooves,
+        drills: altDrills,
+        grooves: altGrooves,
         transform_3d: {
           center_x_mm: xOffsetMm,
           center_y_mm: round2(baseOffsetY + t + lowerClearH + t + midNicheH + t / 2.0),
@@ -5431,6 +5451,7 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
   let totalGasStruts = 0;
   let totalShelfPins = 0;
   let totalDrawerSlides = 0;
+  let totalHangingRods = 0;
 
   allModules.forEach((modCfg, idx) => {
     const centerXOffset = round2(currentLeftX + modCfg.width_mm / 2.0);
@@ -5472,8 +5493,23 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
     totalHinges += res.totalHinges;
     totalHandles += res.totalHandles;
     totalGasStruts += res.totalGasStruts;
-    totalShelfPins += modCfg.shelf_count * 4;
-    totalDrawerSlides += modCfg.drawer_count ?? 0;
+    if (modCfg.zones && modCfg.zones.length > 1) {
+      totalShelfPins += modCfg.zones.reduce(
+        (acc, z) => acc + (z.shelf_count || 0) * 4,
+        0
+      );
+      totalDrawerSlides += modCfg.zones.reduce(
+        (acc, z) => acc + (z.drawer_count || 0),
+        0
+      );
+      totalHangingRods += modCfg.zones.reduce(
+        (acc, z) => acc + (z.has_hanging_rod ? 1 : 0),
+        0
+      );
+    } else {
+      totalShelfPins += modCfg.shelf_count * 4;
+      totalDrawerSlides += modCfg.drawer_count ?? 0;
+    }
   });
 
   let pvc04Mm = 0;
@@ -5588,6 +5624,24 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       quantity: totalHandles,
       note: "Kapak ve çekmece kulpları",
     });
+  }
+  if (totalHangingRods > 0) {
+    hardware.push(
+      {
+        code: "HRD-ELB-ASK",
+        name: "Oval Krom Elbise Askı Borusu (Alüminyum/Krom)",
+        unit: "Adet",
+        quantity: totalHangingRods,
+        note: "Elbise dolabı bölmeleri için askı borusu",
+      },
+      {
+        code: "HRD-ASK-FLS",
+        name: "Oval Askı Borusu Yan Bağlantı Flanşı",
+        unit: "Adet",
+        quantity: totalHangingRods * 2,
+        note: "Askı borusu gövde/dikme sabitleme flanşları (borusu başı 2 adet)",
+      }
+    );
   }
   if (pvc20M > 0) {
     hardware.push({

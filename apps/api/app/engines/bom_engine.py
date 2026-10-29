@@ -1340,20 +1340,38 @@ class BOMEngine:
             top_notch = col_notch_str
             is_top_sloped = False
 
-        horiz_cut_l, horiz_cut_w, horiz_ded_l, horiz_ded_w = cls.compute_cut_dimensions(
+        top_cut_l, top_cut_w, top_ded_l, top_ded_w = cls.compute_cut_dimensions(
             top_len, d, horiz_edge
         )
-        horiz_drills = cls._build_horizontal_panel_drills(
-            top_len, d, fastener_type=config.fastener_type
+        alt_cut_l, alt_cut_w, alt_ded_l, alt_ded_w = cls.compute_cut_dimensions(
+            inner_w, d, horiz_edge
         )
 
-        horiz_grooves: list[GroovePath] = []
+        top_drills = cls._build_horizontal_panel_drills(
+            top_len, d, fastener_type=config.fastener_type
+        )
+        alt_drills = cls._build_horizontal_panel_drills(
+            inner_w, d, fastener_type=config.fastener_type
+        )
+
+        top_grooves: list[GroovePath] = []
+        alt_grooves: list[GroovePath] = []
         if config.back_panel_type == BackPanelType.GROOVED_8MM:
-            horiz_grooves.append(
+            top_grooves.append(
                 GroovePath(
                     x_start_mm=0.0,
                     y_start_mm=MC.BACK_GROOVE_OFFSET_FROM_REAR_MM,
                     width_mm=top_len,
+                    length_mm=MC.BACK_GROOVE_WIDTH_MM,
+                    depth_mm=MC.BACK_GROOVE_DEPTH_MM,
+                    layer=MC.LAYER_GROOVE_BACK,
+                )
+            )
+            alt_grooves.append(
+                GroovePath(
+                    x_start_mm=0.0,
+                    y_start_mm=MC.BACK_GROOVE_OFFSET_FROM_REAR_MM,
+                    width_mm=inner_w,
                     length_mm=MC.BACK_GROOVE_WIDTH_MM,
                     depth_mm=MC.BACK_GROOVE_DEPTH_MM,
                     layer=MC.LAYER_GROOVE_BACK,
@@ -1370,14 +1388,14 @@ class BOMEngine:
                 quantity=1,
                 net_length_mm=top_len,
                 net_width_mm=d,
-                cut_length_mm=horiz_cut_l,
-                cut_width_mm=horiz_cut_w,
-                pvc_deduction_length_mm=horiz_ded_l,
-                pvc_deduction_width_mm=horiz_ded_w,
+                cut_length_mm=top_cut_l,
+                cut_width_mm=top_cut_w,
+                pvc_deduction_length_mm=top_ded_l,
+                pvc_deduction_width_mm=top_ded_w,
                 edge_band=horiz_edge,
                 area_m2=round((top_len * d) / 1_000_000.0, 4),
-                drills=horiz_drills,
-                grooves=horiz_grooves,
+                drills=top_drills,
+                grooves=top_grooves,
                 notch_info=top_notch,
                 transform_3d=Box3DTransform(
                     center_x_mm=x_offset_mm,
@@ -1409,14 +1427,14 @@ class BOMEngine:
                 quantity=1,
                 net_length_mm=inner_w,
                 net_width_mm=d,
-                cut_length_mm=horiz_cut_l,
-                cut_width_mm=horiz_cut_w,
-                pvc_deduction_length_mm=horiz_ded_l,
-                pvc_deduction_width_mm=horiz_ded_w,
+                cut_length_mm=alt_cut_l,
+                cut_width_mm=alt_cut_w,
+                pvc_deduction_length_mm=alt_ded_l,
+                pvc_deduction_width_mm=alt_ded_w,
                 edge_band=horiz_edge,
                 area_m2=round((inner_w * d) / 1_000_000.0, 4),
-                drills=horiz_drills,
-                grooves=horiz_grooves,
+                drills=alt_drills,
+                grooves=alt_grooves,
                 notch_info=col_notch_str,
                 transform_3d=Box3DTransform(
                     center_x_mm=x_offset_mm,
@@ -1445,15 +1463,15 @@ class BOMEngine:
                     quantity=1,
                     net_length_mm=inner_w,
                     net_width_mm=d,
-                    cut_length_mm=horiz_cut_l,
-                    cut_width_mm=horiz_cut_w,
-                    pvc_deduction_length_mm=horiz_ded_l,
-                    pvc_deduction_width_mm=horiz_ded_w,
+                    cut_length_mm=alt_cut_l,
+                    cut_width_mm=alt_cut_w,
+                    pvc_deduction_length_mm=alt_ded_l,
+                    pvc_deduction_width_mm=alt_ded_w,
                     edge_band=horiz_edge,
                     area_m2=round((inner_w * d) / 1_000_000.0, 4),
                     grain_direction="length",
-                    drills=horiz_drills,
-                    grooves=horiz_grooves,
+                    drills=alt_drills,
+                    grooves=alt_grooves,
                     transform_3d=Box3DTransform(
                         center_x_mm=x_offset_mm,
                         center_y_mm=round(base_offset_y + t + lower_clear_h + t / 2.0, 2),
@@ -1481,15 +1499,15 @@ class BOMEngine:
                         quantity=1,
                         net_length_mm=inner_w,
                         net_width_mm=d,
-                        cut_length_mm=horiz_cut_l,
-                        cut_width_mm=horiz_cut_w,
-                        pvc_deduction_length_mm=horiz_ded_l,
-                        pvc_deduction_width_mm=horiz_ded_w,
+                        cut_length_mm=alt_cut_l,
+                        cut_width_mm=alt_cut_w,
+                        pvc_deduction_length_mm=alt_ded_l,
+                        pvc_deduction_width_mm=alt_ded_w,
                         edge_band=horiz_edge,
                         area_m2=round((inner_w * d) / 1_000_000.0, 4),
                         grain_direction="length",
-                        drills=horiz_drills,
-                        grooves=horiz_grooves,
+                        drills=alt_drills,
+                        grooves=alt_grooves,
                         transform_3d=Box3DTransform(
                             center_x_mm=x_offset_mm,
                             center_y_mm=round(base_offset_y + t + lower_clear_h + t + mid_niche_h + t / 2.0, 2),
@@ -1548,6 +1566,7 @@ class BOMEngine:
 
         # 3. Alt Baza Kayıtları (Cihaz alt nişi yoksa)
         if config.has_plinth and plinth_h > 0.0 and not is_bottom_niche:
+            is_adjustable_legs = config.plinth_type == PlinthType.ADJUSTABLE_LEGS
             plinth_edge = EdgeBandSpec(
                 length_1_mm=config.hidden_pvc_thickness_mm,
                 length_2_mm=config.hidden_pvc_thickness_mm,
@@ -1557,10 +1576,15 @@ class BOMEngine:
             plinth_cut_l, plinth_cut_w, p_ded_l, p_ded_w = cls.compute_cut_dimensions(
                 inner_w, plinth_h, plinth_edge
             )
-            for code_suffix, baza_label, z_pos in (
-                ("ON", "Ön", round(d / 2.0 - 25.0, 2)),
-                ("ARKA", "Arka", round(-d / 2.0 + 25.0, 2)),
-            ):
+            plinth_records = (
+                [("ON", "Ön Klipsli (Ayarlı Ayak)", round(d / 2.0 - 25.0, 2))]
+                if is_adjustable_legs
+                else [
+                    ("ON", "Ön", round(d / 2.0 - 25.0, 2)),
+                    ("ARKA", "Arka", round(-d / 2.0 + 25.0, 2)),
+                ]
+            )
+            for code_suffix, baza_label, z_pos in plinth_records:
                 parts.append(
                     PanelPart(
                         part_id=f"P{part_counter:02d}",
@@ -2364,6 +2388,17 @@ class BOMEngine:
             + (effective_drawers * 4)
             + intermediate_shelf_conn_units
         )
+        is_adjustable_legs = config.plinth_type == PlinthType.ADJUSTABLE_LEGS
+        adjustable_legs_count = (
+            4
+            if (config.has_plinth and plinth_h > 0.0 and not is_bottom_niche and is_adjustable_legs)
+            else 0
+        )
+        cabineo_count = (
+            base_conn_units
+            if config.fastener_type == FastenerType.CABINEO_12
+            else 0
+        )
         minifix_sets = (
             0
             if config.fastener_type == FastenerType.CABINEO_12
@@ -2372,7 +2407,7 @@ class BOMEngine:
         dowel_count = (
             0
             if config.fastener_type == FastenerType.CABINEO_12
-            else base_conn_units + (8 if (config.has_plinth and not is_bottom_niche) else 0)
+            else base_conn_units + (8 if (config.has_plinth and not is_bottom_niche and not is_adjustable_legs) else 0)
         )
 
         return (
@@ -2380,6 +2415,8 @@ class BOMEngine:
             part_counter,
             minifix_sets,
             dowel_count,
+            cabineo_count,
+            adjustable_legs_count,
             total_hinges,
             total_handles,
         )
@@ -2397,6 +2434,8 @@ class BOMEngine:
         part_counter = 1
         total_minifix = 0
         total_dowels = 0
+        total_cabineo = 0
+        total_adjustable_legs = 0
         total_hinges = 0
         total_handles = 0
         total_shelf_pins = 0
@@ -2411,6 +2450,8 @@ class BOMEngine:
                 part_counter,
                 m_minifix,
                 m_dowels,
+                m_cabineo,
+                m_adj_legs,
                 m_hinges,
                 m_handles,
             ) = cls._generate_single_module_parts(
@@ -2423,6 +2464,8 @@ class BOMEngine:
             parts.extend(mod_parts)
             total_minifix += m_minifix
             total_dowels += m_dowels
+            total_cabineo += m_cabineo
+            total_adjustable_legs += m_adj_legs
             total_hinges += m_hinges
             total_handles += m_handles
             if mod_cfg.zones and len(mod_cfg.zones) > 1:
@@ -2475,17 +2518,17 @@ class BOMEngine:
         pvc_20_m = round(pvc_20_mm / 1000.0, 2)
 
         hardware: list[HardwareItem] = []
-        if config.fastener_type == FastenerType.CABINEO_12:
+        if total_cabineo > 0:
             hardware.append(
                 HardwareItem(
                     code="HRD-CBN-12",
-                    name="Lamello Cabineo 12 Bağlantı Elemanı (Saf Z-Ekseni 3-Eksen CNC)",
+                    name="Lamello Cabineo 12 Tek Parça Gövde Bağlantısı (Saf Z-Ekseni CNC)",
                     unit="Adet",
-                    quantity=float(total_minifix),
+                    quantity=float(total_cabineo),
                     note="Cumbadan yatay delik gerektirmez; 3 eksen nesting CNC'de tek bağlamada işlenir (~900N çekme direnci)",
                 )
             )
-        else:
+        if total_minifix > 0:
             hardware.extend(
                 [
                     HardwareItem(
@@ -2505,14 +2548,14 @@ class BOMEngine:
                 ]
             )
 
-        if config.has_plinth and config.plinth_type == PlinthType.ADJUSTABLE_LEGS:
+        if total_adjustable_legs > 0:
             hardware.append(
                 HardwareItem(
-                    code=f"HRD-AYK-{int(config.plinth_height_mm)}",
-                    name=f"Ayarlanabilir Plastik Rotil Dolap Ayağı ({int(config.plinth_height_mm)}mm) + Baza Klipsi",
+                    code="HRD-AYK-100",
+                    name="Ayarlı Plastik Baza Ayağı (100mm) + Baza Klipsi",
                     unit="Adet",
-                    quantity=float(len(all_modules) * 4),
-                    note="Zemin eğriliği terazi ayarı ve klipsli baza montajı için",
+                    quantity=float(total_adjustable_legs),
+                    note="Eğimli şantiye zeminlerinde teraziye alma ve klipsli ön baza montajı",
                 )
             )
 
