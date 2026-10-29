@@ -321,4 +321,56 @@ def test_cabineo_3axis_rolove_fillers_and_remnants() -> None:
     assert "ARTIK DEPO" in nesting.combined_svg
 
 
+def test_parse_sketch_api_and_router_true_shape_nesting() -> None:
+    """Multimodal Vision eskiz API ucunu (/api/v1/parse_sketch) ve True-Shape L-Kertme SVG etiketlerini doğrular."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    import base64
+
+    client = TestClient(app)
+
+    # 1. /api/v1/parse_sketch uç noktası testi
+    dummy_svg = b'<svg xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100"/></svg>'
+    dummy_b64 = base64.b64encode(dummy_svg).decode("ascii")
+
+    resp = client.post(
+        "/api/v1/parse_sketch",
+        json={
+            "image_base64": dummy_b64,
+            "mime_type": "image/svg+xml",
+            "prompt": "90 cm genisliginde, 210 cm yuksekliginde gardırop",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["data"]["width_mm"] == 900.0
+    assert data["data"]["height_mm"] == 2100.0
+
+    # 2. True-Shape L-Kertmeli CNC Router Nesting doğrulaması
+    cfg = CabinetConfig(
+        name="L-Kertmeli Router Test Dolabi",
+        width_mm=800.0,
+        height_mm=2000.0,
+        depth_mm=550.0,
+        shelf_count=2,
+        door_type=DoorType.DOUBLE,
+        cutting_mode=CuttingMode.CNC_ROUTER,
+        router_bit_diameter_mm=10.0,
+        has_baseboard_notch=True,
+        baseboard_notch_height_mm=80.0,
+        baseboard_notch_depth_mm=15.0,
+    )
+    bom = BOMEngine.generate_bom(cfg)
+    nesting = NestingEngine.run_nesting(bom)
+
+    # Nesting placements içerisinde notch_info ve is_true_shape alanlarının doluluğu
+    notched_placements = [
+        p for sheet in nesting.sheets for p in sheet.placements if p.is_true_shape
+    ]
+    assert len(notched_placements) >= 2
+    assert any("[L-KERTME]" in nesting.combined_svg for sheet in nesting.sheets)
+
+
+
 

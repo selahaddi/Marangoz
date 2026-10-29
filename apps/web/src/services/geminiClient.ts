@@ -212,3 +212,85 @@ export async function parseWithGeminiApiDirect(
   }
   throw new Error(`Tarayıcıdan Gemini çağrısı başarısız: ${errors.join(" | ")}`);
 }
+
+/**
+ * Kullanıcının tarayıcıdaki kişisel anahtarıyla Gemini Multimodal Vision API'sini çağırarak
+ * el çizimi/eskiz görselini CabinetConfig JSON şemasına ayrıştırır.
+ */
+export async function parseSketchWithGeminiApiDirect(
+  imageBase64: string,
+  mimeType: string = "image/jpeg",
+  prompt: string = "",
+  apiKey: string
+): Promise<DirectGeminiResult> {
+  const key = apiKey.trim();
+  if (!key) {
+    throw new Error("Tarayıcıda kayıtlı Gemini API anahtarı yok.");
+  }
+
+  const cleanB64 = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
+  const userPrompt =
+    prompt.trim() ||
+    "Bu mobilya / dolap eskizindeki veya rölöve krokisindeki dış ölçüleri, iç bölmeleri, rafları, çekmeceleri, nişleri ve kapakları dikkatle analiz et ve parametreleri çıkar.";
+
+  const errors: string[] = [];
+  for (const model of ["gemini-2.5-flash", "gemini-3.8-flash"]) {
+    try {
+      const generationConfig: Record<string, unknown> = {
+        response_mime_type: "application/json",
+        response_schema: RESPONSE_SCHEMA,
+        temperature: 0,
+      };
+      if (model.startsWith("gemini-2.5")) {
+        generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({
+            system_instruction: {
+              parts: [
+                {
+                  text:
+                    SYSTEM_INSTRUCTION +
+                    " Görseldeki el yazısı veya teknik çizim ölçülerini (genişlik, yükseklik, derinlik) dikkatle oku. Ölçü birimleri cm ise mm'ye çevir.",
+                },
+              ],
+            },
+            contents: [
+              {
+                parts: [
+                  {
+                    inline_data: {
+                      mime_type: mimeType,
+                      data: cleanB64,
+                    },
+                  },
+                  { text: userPrompt },
+                ],
+              },
+            ],
+            generationConfig,
+          }),
+        }
+      );
+      const payload = (await res.json()) as GeminiResponsePayload;
+      if (!res.ok) {
+        errors.push(`${model}: HTTP ${res.status} ${payload.error?.message ?? ""}`.trim());
+        continue;
+      }
+      const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        errors.push(`${model}: boş yanıt`);
+        continue;
+      }
+      return { config: normalizeGeminiConfig(JSON.parse(text) as GeminiRawConfig), model };
+    } catch (err) {
+      errors.push(`${model}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  throw new Error(`Tarayıcıdan Gemini Vision çağrısı başarısız: ${errors.join(" | ")}`);
+}

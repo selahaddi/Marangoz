@@ -183,11 +183,12 @@ class NestingEngine:
                 cy = py + ph / 2.0
                 rot_tag = " [90°]" if p.rotated else ""
                 tab_tag = f" [{p.holding_tabs_count}×TAB]" if p.holding_tabs_count > 0 else ""
+                l_tag = " [L-KERTME]" if p.notch_info else ""
                 dim_label = f"{p.cut_length_mm:.0f}×{p.cut_width_mm:.0f}"
                 svg_lines.append(
                     f'<text x="{cx:.1f}" y="{cy - 3:.1f}" text-anchor="middle" '
                     f'fill="{text_color}" font-size="10" font-weight="700">'
-                    f"{p.part_id} {p.code}{rot_tag}{tab_tag}</text>"
+                    f"{p.part_id} {p.code}{rot_tag}{tab_tag}{l_tag}</text>"
                 )
                 svg_lines.append(
                     f'<text x="{cx:.1f}" y="{cy + 10:.1f}" text-anchor="middle" '
@@ -322,6 +323,8 @@ class NestingEngine:
                                 cut_length_mm=orig_part.cut_length_mm,
                                 cut_width_mm=orig_part.cut_width_mm,
                                 holding_tabs_count=orig_part.holding_tabs_count,
+                                notch_info=orig_part.notch_info,
+                                is_true_shape=bool(orig_part.notch_info),
                             )
                         )
 

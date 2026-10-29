@@ -462,43 +462,7 @@ class SemanticParserEngine:
                     )
                     if response.text:
                         parsed = CabinetParseSchema.model_validate_json(response.text)
-                        width_mm = max(300.0, min(2700.0, parsed.width_mm))
-                        height_mm = max(300.0, min(2750.0, parsed.height_mm))
-                        depth_mm = max(200.0, min(900.0, parsed.depth_mm))
-                        shelf_count = max(0, min(12, parsed.shelf_count))
-                        drawer_count = max(0, min(6, parsed.drawer_count))
-                        drawer_front_height = max(
-                            120.0, min(350.0, parsed.drawer_front_height_mm or 180.0)
-                        )
-                        niche_h = max(
-                            0.0,
-                            min(height_mm - 260.0, parsed.appliance_niche_height_mm or 0.0),
-                        )
-                        has_plinth = False if niche_h > 0 else parsed.has_plinth
-
-                        return CabinetConfig(
-                            name=parsed.name,
-                            cabinet_type=parsed.cabinet_type,
-                            width_mm=width_mm,
-                            height_mm=height_mm,
-                            depth_mm=depth_mm,
-                            shelf_count=shelf_count,
-                            door_type=parsed.door_type,
-                            drawer_count=drawer_count,
-                            drawer_front_height_mm=drawer_front_height,
-                            has_plinth=has_plinth,
-                            plinth_height_mm=parsed.plinth_height_mm if has_plinth else 0.0,
-                            appliance_niche_height_mm=niche_h,
-                            body_material=parsed.body_material,
-                            door_material=parsed.door_material or "",
-                            body_color_hex=parsed.body_color_hex,
-                            door_color_hex=parsed.door_color_hex,
-                            front_pvc_thickness_mm=parsed.front_pvc_thickness_mm,
-                            hidden_pvc_thickness_mm=parsed.hidden_pvc_thickness_mm,
-                            back_panel_type=parsed.back_panel_type,
-                            sheet_size=parsed.sheet_size,
-                            additional_modules=[],
-                        )
+                        return cls._parsed_schema_to_config(parsed)
                 except Exception as exc:
                     logger.warning(
                         "Gemini API modeli (%s) ayrıştırmada başarısız oldu: %s",
@@ -508,4 +472,134 @@ class SemanticParserEngine:
                     continue
 
         return cls._deterministic_rule_parse(prompt)
+
+    @classmethod
+    def _parsed_schema_to_config(cls, parsed: CabinetParseSchema) -> CabinetConfig:
+        """Gemini'den dönen CabinetParseSchema nesnesini sınır kontrolleriyle CabinetConfig'e çevirir."""
+        width_mm = max(300.0, min(2700.0, parsed.width_mm))
+        height_mm = max(300.0, min(2750.0, parsed.height_mm))
+        depth_mm = max(200.0, min(900.0, parsed.depth_mm))
+        shelf_count = max(0, min(12, parsed.shelf_count))
+        drawer_count = max(0, min(6, parsed.drawer_count))
+        drawer_front_height = max(
+            120.0, min(350.0, parsed.drawer_front_height_mm or 180.0)
+        )
+        niche_h = max(
+            0.0,
+            min(height_mm - 260.0, parsed.appliance_niche_height_mm or 0.0),
+        )
+        has_plinth = False if niche_h > 0 else parsed.has_plinth
+
+        return CabinetConfig(
+            name=parsed.name,
+            cabinet_type=parsed.cabinet_type,
+            width_mm=width_mm,
+            height_mm=height_mm,
+            depth_mm=depth_mm,
+            shelf_count=shelf_count,
+            door_type=parsed.door_type,
+            drawer_count=drawer_count,
+            drawer_front_height_mm=drawer_front_height,
+            has_plinth=has_plinth,
+            plinth_height_mm=parsed.plinth_height_mm if has_plinth else 0.0,
+            appliance_niche_height_mm=niche_h,
+            body_material=parsed.body_material,
+            door_material=parsed.door_material or "",
+            body_color_hex=parsed.body_color_hex,
+            door_color_hex=parsed.door_color_hex,
+            front_pvc_thickness_mm=parsed.front_pvc_thickness_mm,
+            hidden_pvc_thickness_mm=parsed.hidden_pvc_thickness_mm,
+            back_panel_type=parsed.back_panel_type,
+            sheet_size=parsed.sheet_size,
+            additional_modules=[],
+        )
+
+    @classmethod
+    def parse_sketch(
+        cls,
+        image_bytes: bytes,
+        mime_type: str = "image/jpeg",
+        prompt: str = "",
+    ) -> CabinetConfig:
+        """Kullanıcının kağıt üzerine el ile çizdiği ölçülü dolap eskizini veya rölöve fotoğrafını CabinetConfig'e dönüştürür."""
+        settings = get_settings()
+        api_key = settings.gemini_api_key.strip()
+        user_prompt = (
+            prompt.strip()
+            or "Bu mobilya / dolap eskizindeki veya rölöve krokisindeki dış ölçüleri, "
+            "iç bölmeleri, rafları, çekmeceleri, nişleri ve kapakları dikkatle analiz et ve parametreleri çıkar."
+        )
+
+        if api_key:
+            client = genai.Client(api_key=api_key)
+            candidate_models = [
+                settings.gemini_model.strip(),
+                "gemini-2.5-flash",
+                "gemini-2.0-flash",
+                "gemini-1.5-flash",
+            ]
+            models_to_try: list[str] = []
+            for m in candidate_models:
+                if m and m not in models_to_try:
+                    models_to_try.append(m)
+
+            image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+
+            for model_name in models_to_try:
+                try:
+                    gen_config = types.GenerateContentConfig(
+                        system_instruction=cls.SYSTEM_INSTRUCTION
+                        + " Görseldeki el yazısı veya teknik çizim ölçülerini (genişlik, yükseklik, derinlik) dikkatle oku. Ölçü birimleri cm ise mm'ye çevir.",
+                        response_mime_type="application/json",
+                        response_schema=CabinetParseSchema,
+                        temperature=0.0,
+                    )
+                    if model_name.startswith("gemini-2.5"):
+                        gen_config.thinking_config = types.ThinkingConfig(
+                            thinking_budget=0
+                        )
+
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[image_part, user_prompt],
+                        config=gen_config,
+                    )
+                    if response.text:
+                        parsed = CabinetParseSchema.model_validate_json(response.text)
+                        return cls._parsed_schema_to_config(parsed)
+                except Exception as exc:
+                    logger.warning(
+                        "Gemini Vision modeli (%s) eskiz ayrıştırmada hata verdi: %s",
+                        model_name,
+                        exc,
+                    )
+                    continue
+
+        # API anahtarı yoksa veya Vision başarısızsa eşlik eden metin isteminden deterministik parse
+        if prompt.strip():
+            return cls._deterministic_rule_parse(prompt)
+
+        return CabinetConfig(
+            name="Eskizden Çıkarılan Dolap",
+            cabinet_type=CabinetType.WARDROBE,
+            width_mm=900.0,
+            height_mm=2100.0,
+            depth_mm=580.0,
+            shelf_count=3,
+            door_type=DoorType.DOUBLE,
+            drawer_count=2,
+            drawer_front_height_mm=180.0,
+            has_plinth=True,
+            plinth_height_mm=80.0,
+            appliance_niche_height_mm=0.0,
+            body_material="18mm Beyaz Suntalam",
+            door_material="18mm Doğal Meşe Suntalam",
+            body_color_hex="#F4F1EA",
+            door_color_hex="#C89F70",
+            front_pvc_thickness_mm=2.0,
+            hidden_pvc_thickness_mm=0.4,
+            back_panel_type=BackPanelType.GROOVED_8MM,
+            sheet_size=SheetSizeOption.SHEET_2800_2100,
+            additional_modules=[],
+        )
 

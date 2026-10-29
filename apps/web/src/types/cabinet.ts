@@ -154,6 +154,7 @@ export interface PanelPart {
   grooves: GroovePath[];
   holding_tabs_count?: number;
   notch_info?: string;
+  is_true_shape?: boolean;
   transform_3d: Box3DTransform;
 }
 
@@ -192,6 +193,8 @@ export interface NestedPartPlacement {
   cut_length_mm: number;
   cut_width_mm: number;
   holding_tabs_count?: number;
+  notch_info?: string;
+  is_true_shape?: boolean;
 }
 
 export interface RemnantStockItem {

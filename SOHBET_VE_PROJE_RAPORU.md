@@ -97,31 +97,55 @@ Bu oturumda geliştirilen ve hem backend (Python FastAPI) hem de frontend (React
 
 ---
 
-## 3. BÖLÜM: NELER YAPACAĞIZ? (GELECEK VİZYONU VE SONRAKİ ADIMLAR)
+## 3. BÖLÜM: GERÇEKLEŞTİRİLEN İLERİ GELİŞTİRMELER (5 ÖNCELİĞİN TAM ENTEGRASYONU)
 
-Projenin bir sonraki fazında atölye verimliliğini ve kullanıcı deneyimini daha da yukarı taşıyacak öncelikli geliştirme maddeleri:
+Raporun 3. bölümünde hedeflenen 5 büyük öncelikli vizyon maddesi bu oturumda tam kodlama ve mühendislik testleriyle başarıyla tamamlanmıştır:
 
-### 3.1. Öncelik 1: Multimodal Görsel & Eskizden Otomatik CAD Üretimi
-- **Kamera ile Çekilen Çizim:** Kullanıcı kağıda çizdiği buzdolabı nişi, gardırop veya mutfak dolabı eskizini telefonla çekip arayüze yükleyecek.
-- **Gemini Vision Pipeline:** Görseldeki ölçüler, nişler, kapak yönleri ve notlar doğrudan Vision API ile okunup `CabinetConfig` JSON formatına dönüştürülecek ve 3D sahneye aktarılacak.
+### 3.1. Öncelik 1: Multimodal Görsel & Eskizden Otomatik CAD Üretimi (Gemini Vision Pipeline)
+- **4 Katmanlı Vision Entegrasyonu:**
+  - Yerel FastAPI `/api/v1/parse_sketch` uç noktası (`ParseSketchRequest` ile base64 görsel ve MIME türü kabulü).
+  - Vercel Serverless `/api/parse` fonksiyonunda `inline_data` multimodal payload desteği.
+  - Tarayıcıda saklanan anahtarla doğrudan Gemini Vision API çağrısı (`parseSketchWithGeminiApiDirect`).
+  - Çevrimdışı ve bağlantı kesilme senaryoları için güvenli varsayılan geri dönüş mekanizması.
+- **Kullanıcı Deneyimi & Modal:**
+  - Ana ekrana **"Eskiz / Çizim Yükle"** butonu ve zengin modal eklendi.
+  - Kamera ile çekim (`capture="environment"`), sürükle-bırak dosya yükleme (PNG, JPEG, WebP, SVG).
+  - Anında test edilebilmesi için 2 adet hazır teknik rölöve krokisi (Buzdolabı Çevreleme & 2 Kapaklı Gardırop Çizimi) sisteme gömüldü.
+  - Görsel yüklendiğinde otomatik `CabinetConfig` üretilip 3D CAD sahnesi ve üretim paketi anında oluşturulur.
 
-### 3.2. Öncelik 2: 3D Sahne Etkileşiminin Geliştirilmesi
-- **CSG Kertme Renderı:** Süpürgelik ve kolon kertmelerinin 3D sahnede gerçek panel kesiği olarak görünmesi.
-- **Dinamik Kapak / Çekmece Animasyonu:** Kullanıcının 3D sahnedeki kapağa tıkladığında kapağın açılması (menteşeli veya yukarı kalkar gazlı piston hareketi) ve çekmecelerin ileri doğru kayması.
-- **Röntgen / Tel Çerçeve Modu:** Birleşimlerdeki Cabineo ceplerinin ve Sistem 32 deliklerinin 3D model üzerinde yarı saydam olarak incelenebilmesi.
+### 3.2. Öncelik 2: 3D Sahne Etkileşimi (CSG Kertmeler, Dinamik Animasyon, X-Ray)
+- **Gerçekçi CSG Kertme Extrude Geometrisi:** Süpürgelik ($80 \times 15\text{ mm}$) ve kolon ($120 \times 120\text{ mm}$) kertmeleri yan dikmelerde artık düz kutu değil, `THREE.Shape` ve `THREE.ExtrudeGeometry` ile milimetrik gerçek kesik geometri olarak render edilmektedir.
+- **Dinamik Kapak ve Çekmece Tıklama Animasyonu:** 3D modeldeki herhangi bir kapağa veya çekmeceye tıklandığında yalnızca o elemanın bağımsız olarak menteşesinden 90° açılması veya çekmecenin teleskopik rayla öne kayması sağlandı. Üst kontrol çubuğundan tek tıkla toplu açma/kapama desteği korundu.
+- **CNC Röntgen / Delik Modu (X-Ray):** Yeni araç çubuğu butonu ile paneller yarı saydam hale gelirken Sistem 32 delikleri (turkuaz), Cabineo 12 cepleri (parlak kehribar), menteşe delikleri (yeşil) ve arkalık kanalları (turuncu) 3D katı silindir ve prizmalar olarak parlar.
 
-### 3.3. Öncelik 3: Atölye İçi Mobil / Tablet Barkod Okuyucu Modu
-- Etiketteki QR kod bir telefon kamerası veya el terminaliyle okutulduğunda, ustanın önüne o parçanın 3D montajdaki yeri, kenar bantlama yönü ve tezgâh operatörü için doğrudan `.NC`/`.CIX` dosyasını CNC'ye aktarma seçeneği gelecek.
+### 3.3. Öncelik 3: Atölye İçi Mobil & Tablet Parça Terminali (QR Tarayıcı)
+- `WorkshopScannerView.tsx` bileşeni inşa edildi ve arayüze 6. sekme olarak entegre edildi.
+- Tablet/telefon kamerası ile QR okutma veya listeden parça seçildiğinde operatörün karşısına:
+  - Büyük puntolarla net ve kesim ölçüleri (PVC düşülmüş imalat ölçüleri).
+  - **4-Kenar PVC Bantlama Kılavuzu:** Ön, arka, üst, alt kenar kalınlıkları ve damar yönü.
+  - **CNC Operasyon Kılavuzu:** Delik adetleri, kanallar, kertmeler ve vakum güvenlik sekmeleri (`[4×TAB]`).
+  - **3D Modelde Konumu Göster Butonu:** Tek tıkla 3D sahneye geçip ilgili parçayı parlatır.
+  - **Tezgâh Operatörü İçin Doğrudan CNC Programı İndirme:** Biesse Rover (`.CIX`), Homag Weeke (`.MPR`), ISO G-Code (`.NC`) ve AutoCAD (`.DXF`) dosyalarını tek tıkla tablete/USB'ye indirme.
 
 ### 3.4. Öncelik 4: Kurumsal PDF Müşteri Teklif ve Sözleşme Çıktısı
-- Teklif motorundaki dökümün profesyonel, antetli, mobilya görseli ve malzeme özelliklerini içeren müşteri onaylı resmi bir PDF sözleşmesine dönüştürülmesi.
+- `CostQuoteView.tsx` içerisine **"Resmi Sözleşme & Teklif PDF'i"** motoru entegre edildi.
+- **Resmi Kurumsal A4 Baskı Şablonu:**
+  - Firma anteti, teklif/sözleşme takip numarası (`MRG-TKF-...`), düzenleme tarihi ve geçerlilik süresi.
+  - Canlı düzenlenebilir müşteri adı, teslimat adresi, teslim süresi ve proje tanımı.
+  - 1. Madde: Malzeme, PVC, Cabineo/Minifiks, arkalık ve donanım teknik şartnamesi.
+  - 2. Madde: Kalem kalem fiyat döküm tablosu, ara toplam, %20 KDV ve genel toplam.
+  - 3. Madde: 2 yıl garanti, imalat şartları ve ödeme planı (%50 - %40 - %10).
+  - Çift taraflı müşteri ve yüklenici firma kaşe/imza onay alanları.
+  - `window.print()` ile kusursuz A4 çıktısı veya PDF kaydetme.
 
-### 3.5. Öncelik 5: True-Shape (Poligonel) Yuvalama / Nesting Motoru
-- Kertmeli (L şeklindeki) parçaların ve artık plakaların testere dışındaki serbest CNC Router frezesinde iç içe (girintili-çıkıntılı) yerleştirilerek fire oranının $\%5$'in altına çekilmesi.
+### 3.5. Öncelik 5: True-Shape (Poligonel / L-Kertme) Nesting Motoru
+- `nesting_engine.py` ve `clientEngine.ts` içerisine `is_true_shape` ve `notch_info` entegrasyonu sağlandı.
+- CNC Router modunda kertmeli (L şekilli) parçalar tespit edilip SVG üzerinde `[L-KERTME]` etiketiyle ve freze kesim sınırlarıyla işaretlendi.
+- Bounding box fireleri yerine gerçek parça poligon alanı hesaba katılarak atölye fire optimizasyonu sağlandı.
 
 ---
 
-## 4. BÖLÜM: SİSTEM MİMARİSİ VE DOSYA DİZİN HARİTASI
+## 4. BÖLÜM: GÜNCEL SİSTEM MİMARİSİ VE DOSYA DİZİN HARİTASI
 
 ```
 Marangoz/
@@ -129,29 +153,31 @@ Marangoz/
 │   ├── api/
 │   │   ├── app/
 │   │   │   ├── core/config.py              # Cabineo, Router Kerf, Remnant sabitleri
-│   │   │   ├── schemas/cabinet.py          # FastenerType, CuttingMode, RemnantStockItem vb.
+│   │   │   ├── schemas/cabinet.py          # ParseSketchRequest, NestedPartPlacement (true-shape)
 │   │   │   ├── engines/
 │   │   │   │   ├── bom_engine.py           # Cabineo, Ayak, Kör Çıta, Kertme hesapları
 │   │   │   │   ├── dxf_engine.py           # DXF R2010 katmanları (Kertme, Cabineo)
 │   │   │   │   ├── cnc_post_engine.py      # Biesse CIX, Homag MPR, ISO NC post-processor
-│   │   │   │   ├── nesting_engine.py       # 2D Giyotin, Router kerf, Artık Plaka Tespiti
-│   │   │   │   └── parser_engine.py        # Doğal dil regex ve kural motoru
-│   │   │   └── routers/cabinet.py          # /parse, /generate, /dxf, /cix API uçları
-│   │   └── tests/test_engines_and_api.py   # 8/8 Başarılı Pytest paketi
+│   │   │   │   ├── nesting_engine.py       # True-Shape L-Kertme, Router kerf, Artık Plaka Tespiti
+│   │   │   │   └── parser_engine.py        # Gemini Vision parse_sketch + Doğal dil kural motoru
+│   │   │   └── routers/cabinet.py          # /parse, /parse_sketch, /generate, /dxf, /cix API uçları
+│   │   └── tests/test_engines_and_api.py   # 9/9 Başarılı Pytest paketi
 │   └── web/
 │       ├── src/
-│       │   ├── types/cabinet.ts            # Frontend TypeScript tip tanımları
+│       │   ├── types/cabinet.ts            # is_true_shape, notch_info tip tanımları
 │       │   ├── services/
 │       │   │   ├── clientEngine.ts         # Tarayıcı içi CAD/CAM/CIX/Nesting/QR motoru
-│       │   │   ├── api.ts                  # Backend/Vercel/Browser hibrit API istemcisi
-│       │   │   └── geminiClient.ts         # Gemini AI doğrudan tarayıcı entegrasyonu
+│       │   │   ├── api.ts                  # parseSketchImage, 4 katmanlı hibrit API istemcisi
+│       │   │   └── geminiClient.ts         # Gemini Vision doğrudan tarayıcı multimodal entegrasyonu
 │       │   ├── components/
-│       │   │   ├── CabinetViewer3D.tsx     # Three.js 3D parametrik görüntüleyici
+│       │   │   ├── CabinetViewer3D.tsx     # Three.js CSG kertmeler, tıkla-aç animasyonu & X-Ray
 │       │   │   ├── BomTableView.tsx        # Detaylı kesim, delik ve CNC kod önizlemesi
 │       │   │   ├── NestingView.tsx         # SVG Plaka yerleşimi ve Sanal Artık Depo
 │       │   │   ├── PartLabelsView.tsx      # QR Barkodlu parça termal etiketleri
-│       │   │   └── CostQuoteView.tsx       # Dinamik maliyet, CNC süresi & teklif
-│       │   └── App.tsx                     # Ana arayüz, 29 şablonlu katalog, kontroller
+│       │   │   ├── CostQuoteView.tsx       # Maliyet, CNC süresi & A4 Müşteri Sözleşmesi PDF
+│       │   │   └── WorkshopScannerView.tsx # Mobil & Tablet Atölye Parça Terminali (QR)
+│       │   └── App.tsx                     # Ana arayüz, 6 sekme, Eskiz Yükleme Modalı
 │       └── package.json
 └── rapor.txt                               # Başlangıç ihtiyaç analizi ve saha raporu
 ```
+

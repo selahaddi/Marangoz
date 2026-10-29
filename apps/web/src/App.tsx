@@ -3,17 +3,21 @@ import {
   Archive,
   Box,
   Calculator,
+  Camera,
   Check,
   Cpu,
   FileSpreadsheet,
+  Image as ImageIcon,
   LayoutGrid,
   Loader2,
   Plus,
   QrCode,
+  Scan,
   Scissors,
   Sliders,
   Sparkles,
   Trash2,
+  UploadCloud,
   X,
 } from "lucide-react";
 import { BomTableView } from "./components/BomTableView";
@@ -21,9 +25,11 @@ import { CabinetViewer3D } from "./components/CabinetViewer3D";
 import { CostQuoteView } from "./components/CostQuoteView";
 import { NestingView } from "./components/NestingView";
 import { PartLabelsView } from "./components/PartLabelsView";
+import { WorkshopScannerView } from "./components/WorkshopScannerView";
 import {
   generateProductionPackage,
   parseNaturalLanguagePrompt,
+  parseSketchImage,
   type ParseResult,
 } from "./services/api";
 import { CATALOG_CATEGORIES, ROOM_LINE_PRESETS } from "./services/clientEngine";
@@ -87,12 +93,17 @@ const EXAMPLE_PROMPTS: readonly string[] = [
   "180 cm genişliğinde, 48 cm yüksekliğinde, 42 cm derinliğinde, 3 çekmeceli, çift kapaklı ceviz TV konsolu",
 ];
 
+const SAMPLE_REFRIGERATOR_SKETCH_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 700" width="600" height="700"><rect width="100%" height="100%" fill="%23FFFFFF" stroke="%23000" stroke-width="2" /><text x="30" y="45" font-family="monospace" font-size="18" font-weight="bold" fill="%23111">ROLEVE KROKISI - BUZDOLABI CEVRELEME MODULU</text><rect x="120" y="80" width="360" height="560" fill="none" stroke="%23222" stroke-width="4" stroke-dasharray="2,1" /><rect x="130" y="90" width="340" height="110" fill="%23F3F4F6" stroke="%23111" stroke-width="3" /><text x="160" y="150" font-family="monospace" font-size="15" fill="%23333">Ust Kalkar Kapak (Gazli Piston)</text><rect x="130" y="210" width="340" height="420" fill="%23E5E7EB" stroke="%23111" stroke-width="3" /><text x="180" y="430" font-family="monospace" font-size="16" font-weight="bold" fill="%23555">ACIK NIS (Buzdolabi Boslugu)</text><text x="210" y="460" font-family="monospace" font-size="14" fill="%23666">Yukseklik: 1850 mm</text><line x1="80" y1="80" x2="80" y2="640" stroke="%23DC2626" stroke-width="2" /><text x="20" y="370" font-family="monospace" font-size="16" font-weight="bold" fill="%23DC2626">235 cm</text><line x1="120" y1="665" x2="480" y2="665" stroke="%232563EB" stroke-width="2" /><text x="270" y="688" font-family="monospace" font-size="16" font-weight="bold" fill="%232563EB">85 cm</text><text x="360" y="45" font-family="monospace" font-size="14" fill="%23059669">Derinlik: 65 cm</text></svg>`;
+
+const SAMPLE_WARDROBE_SKETCH_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 700" width="600" height="700"><rect width="100%" height="100%" fill="%23FFFFFF" stroke="%23000" stroke-width="2" /><text x="30" y="45" font-family="monospace" font-size="18" font-weight="bold" fill="%23111">OLCULU ATOLYE CIZIMI - 2 KAPAKLI GARDIROP</text><rect x="140" y="80" width="320" height="550" fill="none" stroke="%23222" stroke-width="4" /><line x1="140" y1="200" x2="460" y2="200" stroke="%23333" stroke-width="3" /><line x1="140" y1="310" x2="460" y2="310" stroke="%23333" stroke-width="3" /><line x1="140" y1="420" x2="460" y2="420" stroke="%23333" stroke-width="3" /><rect x="145" y="430" width="310" height="95" fill="%23F3F4F6" stroke="%23222" stroke-width="2" /><text x="240" y="485" font-family="monospace" font-size="14" fill="%23444">Cekmece 1 (180mm)</text><rect x="145" y="530" width="310" height="95" fill="%23F3F4F6" stroke="%23222" stroke-width="2" /><text x="240" y="585" font-family="monospace" font-size="14" fill="%23444">Cekmece 2 (180mm)</text><rect x="140" y="630" width="320" height="25" fill="%23D1D5DB" stroke="%23222" stroke-width="2" /><text x="270" y="647" font-family="monospace" font-size="11" fill="%23111">Baza 8 cm</text><line x1="90" y1="80" x2="90" y2="655" stroke="%23DC2626" stroke-width="2" /><text x="30" y="380" font-family="monospace" font-size="16" font-weight="bold" fill="%23DC2626">210 cm</text><line x1="140" y1="675" x2="460" y2="675" stroke="%232563EB" stroke-width="2" /><text x="280" y="695" font-family="monospace" font-size="16" font-weight="bold" fill="%232563EB">90 cm</text><text x="360" y="45" font-family="monospace" font-size="14" fill="%23059669">Derinlik: 58 cm</text></svg>`;
+
 type ActiveTab =
   | "3d_and_bom"
   | "nesting"
   | "bom_only"
   | "qr_labels"
-  | "cost_quote";
+  | "cost_quote"
+  | "workshop_terminal";
 
 export function App() {
   const [prompt, setPrompt] = useState<string>(EXAMPLE_PROMPTS[0]);
@@ -108,6 +119,14 @@ export function App() {
   const [apiKey, setApiKey] = useState<string>(() => getStoredGeminiApiKey());
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
   const [tempApiKey, setTempApiKey] = useState<string>("");
+
+  // Multimodal Vision / Eskiz Yükleme Modalı State'leri
+  const [showSketchModal, setShowSketchModal] = useState<boolean>(false);
+  const [sketchBase64, setSketchBase64] = useState<string | null>(null);
+  const [sketchMimeType, setSketchMimeType] = useState<string>("image/jpeg");
+  const [sketchUserPrompt, setSketchUserPrompt] = useState<string>("");
+  const [isParsingSketch, setIsParsingSketch] = useState<boolean>(false);
+
   const [parseInfo, setParseInfo] = useState<ParseResult | null>(null);
   const [activeCategory, setActiveCategory] = useState<
     CatalogCategoryId | "all"
@@ -264,6 +283,62 @@ export function App() {
     }
   };
 
+  const handleParseSketch = async () => {
+    if (!sketchBase64) return;
+    setIsParsingSketch(true);
+    setErrorMsg(null);
+    setActivePresetId(null);
+    setActiveModuleIndex(0);
+    try {
+      const result = await parseSketchImage(
+        sketchBase64,
+        sketchMimeType,
+        sketchUserPrompt
+      );
+      setParseInfo(result);
+      setConfig(result.config);
+      setShowSketchModal(false);
+      setActiveTab("3d_and_bom");
+      await runGeneration(result.config);
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : "Eskiz görseli analiz edilirken bir hata oluştu."
+      );
+    } finally {
+      setIsParsingSketch(false);
+    }
+  };
+
+  const loadPresetSketch = (type: "refrigerator" | "wardrobe") => {
+    if (type === "refrigerator") {
+      setSketchBase64(SAMPLE_REFRIGERATOR_SKETCH_SVG);
+      setSketchMimeType("image/svg+xml");
+      setSketchUserPrompt(
+        "Buzdolabı çevreleme modülü, alt 185 cm niş, üst kalkar kapak, 235x85x65 cm"
+      );
+    } else {
+      setSketchBase64(SAMPLE_WARDROBE_SKETCH_SVG);
+      setSketchMimeType("image/svg+xml");
+      setSketchUserPrompt(
+        "210 cm yüksekliğinde, 90 cm genişliğinde 2 kapaklı, 3 raflı, 2 çekmeceli gardırop"
+      );
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = reader.result as string;
+      setSketchBase64(res);
+      setSketchMimeType(file.type || "image/jpeg");
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     void runGeneration(config);
@@ -368,6 +443,14 @@ export function App() {
                     <Sparkles className="h-4 w-4" />
                   )}
                   Ayrıştır &amp; Üret
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSketchModal(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-600/80 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-500"
+                >
+                  <Camera className="h-4 w-4" />
+                  Eskiz / Çizim Yükle
                 </button>
               </div>
             </div>
@@ -1420,6 +1503,19 @@ export function App() {
                   <Calculator className="h-4 w-4" />
                   Maliyet, CNC Süresi &amp; Müşteri Teklifi
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("workshop_terminal")}
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
+                    activeTab === "workshop_terminal"
+                      ? "bg-amber-600 text-white shadow-md shadow-amber-600/20"
+                      : "bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  }`}
+                >
+                  <Scan className="h-4 w-4" />
+                  Atölye Terminali (QR Tarayıcı)
+                </button>
               </div>
             </div>
 
@@ -1468,6 +1564,16 @@ export function App() {
                     jobId={pkg.job_id}
                     bom={pkg.bom}
                     nesting={pkg.nesting}
+                  />
+                )}
+
+                {activeTab === "workshop_terminal" && (
+                  <WorkshopScannerView
+                    jobId={pkg.job_id}
+                    bom={pkg.bom}
+                    selectedPartId={selectedPartId}
+                    onSelectPart={(id) => setSelectedPartId(id)}
+                    onNavigateTo3D={() => setActiveTab("3d_and_bom")}
                   />
                 )}
               </>
@@ -1551,6 +1657,150 @@ export function App() {
               >
                 <Check className="h-3.5 w-3.5" />
                 Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Multimodal Vision: El Çizimi & Eskiz Fotoğrafı Yükleme Modalı */}
+      {showSketchModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="relative flex max-h-[92vh] w-full max-w-2xl flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950 px-5 py-3.5">
+              <div className="flex items-center gap-2">
+                <Camera className="h-5 w-5 text-indigo-400" />
+                <h3 className="text-sm font-bold text-slate-100">
+                  Multimodal Görsel &amp; Eskizden Otomatik CAD Üretimi (Gemini Vision)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSketchModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-5 space-y-4">
+              <p className="text-xs text-slate-300">
+                Atölye ustalarının veya iç mimarların kağıda çizdiği ölçülü rölöve krokisinin fotoğrafını yükleyin veya hazır test eskizlerinden birini seçin. Gemini Vision görseldeki ölçüleri, nişleri ve bölmeleri okuyup anında 3D CAD ve üretim paketine dönüştürür.
+              </p>
+
+              {/* Hazır Test Eskizleri */}
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Hemen Test Etmek İçin Örnek Eskiz Seçin:
+                </span>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => loadPresetSketch("refrigerator")}
+                    className="flex items-center gap-2.5 rounded-xl border border-indigo-500/30 bg-indigo-950/30 p-2.5 text-left text-xs transition hover:border-indigo-400 hover:bg-indigo-900/40"
+                  >
+                    <ImageIcon className="h-4 w-4 text-indigo-400 shrink-0" />
+                    <div>
+                      <div className="font-bold text-indigo-200">Buzdolabı Çevreleme Krokisi</div>
+                      <div className="text-[10px] text-slate-400">235×85×65 cm, 185 cm açık niş, kalkar kapak</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => loadPresetSketch("wardrobe")}
+                    className="flex items-center gap-2.5 rounded-xl border border-sky-500/30 bg-sky-950/30 p-2.5 text-left text-xs transition hover:border-sky-400 hover:bg-sky-900/40"
+                  >
+                    <ImageIcon className="h-4 w-4 text-sky-400 shrink-0" />
+                    <div>
+                      <div className="font-bold text-sky-200">2 Kapaklı Gardırop Çizimi</div>
+                      <div className="text-[10px] text-slate-400">210×90×58 cm, 3 raf, 2 çekmece, 8 cm baza</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Dosya Yükleme / Kamera Dropzone */}
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Veya Kendi Çiziminizi / Fotoğrafınızı Yükleyin:
+                </label>
+                <label className="mt-1.5 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 bg-slate-950/80 p-5 text-center cursor-pointer hover:border-sky-500 transition">
+                  <UploadCloud className="h-8 w-8 text-slate-400 mb-1" />
+                  <span className="text-xs font-semibold text-sky-400">
+                    Fotoğraf seçin veya buraya sürükleyin
+                  </span>
+                  <span className="text-[10px] text-slate-500 mt-0.5">
+                    PNG, JPEG, WebP veya SVG (Telefondan kamera ile de çekebilirsiniz)
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {/* Görsel Önizleme */}
+              {sketchBase64 && (
+                <div className="rounded-xl border border-slate-700 bg-slate-950 p-3">
+                  <div className="mb-2 flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-300">Seçilen Eskiz Önizlemesi:</span>
+                    <button
+                      type="button"
+                      onClick={() => setSketchBase64(null)}
+                      className="text-[11px] text-rose-400 hover:underline"
+                    >
+                      Kaldır
+                    </button>
+                  </div>
+                  <div className="flex justify-center max-h-56 overflow-hidden rounded-lg bg-white/5 p-2">
+                    <img
+                      src={sketchBase64}
+                      alt="Eskiz önizlemesi"
+                      className="max-h-52 object-contain rounded"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Ek Kullanıcı Notu / İstem */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Ek Kullanıcı Notu (İsteğe Bağlı):
+                </label>
+                <input
+                  type="text"
+                  value={sketchUserPrompt}
+                  onChange={(e) => setSketchUserPrompt(e.target.value)}
+                  placeholder="Örn: Gövde beyaz suntalam, kapaklar meşe desen MDF-Lam olsun..."
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 border-t border-slate-800 bg-slate-950 px-5 py-3.5">
+              <button
+                type="button"
+                onClick={() => setShowSketchModal(false)}
+                className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700 transition"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={!sketchBase64 || isParsingSketch}
+                onClick={() => void handleParseSketch()}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 transition disabled:opacity-50"
+              >
+                {isParsingSketch ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {isParsingSketch ? "Vision Analiz Ediliyor..." : "Çizimi CAD'e Dönüştür"}
               </button>
             </div>
           </div>

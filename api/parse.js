@@ -120,8 +120,11 @@ export default async function handler(req, res) {
 
   const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-  if (!prompt || prompt.length > 4000) {
-    return res.status(400).json({ success: false, data: null, error: "Geçersiz istem (1-4000 karakter)." });
+  const imageBase64 = typeof body.image_base64 === "string" ? body.image_base64.trim() : "";
+  const mimeType = typeof body.mime_type === "string" ? body.mime_type.trim() : "image/jpeg";
+
+  if (!prompt && !imageBase64) {
+    return res.status(400).json({ success: false, data: null, error: "İstem veya görsel verisi girilmelidir." });
   }
 
   const models = [process.env.GEMINI_MODEL || "gemini-2.5-flash", "gemini-2.5-flash", "gemini-3.8-flash"]
@@ -140,6 +143,20 @@ export default async function handler(req, res) {
         generationConfig.thinkingConfig = { thinkingBudget: 0 };
       }
 
+      const contentParts = [];
+      if (imageBase64) {
+        const cleanB64 = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
+        contentParts.push({
+          inline_data: {
+            mime_type: mimeType,
+            data: cleanB64,
+          },
+        });
+      }
+      contentParts.push({
+        text: prompt || "Bu mobilya / dolap eskizindeki veya rölöve çizimindeki ölçüleri, iç bölmeleri, rafları ve kapakları analiz et ve CabinetConfig şemasına dönüştür.",
+      });
+
       const upstream = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
@@ -147,7 +164,7 @@ export default async function handler(req, res) {
           headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
           body: JSON.stringify({
             system_instruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-            contents: [{ parts: [{ text: prompt }] }],
+            contents: [{ parts: contentParts }],
             generationConfig,
           }),
         }

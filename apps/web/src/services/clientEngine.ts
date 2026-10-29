@@ -3213,6 +3213,8 @@ function packGuillotineSheet(
       cut_length_mm: part.cut_length_mm,
       cut_width_mm: part.cut_width_mm,
       holding_tabs_count: part.holding_tabs_count ?? 0,
+      notch_info: part.notch_info,
+      is_true_shape: Boolean(part.notch_info),
     });
 
     const remW = chosen.w - usedW;
@@ -3372,8 +3374,9 @@ function renderSheetSvg(
         p.holding_tabs_count && p.holding_tabs_count > 0
           ? ` [${p.holding_tabs_count}×TAB]`
           : "";
+      const lTag = p.notch_info ? " [L-KERTME]" : "";
       lines.push(
-        `<text x="${cx.toFixed(1)}" y="${(cy - 2).toFixed(1)}" text-anchor="middle" fill="${textColor}" font-size="9.5" font-weight="700">${p.part_id} ${p.code}${rotTag}${tabTag}</text>`
+        `<text x="${cx.toFixed(1)}" y="${(cy - 2).toFixed(1)}" text-anchor="middle" fill="${textColor}" font-size="9.5" font-weight="700">${p.part_id} ${p.code}${rotTag}${tabTag}${lTag}</text>`
       );
       lines.push(
         `<text x="${cx.toFixed(1)}" y="${(cy + 9).toFixed(1)}" text-anchor="middle" fill="#E2E8F0" font-size="8.5">${p.cut_length_mm}×${p.cut_width_mm}</text>`

@@ -24,6 +24,7 @@ from app.schemas.cabinet import (
     BOMReport,
     CabinetConfig,
     ParsePromptRequest,
+    ParseSketchRequest,
     ProductionPackageResponse,
 )
 
@@ -121,6 +122,31 @@ async def parse_natural_language_prompt(
             success=False,
             data=None,
             error=f"Doğal dil istemi ayrıştırılamadı: {exc}",
+        )
+
+
+@router.post("/parse_sketch", response_model=ApiResponse[CabinetConfig])
+async def parse_sketch_image(
+    payload: ParseSketchRequest,
+) -> ApiResponse[CabinetConfig]:
+    """Eskiz veya rölöve fotoğrafını Gemini Vision ile CabinetConfig şemasına ayrıştırır."""
+    try:
+        raw_b64 = payload.image_base64
+        if "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        image_bytes = base64.b64decode(raw_b64)
+        config = SemanticParserEngine.parse_sketch(
+            image_bytes=image_bytes,
+            mime_type=payload.mime_type,
+            prompt=payload.prompt,
+        )
+        return ApiResponse(success=True, data=config, error=None)
+    except Exception as exc:
+        logger.exception("Eskiz ayrıştırma hatası: %s", exc)
+        return ApiResponse(
+            success=False,
+            data=None,
+            error=f"Eskiz görseli ayrıştırılamadı: {exc}",
         )
 
 

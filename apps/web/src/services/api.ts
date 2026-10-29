@@ -7,7 +7,11 @@ import {
   generateProductionPackageLocal,
   parsePromptDeterministic,
 } from "./clientEngine";
-import { getStoredGeminiApiKey, parseWithGeminiApiDirect } from "./geminiClient";
+import {
+  getStoredGeminiApiKey,
+  parseSketchWithGeminiApiDirect,
+  parseWithGeminiApiDirect,
+} from "./geminiClient";
 
 const API_BASE = "/api/v1";
 
@@ -118,6 +122,133 @@ export async function parseNaturalLanguagePrompt(prompt: string): Promise<ParseR
     config: parsePromptDeterministic(prompt),
     engine: "rule_based",
     engineLabel: "Yerel kural motoru (yapay zekâ devre dışı)",
+    aiErrors,
+  };
+}
+
+/**
+ * Kağıda el ile çizilmiş dolap krokisi veya rölöve fotoğrafını Gemini Vision ile ayrıştırır.
+ *  1. Localhost'ta FastAPI (/api/v1/parse_sketch)
+ *  2. Vercel sunucu fonksiyonu (/api/parse)
+ *  3. Tarayıcıda saklanan Gemini API anahtarı ile doğrudan çağrı
+ *  4. Çevrimdışı yedek konfigürasyon
+ */
+export async function parseSketchImage(
+  imageBase64: string,
+  mimeType: string = "image/jpeg",
+  prompt: string = ""
+): Promise<ParseResult> {
+  const aiErrors: string[] = [];
+
+  if (isLocalHost) {
+    try {
+      const response = await fetch(`${API_BASE}/parse_sketch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_base64: imageBase64,
+          mime_type: mimeType,
+          prompt,
+        }),
+      });
+      if (response.ok) {
+        const envelope = (await response.json()) as ApiResponse<CabinetConfig>;
+        if (envelope.success && envelope.data) {
+          return {
+            config: envelope.data,
+            engine: "local_fastapi",
+            engineLabel: "Yerel FastAPI Vision (Gemini)",
+            aiErrors,
+          };
+        }
+        aiErrors.push(`FastAPI: ${envelope.error ?? "geçersiz yanıt"}`);
+      } else {
+        aiErrors.push(`FastAPI: HTTP ${response.status}`);
+      }
+    } catch (err) {
+      aiErrors.push(`FastAPI erişilemedi: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // Vercel sunucu fonksiyonu
+  try {
+    const response = await fetch("/api/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image_base64: imageBase64,
+        mime_type: mimeType,
+        prompt,
+      }),
+    });
+    const isJson = (response.headers.get("content-type") ?? "").includes("application/json");
+    if (isJson) {
+      const envelope = (await response.json()) as VercelParseEnvelope;
+      if (response.ok && envelope.success && envelope.data) {
+        return {
+          config: envelope.data,
+          engine: "vercel_gemini",
+          engineLabel: envelope.engine ?? "Gemini Vision (sunucu)",
+          aiErrors,
+        };
+      }
+      aiErrors.push(`Sunucu /api/parse: ${envelope.error ?? `HTTP ${response.status}`}`);
+    } else {
+      aiErrors.push(`Sunucu /api/parse bulunamadı (HTTP ${response.status})`);
+    }
+  } catch (err) {
+    aiErrors.push(`Sunucu /api/parse erişilemedi: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Kullanıcının kişisel anahtarı varsa tarayıcıdan doğrudan Gemini Vision
+  const personalKey = getStoredGeminiApiKey();
+  if (personalKey) {
+    try {
+      const direct = await parseSketchWithGeminiApiDirect(
+        imageBase64,
+        mimeType,
+        prompt,
+        personalKey
+      );
+      return {
+        config: direct.config,
+        engine: "browser_gemini",
+        engineLabel: `${direct.model} Vision (tarayıcı)`,
+        aiErrors,
+      };
+    } catch (err) {
+      aiErrors.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return {
+    config: prompt.trim()
+      ? parsePromptDeterministic(prompt)
+      : {
+          name: "Eskizden Çıkarılan Gardırop",
+          cabinet_type: "wardrobe",
+          width_mm: 900,
+          height_mm: 2100,
+          depth_mm: 580,
+          shelf_count: 3,
+          door_type: "double",
+          drawer_count: 2,
+          drawer_front_height_mm: 180,
+          has_plinth: true,
+          plinth_height_mm: 80,
+          appliance_niche_height_mm: 0,
+          body_material: "18mm Beyaz Suntalam",
+          door_material: "18mm Doğal Meşe Suntalam",
+          body_color_hex: "#F4F1EA",
+          door_color_hex: "#C89F70",
+          front_pvc_thickness_mm: 2.0,
+          hidden_pvc_thickness_mm: 0.4,
+          back_panel_type: "grooved_8mm",
+          sheet_size: "2800x2100",
+          additional_modules: [],
+        },
+    engine: "rule_based",
+    engineLabel: "Çevrimdışı Eskiz Şablonu (Yapay zekâ yanıt vermedi)",
     aiErrors,
   };
 }

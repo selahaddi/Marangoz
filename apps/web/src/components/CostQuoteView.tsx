@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Calculator, Clock, Coins, Printer, TrendingUp } from "lucide-react";
+import {
+  Calculator,
+  Clock,
+  Coins,
+  FileCheck,
+  FileText,
+  Printer,
+  TrendingUp,
+  X,
+} from "lucide-react";
 import type { BOMReport, NestingResult } from "../types/cabinet";
 
 interface CostQuoteViewProps {
@@ -34,6 +43,13 @@ export function CostQuoteView({ jobId, bom, nesting }: CostQuoteViewProps) {
   const [laborHourRateTl, setLaborHourRateTl] = useState<number>(450);
   const [profitMarginPct, setProfitMarginPct] = useState<number>(35);
   const [applyRemnantCredit, setApplyRemnantCredit] = useState<boolean>(true);
+
+  // Kurumsal PDF Sözleşme Parametreleri
+  const [showContractModal, setShowContractModal] = useState<boolean>(false);
+  const [customerName, setCustomerName] = useState<string>("Değerli Müşterimiz");
+  const [projectTitle, setProjectTitle] = useState<string>(bom.config.name);
+  const [deliveryAddress, setDeliveryAddress] = useState<string>("Kadıköy / İstanbul");
+  const [deliveryDays, setDeliveryDays] = useState<number>(14);
 
   // 1. Plaka Sayıları (18mm Gövde/Kapak vs 8mm/3mm Arkalık)
   const sheets18Count = nesting.sheets.filter(
@@ -284,11 +300,19 @@ export function CostQuoteView({ jobId, bom, nesting }: CostQuoteViewProps) {
             </label>
             <button
               type="button"
+              onClick={() => setShowContractModal(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-600/80 hover:bg-indigo-500 px-3 py-1.5 text-xs font-bold text-white transition shadow"
+            >
+              <FileCheck className="h-3.5 w-3.5" />
+              Resmi Sözleşme & Teklif PDF'i
+            </button>
+            <button
+              type="button"
               onClick={() => window.print()}
               className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-sky-500"
             >
               <Printer className="h-3.5 w-3.5" />
-              Müşteri Teklifini Yazdır
+              Hızlı Yazdır
             </button>
           </div>
         </div>
@@ -430,6 +454,261 @@ export function CostQuoteView({ jobId, bom, nesting }: CostQuoteViewProps) {
           </tbody>
         </table>
       </div>
+
+      {/* Kurumsal Müşteri Sözleşmesi & Teklif PDF Modalı */}
+      {showContractModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="relative flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden">
+            {/* Modal Üst Kontrol Çubuğu */}
+            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950 px-5 py-3">
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
+                <FileText className="h-4 w-4 text-sky-400" />
+                Resmi Müşteri Teklifi ve İmalat Sözleşmesi (A4 PDF)
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-500"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Yazdır / PDF Kaydet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowContractModal(false)}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Müşteri Bilgileri Düzenleme Alanı */}
+            <div className="border-b border-slate-800 bg-slate-950/60 p-4 print:hidden">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Sözleşme Bilgilerini Düzenleyin (Canlı Güncellenir):
+              </span>
+              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-4">
+                <div>
+                  <label className="text-[10px] text-slate-400">Müşteri / Firma Adı</label>
+                  <input
+                    type="text"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="mt-0.5 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400">Proje Tanımı</label>
+                  <input
+                    type="text"
+                    value={projectTitle}
+                    onChange={(e) => setProjectTitle(e.target.value)}
+                    className="mt-0.5 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400">Teslimat Adresi</label>
+                  <input
+                    type="text"
+                    value={deliveryAddress}
+                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                    className="mt-0.5 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400">Teslim Süresi (İş Günü)</label>
+                  <input
+                    type="number"
+                    value={deliveryDays}
+                    onChange={(e) => setDeliveryDays(Number(e.target.value))}
+                    className="mt-0.5 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* A4 Sözleşme Gövdesi (Yazdırılabilir) */}
+            <div className="overflow-y-auto p-6 text-slate-900 bg-white min-h-[500px]">
+              {/* Antet */}
+              <div className="flex items-start justify-between border-b-2 border-slate-900 pb-4">
+                <div>
+                  <h1 className="text-xl font-black tracking-tight text-slate-900">
+                    MARANGOZ ENDÜSTRİYEL PANEL MOBİLYA SAN. TİC. LTD. ŞTİ.
+                  </h1>
+                  <p className="text-xs text-slate-600">
+                    CAD/CAM CNC Fabrikasyon İmalat &bull; Sistem 32 / Cabineo Modüler Üretim
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Atölye: Sanayi Mh. Mobilyacılar Sitesi 4. Blok No:12 &bull; info@marangoz-cad.com
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className="rounded bg-slate-900 px-2.5 py-1 text-xs font-bold text-white inline-block">
+                    RESMİ TEKLİF &amp; İMALAT SÖZLEŞMESİ
+                  </div>
+                  <div className="mt-1 text-xs font-mono font-bold text-slate-800">
+                    NO: MRG-TKF-{jobId.toUpperCase()}
+                  </div>
+                  <div className="text-xs text-slate-600">
+                    Tarih: {new Date().toLocaleDateString("tr-TR")}
+                  </div>
+                </div>
+              </div>
+
+              {/* Taraflar ve Proje Bilgileri */}
+              <div className="mt-4 grid grid-cols-2 gap-4 rounded-lg bg-slate-50 p-3.5 border border-slate-200 text-xs">
+                <div>
+                  <span className="font-bold text-slate-800">MÜŞTERİ / ALICI:</span>
+                  <p className="font-semibold text-slate-900 mt-0.5">{customerName}</p>
+                  <p className="text-slate-600">Teslimat Adresi: {deliveryAddress}</p>
+                </div>
+                <div>
+                  <span className="font-bold text-slate-800">PROJE / İŞ EMRİ TANIMI:</span>
+                  <p className="font-semibold text-slate-900 mt-0.5">{projectTitle}</p>
+                  <p className="text-slate-600">
+                    Dış Ebatlar: {bom.config.width_mm} × {bom.config.height_mm} × {bom.config.depth_mm} mm
+                  </p>
+                </div>
+              </div>
+
+              {/* Malzeme & Teknik Şartname */}
+              <div className="mt-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 border-b border-slate-300 pb-1">
+                  1. TEKNİK MALZEME VE İMALAT ŞARTNAMESİ
+                </h4>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-700">
+                  <div>
+                    &bull; <strong>Gövde Malzemesi:</strong> {bom.config.body_material} (18 mm)
+                  </div>
+                  <div>
+                    &bull; <strong>Kapak / Klapa:</strong> {bom.config.door_material || bom.config.body_material}
+                  </div>
+                  <div>
+                    &bull; <strong>Bağlantı Tipi:</strong> {bom.config.fastener_type === "cabineo_12" ? "Lamello Cabineo 12 Saf Z-CNC Cepleri" : "Minifiks Rasteks + Ahşap Kavela"}
+                  </div>
+                  <div>
+                    &bull; <strong>Kenar Bantlama:</strong> Ön kenarlar 2.0 mm darbe emici PVC, iç kenarlar 0.4 mm
+                  </div>
+                  <div>
+                    &bull; <strong>Arkalık Sistemi:</strong> {bom.config.back_panel_type === "grooved_8mm" ? "8 mm Kanal İçi Mukavim Arkalık" : "3 mm Çakma Arkalık"}
+                  </div>
+                  <div>
+                    &bull; <strong>Toplam Parça / Delik:</strong> {bom.total_parts_count} Parça &bull; {bom.total_drill_count} CNC Delik
+                  </div>
+                </div>
+              </div>
+
+              {/* Fiyat ve Maliyet Döküm Tablosu */}
+              <div className="mt-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 border-b border-slate-300 pb-1">
+                  2. FİYAT DÖKÜMÜ VE MALİYET TABLOSU
+                </h4>
+                <table className="mt-2 w-full text-left text-xs border border-slate-300">
+                  <thead className="bg-slate-100 text-slate-800 border-b border-slate-300">
+                    <tr>
+                      <th className="p-2 font-bold">Kalem Tanımı</th>
+                      <th className="p-2 font-bold">Miktar / Metraj</th>
+                      <th className="p-2 font-bold text-right">Birim Fiyat</th>
+                      <th className="p-2 font-bold text-right">Tutar (TL)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    <tr>
+                      <td className="p-2">18 mm Ahşap Panel ({sheets18Count} Plaka, {bom.total_net_area_m2.toFixed(2)} m² Net)</td>
+                      <td className="p-2">{sheets18Count} Adet</td>
+                      <td className="p-2 text-right">{formatTl(sheet18PriceTl)}</td>
+                      <td className="p-2 text-right font-semibold">{formatTl(grossSheet18Cost)}</td>
+                    </tr>
+                    {sheetsThinCount > 0 && (
+                      <tr>
+                        <td className="p-2">8 mm / 3 mm Arkalık Paneli</td>
+                        <td className="p-2">{sheetsThinCount} Adet</td>
+                        <td className="p-2 text-right">{formatTl(sheet8PriceTl)}</td>
+                        <td className="p-2 text-right font-semibold">{formatTl(grossSheetThinCost)}</td>
+                      </tr>
+                    )}
+                    {applyRemnantCredit && remnantCreditTl > 0 && (
+                      <tr className="text-emerald-700 bg-emerald-50">
+                        <td className="p-2">Artık Plaka Depo İadesi (≥400×600 mm Parçalar)</td>
+                        <td className="p-2">{reusableRemnantM2.toFixed(2)} m²</td>
+                        <td className="p-2 text-right">İade</td>
+                        <td className="p-2 text-right font-semibold">-{formatTl(remnantCreditTl)}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="p-2">PVC Kenar Bandı (2.0mm + 0.4mm, %10 fire dahil)</td>
+                      <td className="p-2">{(pvc20WithWasteM + pvc04WithWasteM).toFixed(1)} m</td>
+                      <td className="p-2 text-right">{formatTl(pvc20PricePerM)}</td>
+                      <td className="p-2 text-right font-semibold">{formatTl(pvcCostTl)}</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2">Hırdavat, Ray, Menteşe ve Bağlantı Elemanları Seti</td>
+                      <td className="p-2">1 Takım</td>
+                      <td className="p-2 text-right">-</td>
+                      <td className="p-2 text-right font-semibold">{formatTl(hardwareTotalTl)}</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2">CNC Ebatlama, Delik Delme &amp; Freze İşleme Süresi</td>
+                      <td className="p-2">{cncTotalMinutes} Dakika</td>
+                      <td className="p-2 text-right">{formatTl(cncMinuteRateTl)}/dk</td>
+                      <td className="p-2 text-right font-semibold">{formatTl(cncCostTl)}</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2">Atölye Ön Montaj, Bantlama ve İşçilik</td>
+                      <td className="p-2">{assemblyHours} Saat</td>
+                      <td className="p-2 text-right">{formatTl(laborHourRateTl)}/sa</td>
+                      <td className="p-2 text-right font-semibold">{formatTl(laborCostTl)}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot className="border-t-2 border-slate-900 bg-slate-50 font-bold">
+                    <tr>
+                      <td colSpan={3} className="p-2 text-right">Ara Toplam (KDV Hariç):</td>
+                      <td className="p-2 text-right font-mono">{formatTl(subtotalQuoteTl)}</td>
+                    </tr>
+                    <tr>
+                      <td colSpan={3} className="p-2 text-right font-normal text-slate-600">%20 Katma Değer Vergisi (KDV):</td>
+                      <td className="p-2 text-right font-mono font-normal text-slate-600">{formatTl(vatAmountTl)}</td>
+                    </tr>
+                    <tr className="text-sm bg-slate-900 text-white">
+                      <td colSpan={3} className="p-2.5 text-right font-black uppercase">GENEL TOPLAM (KDV DAHİL):</td>
+                      <td className="p-2.5 text-right font-black font-mono text-emerald-400">{formatTl(grandTotalQuoteTl)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* İmalat & Garanti Şartları */}
+              <div className="mt-4 text-[11px] text-slate-600 leading-relaxed border-t border-slate-200 pt-3">
+                <h4 className="font-bold text-slate-900 mb-1">3. TESLİM VE GARANTİ ŞARTLARI:</h4>
+                <ol className="list-decimal pl-4 space-y-0.5">
+                  <li>İşbu sözleşme konusu ürünler sipariş onayından itibaren <strong>{deliveryDays} iş günü</strong> içerisinde montaja hazır hale getirilecektir.</li>
+                  <li>Ödeme Şekli: %50 sipariş onayında peşin/havale, %40 fabrikasyon imalat tamamlandığında, %10 montaj ve teslimat sonrasında ödenecektir.</li>
+                  <li>Üretilen mobilyalar malzeme ve montaj hatalarına karşı <strong>2 (iki) yıl</strong> süreyle imalatçı firma garantisi altındadır.</li>
+                  <li>Bu teklif düzenleme tarihinden itibaren 15 (on beş) gün süreyle geçerlidir.</li>
+                </ol>
+              </div>
+
+              {/* İmza Alanları */}
+              <div className="mt-8 grid grid-cols-2 gap-8 pt-4 border-t-2 border-slate-800">
+                <div className="text-center">
+                  <p className="font-bold text-xs text-slate-800">MÜŞTERİ / ALICI</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Teklif ve Şartları Kabul Ediyorum</p>
+                  <div className="mt-8 border-b border-dashed border-slate-400 mx-12" />
+                  <p className="mt-1 text-[11px] font-semibold text-slate-700">İmza / Kaşe</p>
+                </div>
+                <div className="text-center">
+                  <p className="font-bold text-xs text-slate-800">İMALATÇI / YÜKLENİCİ FİRMA</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Marangoz Endüstriyel Panel Sistemleri</p>
+                  <div className="mt-8 border-b border-dashed border-slate-400 mx-12" />
+                  <p className="mt-1 text-[11px] font-semibold text-slate-700">Yetkili İmza / Kaşe</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

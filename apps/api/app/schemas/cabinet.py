@@ -469,6 +469,14 @@ class NestedPartPlacement(BaseModel):
         ge=0,
         description="Küçük parça vakum tutunma sekmesi adedi",
     )
+    notch_info: str | None = Field(
+        default=None,
+        description="Parçanın kertme detayı (örn: Süpürgelik 80x15mm)",
+    )
+    is_true_shape: bool = Field(
+        default=False,
+        description="CNC Router true-shape / L-geometri ile yerleştirildi mi?",
+    )
 
 
 class RemnantStockItem(BaseModel):
@@ -555,6 +563,20 @@ class ParsePromptRequest(BaseModel):
         min_length=5,
         max_length=2000,
         description="Kullanıcının doğal dildeki dolap tarifi",
+    )
+
+
+class ParseSketchRequest(BaseModel):
+    """Eskiz veya çizim fotoğrafından dolap konfigürasyonu çıkarma isteği."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    image_base64: str = Field(description="Base64 kodlanmış görsel verisi (JPEG/PNG/WEBP)")
+    mime_type: str = Field(default="image/jpeg", description="Görsel MIME türü")
+    prompt: str = Field(
+        default="",
+        max_length=2000,
+        description="Görsele eşlik eden ek kullanıcı notu veya istem",
     )
 
 
