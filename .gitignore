@@ -20,6 +20,7 @@ apps/web/dist/
 # Artifacts & Output
 artifacts/
 apps/api/artifacts/
+backups/
 *.log
 
 # OS & IDE

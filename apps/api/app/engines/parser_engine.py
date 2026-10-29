@@ -262,39 +262,56 @@ class SemanticParserEngine:
             outer_scope = outer_match.group(0)
 
         w_match = (
-            re.search(r"(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", outer_scope)
-            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)", outer_scope)
-            or re.search(r"(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", text)
+            re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)", outer_scope)
+            or re.search(r"(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", outer_scope)
             or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)", text)
+            or re.search(r"(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", text)
         )
         if w_match:
-            val = w_match.group(1) if w_match.group(1) and not re.match(r"^[a-zA-Z]+$", w_match.group(1)) else w_match.group(2)
-            unit = w_match.group(2) if w_match.group(2) and re.match(r"^[a-zA-Z]+$", w_match.group(2)) else w_match.group(1)
-            width_mm = cls._to_mm(val, unit)
+            g1, g2 = w_match.group(1), w_match.group(2)
+            val, unit = (g1, g2) if (g1 and re.match(r"^\d+(?:[.,]\d+)?$", g1)) else (g2, g1)
+            if val:
+                width_mm = cls._to_mm(val, unit)
 
         h_match = (
-            re.search(r"(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", outer_scope)
-            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)", outer_scope)
+            re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b|tezgah\s*altı|tezgah\s*alti)", outer_scope)
+            or re.search(r"(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", outer_scope)
+            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b|tezgah\s*altı|tezgah\s*alti)", text)
             or re.search(r"(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", text)
-            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)", text)
         )
         if h_match:
-            val = h_match.group(1) if h_match.group(1) and not re.match(r"^[a-zA-Z]+$", h_match.group(1)) else h_match.group(2)
-            unit = h_match.group(2) if h_match.group(2) and re.match(r"^[a-zA-Z]+$", h_match.group(2)) else h_match.group(1)
-            height_mm = cls._to_mm(val, unit)
+            g1, g2 = h_match.group(1), h_match.group(2)
+            val, unit = (g1, g2) if (g1 and re.match(r"^\d+(?:[.,]\d+)?$", g1)) else (g2, g1)
+            if val:
+                height_mm = cls._to_mm(val, unit)
 
         d_match = (
-            re.search(r"(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", outer_scope)
-            or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)", outer_scope)
-            or re.search(r"(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", text)
+            re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)", outer_scope)
+            or re.search(r"(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", outer_scope)
             or re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)", text)
+            or re.search(r"(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?", text)
         )
         if d_match:
-            val = d_match.group(1) if d_match.group(1) and not re.match(r"^[a-zA-Z]+$", d_match.group(1)) else d_match.group(2)
-            unit = d_match.group(2) if d_match.group(2) and re.match(r"^[a-zA-Z]+$", d_match.group(2)) else d_match.group(1)
-            depth_mm = cls._to_mm(val, unit)
+            g1, g2 = d_match.group(1), d_match.group(2)
+            val, unit = (g1, g2) if (g1 and re.match(r"^\d+(?:[.,]\d+)?$", g1)) else (g2, g1)
+            if val:
+                depth_mm = cls._to_mm(val, unit)
 
-        # Eğer WxHxD (örn. 90x210x60 cm veya 900x2100x580) formatı kullanılmışsa
+        # Eğer WxHxD veya WxD (örn. 100x60 cm) formatı kullanılmışsa
+        dim_pair = re.search(
+            r"(\d+(?:[.,]\d+)?)\s*[x×*]\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?",
+            text,
+        )
+        if dim_pair and not (w_match and d_match):
+            unit = dim_pair.group(3)
+            p1 = cls._to_mm(dim_pair.group(1), unit)
+            p2 = cls._to_mm(dim_pair.group(2), unit)
+            # İkili ebat verilmişse (örn: 100x60 cm), büyük olan genişlik, küçük olan derinliktir
+            if not w_match:
+                width_mm = max(p1, p2)
+            if not d_match:
+                depth_mm = min(p1, p2)
+
         if not (w_match or h_match or d_match):
             dim_triplet = re.search(
                 r"(\d+(?:[.,]\d+)?)\s*[x×*]\s*(\d+(?:[.,]\d+)?)\s*[x×*]\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?",
@@ -305,7 +322,6 @@ class SemanticParserEngine:
                 d1 = cls._to_mm(dim_triplet.group(1), unit)
                 d2 = cls._to_mm(dim_triplet.group(2), unit)
                 d3 = cls._to_mm(dim_triplet.group(3), unit)
-                # En küçük genellikle derinliktir
                 sorted_dims = sorted([d1, d2, d3])
                 depth_mm = sorted_dims[0]
                 width_mm = d1 if d1 != depth_mm else sorted_dims[1]
@@ -386,14 +402,14 @@ class SemanticParserEngine:
         if "rafsız" in text or "rafsiz" in text:
             shelf_count = 0
         else:
-            shelf_match = re.search(r"(\d+)\s*(?:adet\s*)?(?:hareketli\s*)?raf", text)
+            shelf_match = re.search(r"(\d+)\s*(?:adet\s*)?(?:hareketli\s*|iç\s*|ic\s*|sabit\s*)?raf", text)
             if shelf_match:
                 shelf_count = int(shelf_match.group(1))
 
         if "çekmecesiz" in text or "cekmecesiz" in text:
             drawer_count = 0
         else:
-            drawer_match = re.search(r"(\d+)\s*(?:adet\s*)?(?:frenli\s*)?[çc]ekmece", text)
+            drawer_match = re.search(r"(\d+)\s*(?:adet\s*)?(?:frenli\s*|tandem\s*|teleskopik\s*)?[çc]ekmece", text)
             if drawer_match:
                 drawer_count = int(drawer_match.group(1))
 
@@ -424,9 +440,9 @@ class SemanticParserEngine:
             door_type = DoorType.FLAP_UP
         elif any(k in text for k in ("çift kapak", "cift kapak", "iki kapak", "2 kapak")):
             door_type = DoorType.DOUBLE
-        elif any(k in text for k in ("sağ kapak", "sag kapak", "sağa açılır")):
+        elif any(k in text for k in ("sağ kapak", "sag kapak", "sağa açılır", "sağ menteşe", "sag mentese", "sağ menteşeli", "sag menteseli")):
             door_type = DoorType.SINGLE_RIGHT
-        elif any(k in text for k in ("tek kapak", "sol kapak", "1 kapak", "tek parça")):
+        elif any(k in text for k in ("tek kapak", "sol kapak", "1 kapak", "tek parça", "sol menteşe", "sol mentese", "sol menteşeli", "sol menteseli")):
             door_type = DoorType.SINGLE_LEFT
 
         # 5. Baza Bilgisi
@@ -449,11 +465,11 @@ class SemanticParserEngine:
 
         for color_word, (hex_val, mat_label) in cls.COLOR_MAP.items():
             body_clause = re.search(
-                rf"(?:gövde|govde)[^.,;]*\b{color_word}[^.,;]*|\b{color_word}[^.,;]*(?:gövde|govde)[^.,;]*",
+                rf"(?:gövde|govde)\b(?:\s+\w+){{0,3}}\s+\b{color_word}\b(?!\s+(?:kapak|kapaklı|kapakli))\b|\b{color_word}\b(?:\s+\w+){{0,3}}\s+(?:gövde|govde)\b",
                 text,
             )
             door_clause = re.search(
-                rf"kapak[^.,;]*\b{color_word}[^.,;]*|\b{color_word}[^.,;]*kapak[^.,;]*",
+                rf"(?:üst\s+|alt\s+)?kapak\b(?:\s+\w+){{0,3}}\s+\b{color_word}\b|\b{color_word}\b(?:\s+\w+){{0,3}}\s+(?:kapak|kapaklı|kapakli)\b",
                 text,
             )
             if body_clause:
@@ -468,12 +484,10 @@ class SemanticParserEngine:
             if door_clause:
                 door_color_hex = hex_val
                 clause_str = door_clause.group(0)
-                if "mdf" in clause_str:
-                    door_material = mat_label.replace("Suntalam", "MDF-Lam")
-                elif "suntalam" in clause_str:
+                if "suntalam" in clause_str:
                     door_material = mat_label.replace("MDF-Lam", "Suntalam")
                 else:
-                    door_material = mat_label
+                    door_material = mat_label.replace("Suntalam", "MDF-Lam")
             if not body_clause and not door_clause and color_word in text:
                 body_color_hex = hex_val
                 body_material = (
@@ -652,20 +666,33 @@ class SemanticParserEngine:
                 "egimli tavan",
                 "çatı katı",
                 "cati kati",
+                "eğimli",
+                "egimli",
             )
         ):
             has_slope = True
-            if any(k in text for k in ("sağ", "sag")):
+            if any(k in text for k in ("sağa eğim", "saga egim", "sağ eğim", "sag egim", "sağ alçak", "sag alcak")):
+                slope_side = "right"
+            elif any(k in text for k in ("sola eğim", "sola egim", "sol eğim", "sol egim", "sol alçak", "sol alcak")):
+                slope_side = "left"
+            elif any(k in text for k in ("sağ", "sag")) and not any(k in text for k in ("sol",)):
                 slope_side = "right"
             else:
                 slope_side = "left"
 
-            m_slope_h = re.search(
-                r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?(?:'den|den|'dan|dan)?\s*(?:başlayan|alçalan|yükselen|başlayıp)",
-                text,
-            ) or re.search(
-                r"alçak\s*(?:tarafı?|dikme|kenar)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?",
-                text,
+            m_slope_h = (
+                re.search(
+                    r"(?:başlangı[çc][ıi]?|baslangı[çc][ıi]?|alçak|kısa\s*taraf|başlayan)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?",
+                    text,
+                )
+                or re.search(
+                    r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?(?:'den|den|'dan|dan)?\s*(?:başlayan|alçalan|yükselen|başlayıp|başlangı[çc][ıi]?|baslangı[çc][ıi]?)",
+                    text,
+                )
+                or re.search(
+                    r"alçak\s*(?:tarafı?|dikme|kenar)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?",
+                    text,
+                )
             )
             if m_slope_h:
                 slope_start_height_mm = cls._to_mm(m_slope_h.group(1), m_slope_h.group(2))
@@ -687,6 +714,9 @@ class SemanticParserEngine:
             )
         )
         corner_blind_width_mm = 100.0
+        blind_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:kör\s*kapama|kör\s*panel|kapatma)", text)
+        if blind_match:
+            corner_blind_width_mm = cls._to_mm(blind_match.group(1), blind_match.group(2))
 
         return CabinetConfig(
             name=name,

@@ -2634,36 +2634,49 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   const searchScope = outerScopeMatch ? outerScopeMatch[0] : text;
 
   const wMatch =
-    searchScope.match(/(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
     searchScope.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)/i) ??
-    text.match(/(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
-    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)/i);
+    searchScope.match(/(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
+    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:genişli[ğg]inde|genişlik|genislik|eninde|en\b)/i) ??
+    text.match(/(?:genişlik|genislik|en)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i);
   if (wMatch) {
-    const rawVal = wMatch[1] && !isNaN(parseFloat(wMatch[1])) ? wMatch[1] : wMatch[2];
-    const rawUnit = wMatch[2] && isNaN(parseFloat(wMatch[2])) ? wMatch[2] : wMatch[1];
-    widthMm = toMm(rawVal, rawUnit);
+    const g1 = wMatch[1];
+    const g2 = wMatch[2];
+    const [val, unit] = g1 && /^\d+(?:[.,]\d+)?$/.test(g1) ? [g1, g2] : [g2, g1];
+    if (val) widthMm = toMm(val, unit);
   }
 
   const hMatch =
+    searchScope.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b|tezgah\s*altı|tezgah\s*alti)/i) ??
     searchScope.match(/(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
-    searchScope.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)/i) ??
-    text.match(/(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
-    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b)/i);
+    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:yüksekli[ğg]inde|yükseklik|yukseklik|boyunda|boy\b|tezgah\s*altı|tezgah\s*alti)/i) ??
+    text.match(/(?:yükseklik|yukseklik|boy)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i);
   if (hMatch) {
-    const rawVal = hMatch[1] && !isNaN(parseFloat(hMatch[1])) ? hMatch[1] : hMatch[2];
-    const rawUnit = hMatch[2] && isNaN(parseFloat(hMatch[2])) ? hMatch[2] : hMatch[1];
-    heightMm = toMm(rawVal, rawUnit);
+    const g1 = hMatch[1];
+    const g2 = hMatch[2];
+    const [val, unit] = g1 && /^\d+(?:[.,]\d+)?$/.test(g1) ? [g1, g2] : [g2, g1];
+    if (val) heightMm = toMm(val, unit);
   }
 
   const dMatch =
-    searchScope.match(/(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
     searchScope.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)/i) ??
-    text.match(/(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
-    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)/i);
+    searchScope.match(/(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ??
+    text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:derinli[ğg]inde|derinlik)/i) ??
+    text.match(/(?:derinlik)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i);
   if (dMatch) {
-    const rawVal = dMatch[1] && !isNaN(parseFloat(dMatch[1])) ? dMatch[1] : dMatch[2];
-    const rawUnit = dMatch[2] && isNaN(parseFloat(dMatch[2])) ? dMatch[2] : dMatch[1];
-    depthMm = toMm(rawVal, rawUnit);
+    const g1 = dMatch[1];
+    const g2 = dMatch[2];
+    const [val, unit] = g1 && /^\d+(?:[.,]\d+)?$/.test(g1) ? [g1, g2] : [g2, g1];
+    if (val) depthMm = toMm(val, unit);
+  }
+
+  // Eğer 100x60 cm gibi ikili ebat verilmişse
+  const dimPair = text.match(/(\d+(?:[.,]\d+)?)\s*[x×*]\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i);
+  if (dimPair && !(wMatch && dMatch)) {
+    const unit = dimPair[3];
+    const p1 = toMm(dimPair[1], unit);
+    const p2 = toMm(dimPair[2], unit);
+    if (!wMatch) widthMm = Math.max(p1, p2);
+    if (!dMatch) depthMm = Math.min(p1, p2);
   }
 
   // 2b. Açık Niş / Cihaz Boşluğu Tespiti (Alt Niş vs. Orta Niş / Kahve Köşesi / Fırın)
@@ -2760,14 +2773,14 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
   if (text.includes("rafsız") || text.includes("rafsiz")) {
     shelfCount = 0;
   } else {
-    const sMatch = text.match(/(\d+)\s*(?:adet\s*)?(?:hareketli\s*)?raf/);
+    const sMatch = text.match(/(\d+)\s*(?:adet\s*)?(?:hareketli\s*|iç\s*|ic\s*|sabit\s*)?raf/i);
     if (sMatch) shelfCount = parseInt(sMatch[1], 10);
   }
 
   if (text.includes("çekmecesiz") || text.includes("cekmecesiz")) {
     drawerCount = 0;
   } else {
-    const drMatch = text.match(/(\d+)\s*(?:adet\s*)?(?:frenli\s*)?[çc]ekmece/);
+    const drMatch = text.match(/(\d+)\s*(?:adet\s*)?(?:frenli\s*|tandem\s*|teleskopik\s*)?[çc]ekmece/i);
     if (drMatch) drawerCount = parseInt(drMatch[1], 10);
   }
 
@@ -2799,13 +2812,21 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     text.includes("2 kapak")
   ) {
     doorType = "double";
-  } else if (text.includes("sağ kapak") || text.includes("sag kapak")) {
+  } else if (
+    text.includes("sağ kapak") ||
+    text.includes("sag kapak") ||
+    text.includes("sağa açılır") ||
+    text.includes("sağ menteşe") ||
+    text.includes("sağ menteşeli")
+  ) {
     doorType = "single_right";
   } else if (
     text.includes("tek kapak") ||
     text.includes("sol kapak") ||
     text.includes("1 kapak") ||
-    text.includes("tek parça")
+    text.includes("tek parça") ||
+    text.includes("sol menteşe") ||
+    text.includes("sol menteşeli")
   ) {
     doorType = "single_left";
   }
@@ -2837,14 +2858,14 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
 
   for (const [word, [hex, mat]] of Object.entries(colorMap)) {
     const bodyClause = text.match(
-      new RegExp(`(?:gövde|govde)[^.,;]*${word}[^.,;]*|${word}[^.,;]*(?:gövde|govde)[^.,;]*`, "i")
+      new RegExp(`(?:gövde|govde)(?:\\s+[a-zçğıöşü0-9]+){0,3}\\s+${word}(?![a-zçğıöşü]*(?:\\s+[a-zçğıöşü]+){0,2}\\s+kapak)|${word}(?:\\s+[a-zçğıöşü]+){0,3}\\s+(?:gövde|govde)`, "i")
     );
     const doorClause = text.match(
-      new RegExp(`kapak[^.,;]*${word}[^.,;]*|${word}[^.,;]*kapak[^.,;]*`, "i")
+      new RegExp(`(?:üst\\s+|alt\\s+)?kapak(?:\\s+[a-zçğıöşü]+){0,3}\\s+${word}|${word}(?:\\s+[a-zçğıöşü]+){0,3}\\s+(?:kapak|kapaklı|kapakli)`, "i")
     );
     if (bodyClause) {
       bodyColorHex = hex;
-      const clauseStr = bodyClause[0];
+      const clauseStr = bodyClause[0].toLowerCase();
       if (clauseStr.includes("mdf")) {
         bodyMaterial = mat.replace("Suntalam", "MDF-Lam");
       } else if (clauseStr.includes("suntalam")) {
@@ -2855,13 +2876,11 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     }
     if (doorClause) {
       doorColorHex = hex;
-      const clauseStr = doorClause[0];
-      if (clauseStr.includes("mdf")) {
-        doorMaterial = mat.replace("Suntalam", "MDF-Lam");
-      } else if (clauseStr.includes("suntalam")) {
+      const clauseStr = doorClause[0].toLowerCase();
+      if (clauseStr.includes("suntalam")) {
         doorMaterial = mat.replace("MDF-Lam", "Suntalam");
       } else {
-        doorMaterial = mat;
+        doorMaterial = mat.replace("Suntalam", "MDF-Lam");
       }
     }
     if (!bodyClause && !doorClause && text.includes(word)) {
@@ -3075,20 +3094,39 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     text.includes("eğimli tavan") ||
     text.includes("egimli tavan") ||
     text.includes("çatı katı") ||
-    text.includes("cati kati")
+    text.includes("cati kati") ||
+    text.includes("eğimli") ||
+    text.includes("egimli")
   ) {
     hasSlope = true;
     if (
-      text.includes("sağ tarafı eğimli") ||
-      text.includes("sağa doğru") ||
+      text.includes("sağa eğim") ||
+      text.includes("saga egim") ||
+      text.includes("sağ eğim") ||
+      text.includes("sag egim") ||
       text.includes("sağ alçak") ||
       text.includes("sag alcak")
     ) {
       slopeSide = "right";
+    } else if (
+      text.includes("sola eğim") ||
+      text.includes("sola egim") ||
+      text.includes("sol eğim") ||
+      text.includes("sol egim") ||
+      text.includes("sol alçak") ||
+      text.includes("sol alcak")
+    ) {
+      slopeSide = "left";
+    } else if (text.includes("sağ") && !text.includes("sol")) {
+      slopeSide = "right";
+    } else {
+      slopeSide = "left";
     }
+
     const mSlopeH =
-      text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?(?:'den|den|'dan|dan)?\s*(?:başlayan|alçalan|yükselen|başlayıp)/) ||
-      text.match(/alçak\s*(?:tarafı?|dikme|kenar)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/);
+      text.match(/(?:başlangı[çc][ıi]?|baslangı[çc][ıi]?|alçak|kısa\s*taraf|başlayan)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i) ||
+      text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?(?:'den|den|'dan|dan)?\s*(?:başlayan|alçalan|yükselen|başlayıp|başlangı[çc][ıi]?|baslangı[çc][ıi]?)/i) ||
+      text.match(/alçak\s*(?:tarafı?|dikme|kenar)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?/i);
     if (mSlopeH) {
       slopeStartHeightMm = toMm(mSlopeH[1], mSlopeH[2]);
     } else {
@@ -3105,6 +3143,12 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     text.includes("kose dolap") ||
     text.includes("köşe modül") ||
     text.includes("kose modul");
+
+  let cornerBlindWidthMm = 100.0;
+  const blindMatch = text.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*(?:kör\s*kapama|kör\s*panel|kapatma)/i);
+  if (blindMatch) {
+    cornerBlindWidthMm = toMm(blindMatch[1], blindMatch[2]);
+  }
 
   return {
     name,
@@ -3127,7 +3171,7 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     slope_side: slopeSide,
     slope_start_height_mm: slopeStartHeightMm,
     is_corner_module: isCornerModule,
-    corner_blind_width_mm: 100.0,
+    corner_blind_width_mm: cornerBlindWidthMm,
     corner_angle_deg: 90.0,
     has_plinth: hasPlinth,
     plinth_height_mm: plinthHeightMm,

@@ -1,0 +1,177 @@
+[
+  {
+    "id": "corpus_001",
+    "category": "wardrobe",
+    "prompt": "210 cm boyunda 90 cm eninde 60 cm derinliğinde beyaz suntalam gövde meşe kapaklı 3 raflı çift kapaklı gardırop",
+    "expected": {
+      "cabinet_type": "wardrobe",
+      "width_mm": 900.0,
+      "height_mm": 2100.0,
+      "depth_mm": 600.0,
+      "shelf_count": 3,
+      "door_type": "double",
+      "body_material": "18mm Beyaz Suntalam",
+      "door_material": "18mm Doğal Meşe MDF-Lam"
+    }
+  },
+  {
+    "id": "corpus_002",
+    "category": "kitchen_base",
+    "prompt": "85 cm tezgah altı mutfak alt dolabı, 80 cm genişlik, 60 cm derinlik, 2 çekmeceli antrasit mdf gövde",
+    "expected": {
+      "cabinet_type": "kitchen_base",
+      "width_mm": 800.0,
+      "height_mm": 850.0,
+      "depth_mm": 600.0,
+      "drawer_count": 2,
+      "has_plinth": true
+    }
+  },
+  {
+    "id": "corpus_003",
+    "category": "kitchen_wall",
+    "prompt": "72 cm boyunda 80 cm eninde yukarı açılan gazlı pistonlu kalkar kapaklı mutfak üst dolabı",
+    "expected": {
+      "cabinet_type": "kitchen_wall",
+      "width_mm": 800.0,
+      "height_mm": 720.0,
+      "depth_mm": 350.0,
+      "door_type": "flap_up",
+      "has_plinth": false
+    }
+  },
+  {
+    "id": "corpus_004",
+    "category": "coffee_station",
+    "prompt": "210 boy 100 en kahve barı, ortada 50 cm açık niş, altı 2 çekmeceli, üstü çift kapaklı",
+    "expected": {
+      "height_mm": 2100.0,
+      "width_mm": 1000.0,
+      "niche_height_mm": 500.0,
+      "drawer_count": 2,
+      "door_type": "double"
+    }
+  },
+  {
+    "id": "corpus_005",
+    "category": "slope_stairs",
+    "prompt": "Merdiven altı için sola eğimli gardırop, 90 cm genişlik, sağ taraf 210 cm, sol başlangıç 120 cm, çift kapaklı",
+    "expected": {
+      "has_slope": true,
+      "slope_side": "left",
+      "slope_start_height_mm": 1200.0,
+      "height_mm": 2100.0,
+      "width_mm": 900.0,
+      "door_type": "double"
+    }
+  },
+  {
+    "id": "corpus_006",
+    "category": "slope_mansard",
+    "prompt": "Çatı katı sağa eğimli dolap 100 cm genişlik, 220 cm boy, sağ eğim başlangıcı 110 cm, meşe kapak",
+    "expected": {
+      "has_slope": true,
+      "slope_side": "right",
+      "slope_start_height_mm": 1100.0,
+      "height_mm": 2200.0,
+      "width_mm": 1000.0
+    }
+  },
+  {
+    "id": "corpus_007",
+    "category": "fridge_cabinet",
+    "prompt": "85 cm genişliğinde buzdolabı kabini, 185 cm buzdolabı nişi arkalıksız olsun, üstünde kalkar kapaklı depolama dolabı",
+    "expected": {
+      "width_mm": 850.0,
+      "appliance_niche_height_mm": 1850.0,
+      "door_type": "flap_up",
+      "has_plinth": false
+    }
+  },
+  {
+    "id": "corpus_008",
+    "category": "corner_cabinet",
+    "prompt": "100x60 cm ölçülerinde 85 boyunda mutfak L-köşe kör dolap modülü, 10 cm kör kapama panelli",
+    "expected": {
+      "is_corner_module": true,
+      "width_mm": 1000.0,
+      "height_mm": 850.0,
+      "depth_mm": 600.0,
+      "corner_blind_width_mm": 100.0
+    }
+  },
+  {
+    "id": "corpus_009",
+    "category": "bathroom_vanity",
+    "prompt": "80 cm banyo lavabo altı dolabı, 50 cm derinlik, 2 frenli çekmeceli, gövde lake beyaz",
+    "expected": {
+      "cabinet_type": "bathroom_vanity",
+      "width_mm": 800.0,
+      "depth_mm": 500.0,
+      "drawer_count": 2
+    }
+  },
+  {
+    "id": "corpus_010",
+    "category": "hallway_entry",
+    "prompt": "Antre için 120 cm genişlik 220 boy vestiyer, altı 40 cm puf oturma alanı, arkası askılıklı",
+    "expected": {
+      "width_mm": 1200.0,
+      "height_mm": 2200.0
+    }
+  },
+  {
+    "id": "corpus_011",
+    "category": "bookshelf",
+    "prompt": "180 boyunda 80 eninde 30 cm derinliğinde 4 raflı kapaksız açık kitaplık ceviz desen",
+    "expected": {
+      "cabinet_type": "bookshelf",
+      "width_mm": 800.0,
+      "height_mm": 1800.0,
+      "depth_mm": 300.0,
+      "shelf_count": 4,
+      "door_type": "none"
+    }
+  },
+  {
+    "id": "corpus_012",
+    "category": "laundry_tower",
+    "prompt": "Çamaşır ve kurutma makinesi üst üste kule dolabı, 70 cm en, 210 cm boy, 65 cm derinlik",
+    "expected": {
+      "width_mm": 700.0,
+      "height_mm": 2100.0,
+      "depth_mm": 650.0
+    }
+  },
+  {
+    "id": "corpus_013",
+    "category": "pantry_tall",
+    "prompt": "220 boy 60 en kiler boy dolabı, 5 adet iç raflı, tek sağ menteşeli kapak",
+    "expected": {
+      "width_mm": 600.0,
+      "height_mm": 2200.0,
+      "shelf_count": 5,
+      "door_type": "single_right"
+    }
+  },
+  {
+    "id": "corpus_014",
+    "category": "tv_unit",
+    "prompt": "180 cm genişliğinde 45 cm yüksekliğinde TV alt sehpası konsol, 3 kapaklı antrasit",
+    "expected": {
+      "cabinet_type": "tv_unit",
+      "width_mm": 1800.0,
+      "height_mm": 450.0
+    }
+  },
+  {
+    "id": "corpus_015",
+    "category": "island_kitchen",
+    "prompt": "90 boy 120 en ada mutfak alt dolabı, arkası açık servis alanı, 4 adet tandem çekmece",
+    "expected": {
+      "width_mm": 1200.0,
+      "height_mm": 900.0,
+      "drawer_count": 4
+    }
+  }
+]
