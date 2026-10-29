@@ -8,6 +8,7 @@ import {
   Check,
   Cpu,
   FileSpreadsheet,
+  FileText,
   Image as ImageIcon,
   LayoutGrid,
   Loader2,
@@ -26,6 +27,7 @@ import { NestingView } from "./components/NestingView";
 import { ParametricSidebar } from "./components/ParametricSidebar";
 import { PartLabelsView } from "./components/PartLabelsView";
 import { ProductionStatsRibbon } from "./components/ProductionStatsRibbon";
+import { ShopDrawingView } from "./components/ShopDrawingView";
 import { TemplateCatalogDrawer } from "./components/TemplateCatalogDrawer";
 import { WorkshopScannerView } from "./components/WorkshopScannerView";
 import {
@@ -104,6 +106,7 @@ const POPULAR_PRESET_IDS = [
 type ActiveTab =
   | "3d_and_bom"
   | "nesting"
+  | "shop_drawing"
   | "bom_only"
   | "qr_labels"
   | "cost_quote"
@@ -653,6 +656,19 @@ export function App() {
 
                 <button
                   type="button"
+                  onClick={() => setActiveTab("shop_drawing")}
+                  className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition ${
+                    activeTab === "shop_drawing"
+                      ? "bg-sky-600 text-white shadow-md shadow-sky-600/20"
+                      : "bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  }`}
+                >
+                  <FileText className="h-4 w-4" />
+                  <span>3. Montaj Şeması (2D)</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setActiveTab("bom_only")}
                   className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition ${
                     activeTab === "bom_only"
@@ -661,7 +677,7 @@ export function App() {
                   }`}
                 >
                   <FileSpreadsheet className="h-4 w-4" />
-                  <span>3. Parça Listesi &amp; CNC</span>
+                  <span>4. Parça Listesi &amp; CNC</span>
                   {pkg?.bom?.parts && (
                     <span className="rounded-full bg-slate-950/60 px-1.5 py-0.5 text-[10px] font-mono text-slate-300 border border-slate-700">
                       {pkg.bom.parts.length} Parça
@@ -679,7 +695,7 @@ export function App() {
                   }`}
                 >
                   <QrCode className="h-4 w-4" />
-                  <span>4. QR Parça Etiketleri</span>
+                  <span>5. QR Parça Etiketleri</span>
                 </button>
 
                 <button
@@ -692,7 +708,7 @@ export function App() {
                   }`}
                 >
                   <Calculator className="h-4 w-4" />
-                  <span>5. Maliyet &amp; Teklif</span>
+                  <span>6. Maliyet &amp; Teklif</span>
                 </button>
 
                 <button
@@ -705,7 +721,7 @@ export function App() {
                   }`}
                 >
                   <Scan className="h-4 w-4" />
-                  <span>6. Atölye Terminali</span>
+                  <span>7. Atölye Terminali</span>
                 </button>
 
                 <button
@@ -746,6 +762,10 @@ export function App() {
 
                 {activeTab === "nesting" && (
                   <NestingView nesting={pkg.nesting} />
+                )}
+
+                {activeTab === "shop_drawing" && (
+                  <ShopDrawingView bom={pkg.bom} />
                 )}
 
                 {activeTab === "bom_only" && (
