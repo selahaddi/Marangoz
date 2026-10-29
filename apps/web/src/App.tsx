@@ -17,6 +17,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
+import { AIChatDrawer } from "./components/AIChatDrawer";
 import { BomTableView } from "./components/BomTableView";
 import { CabinetViewer3D } from "./components/CabinetViewer3D";
 import { CostQuoteView } from "./components/CostQuoteView";
@@ -130,6 +131,8 @@ export function App() {
 
   // Modern UI & Çekmece State'leri
   const [showTemplateDrawer, setShowTemplateDrawer] = useState<boolean>(false);
+  const [showAIChatDrawer, setShowAIChatDrawer] = useState<boolean>(false);
+  const [configHistory, setConfigHistory] = useState<CabinetConfig[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   const [parseInfo, setParseInfo] = useState<ParseResult | null>(null);
@@ -240,6 +243,20 @@ export function App() {
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleApplyRevision = (newConfig: CabinetConfig, _diffs: string[]) => {
+    setConfigHistory((prev) => [...prev, config]);
+    setConfig(newConfig);
+    void runGeneration(newConfig);
+  };
+
+  const handleUndoRevision = () => {
+    if (configHistory.length === 0) return;
+    const previous = configHistory[configHistory.length - 1];
+    setConfigHistory((prev) => prev.slice(0, prev.length - 1));
+    setConfig(previous);
+    void runGeneration(previous);
   };
 
   useEffect(() => {
@@ -429,6 +446,14 @@ export function App() {
                 >
                   <Camera className="h-4 w-4" />
                   Eskiz / Çizim Yükle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAIChatDrawer(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-500/50 bg-gradient-to-r from-amber-600 to-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-900/30 transition hover:opacity-95"
+                >
+                  <Sparkles className="h-4 w-4 text-amber-200" />
+                  AI Canlı Revizyon &amp; Chat
                 </button>
               </div>
             </div>
@@ -670,6 +695,21 @@ export function App() {
                 >
                   <Scan className="h-4 w-4" />
                   <span>6. Atölye Terminali</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAIChatDrawer(true)}
+                  className="flex items-center gap-2 rounded-xl border border-indigo-500/40 bg-gradient-to-r from-amber-500/15 via-indigo-500/15 to-indigo-600/25 px-3.5 py-2 text-xs font-bold text-indigo-300 hover:bg-indigo-500/30 transition shadow-sm ml-auto"
+                  title="Dolabınızı konuşarak canlı revize edin"
+                >
+                  <Sparkles className="h-4 w-4 text-amber-400 animate-pulse" />
+                  <span>AI Canlı Revizyon (Chat)</span>
+                  {configHistory.length > 0 && (
+                    <span className="rounded-full bg-amber-500/30 px-1.5 py-0.5 text-[10px] text-amber-300">
+                      {configHistory.length}
+                    </span>
+                  )}
                 </button>
               </div>
             </div>
@@ -977,6 +1017,33 @@ export function App() {
           void handleParseAndGenerate(p);
         }}
       />
+
+      {/* AI Canlı Revizyon & Konuşma Tabanlı Chat Çekmecesi */}
+      <AIChatDrawer
+        isOpen={showAIChatDrawer}
+        onClose={() => setShowAIChatDrawer(false)}
+        currentConfig={config}
+        onApplyConfig={handleApplyRevision}
+        canUndo={configHistory.length > 0}
+        onUndo={handleUndoRevision}
+        undoCount={configHistory.length}
+      />
+
+      {/* Sabit Yüzen AI Canlı Revizyon Butonu */}
+      <button
+        type="button"
+        onClick={() => setShowAIChatDrawer(true)}
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 rounded-2xl bg-gradient-to-r from-amber-500 via-indigo-600 to-indigo-700 px-4 py-3 text-sm font-bold text-white shadow-2xl shadow-indigo-950/70 hover:scale-105 active:scale-95 transition-all border border-indigo-400/40"
+        title="AI Tasarım Asistanı ile Konuşarak Revize Et"
+      >
+        <Sparkles className="h-5 w-5 text-amber-300 animate-pulse" />
+        <span>AI Canlı Revizyon</span>
+        {configHistory.length > 0 && (
+          <span className="rounded-full bg-amber-400/30 px-1.5 py-0.5 text-xs text-amber-200">
+            {configHistory.length}
+          </span>
+        )}
+      </button>
     </div>
   );
 }

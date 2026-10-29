@@ -2,6 +2,7 @@
 
 import io
 import zipfile
+from unittest.mock import patch
 
 import ezdxf
 from fastapi.testclient import TestClient
@@ -13,6 +14,7 @@ from app.engines.dxf_engine import DXFProductionEngine
 from app.engines.geometry_engine import CabinetGeometryEngine
 from app.engines.nesting_engine import NestingEngine
 from app.engines.parser_engine import SemanticParserEngine
+from app.engines.revision_engine import RevisionEngine
 from app.main import app
 from app.schemas.cabinet import (
     BackPanelType,
@@ -530,6 +532,72 @@ def test_mid_niche_coffee_station_and_appliance_cutouts():
     assert parsed_cfg.niche_height_mm == 500.0
     assert parsed_cfg.niche_bottom_offset_mm == 850.0
     assert parsed_cfg.niche_back_open is True
+
+
+def test_conversational_revision_engine_and_endpoint():
+    """Faz 3: Konuşma Tabanlı Chat & Revizyon Motoru (Conversational Mutation / Diff Engine) Testi."""
+    base_cfg = CabinetConfig(
+        name="Standart Gardırop",
+        cabinet_type=CabinetType.WARDROBE,
+        width_mm=900.0,
+        height_mm=2100.0,
+        depth_mm=580.0,
+        shelf_count=3,
+        door_type=DoorType.DOUBLE,
+        drawer_count=0,
+        has_plinth=True,
+        plinth_height_mm=80.0,
+    )
+
+    # 1. Ölçü Değişimi: "Genişliği 120 cm yap"
+    cfg1, msg1, diffs1 = RevisionEngine._deterministic_mutate(base_cfg, "genişliği 120 cm yap")
+    assert cfg1.width_mm == 1200.0
+    assert cfg1.height_mm == 2100.0
+    assert cfg1.shelf_count == 3
+    assert any("Genişlik: 900 mm ➔ 1200 mm" in d for d in diffs1)
+
+    # 2. Çekmece Ekleme: "Altına 2 çekmece ekle"
+    cfg2, msg2, diffs2 = RevisionEngine._deterministic_mutate(cfg1, "altına 2 çekmece ekle")
+    assert cfg2.drawer_count == 2
+    assert cfg2.width_mm == 1200.0
+    assert any("Çekmece: 0 ➔ 2" in d for d in diffs2)
+
+    # 3. Renk Revizyonu: "Kapakları antrasit yap"
+    cfg3, msg3, diffs3 = RevisionEngine._deterministic_mutate(cfg2, "kapakları antrasit yap")
+    assert cfg3.door_color_hex == "#374151"
+    assert cfg3.drawer_count == 2
+    assert any("Kapak Rengi" in d for d in diffs3)
+
+    # 4. Açık Niş Ekleme: "Ortaya ahşap kahve köşesi nişi ekle"
+    cfg4, msg4, diffs4 = RevisionEngine._deterministic_mutate(cfg3, "ortaya ahşap kahve köşesi nişi ekle")
+    assert cfg4.niche_height_mm == 450.0
+    assert cfg4.niche_bottom_offset_mm == 850.0
+    assert cfg4.niche_color_hex == "#9C6644"
+    assert any("Açık Niş Boyu" in d for d in diffs4)
+
+    # 5. FastAPI /api/v1/revise Uç Noktası Testi (Deterministik Mock ile Hızlı & Çevrimdışı Doğrulama)
+    with patch.object(
+        RevisionEngine,
+        "revise_config",
+        side_effect=lambda current_config, instruction, history=None: RevisionEngine._deterministic_mutate(current_config, instruction),
+    ):
+        res = client.post(
+            "/api/v1/revise",
+            json={
+                "current_config": cfg4.model_dump(),
+                "instruction": "bazasız tavandan tabana yap ve 1 raf daha ekle",
+                "history": [],
+            },
+        )
+        assert res.status_code == 200
+        res_data = res.json()
+        assert res_data["success"] is True
+        revised = res_data["data"]["updated_config"]
+        assert revised["has_plinth"] is False
+        assert revised["plinth_height_mm"] == 0.0
+        assert revised["shelf_count"] == 4  # 3 + 1
+        assert len(res_data["data"]["diff_summary"]) >= 2
+
 
 
 

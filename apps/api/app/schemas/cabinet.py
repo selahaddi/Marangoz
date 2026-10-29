@@ -366,7 +366,8 @@ class CabinetConfig(BaseModel):
         elif self.plinth_height_mm < 50.0:
             self.plinth_height_mm = 80.0
 
-        if self.appliance_niche_height_mm > 0.0:
+        # Yalnızca tabandan başlayan buzdolabı nişlerinde baza kaldırılır
+        if self.appliance_niche_height_mm > 0.0 and (self.niche_bottom_offset_mm or 0.0) == 0.0:
             self.has_plinth = False
             self.plinth_height_mm = 0.0
             if self.appliance_niche_height_mm > self.height_mm - 200.0:

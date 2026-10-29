@@ -277,3 +277,24 @@ export interface ProductionPackageResponse {
   cix_filenames?: string[];
   zip_download_url: string;
 }
+
+export interface ChatMessage {
+  id?: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp?: string;
+  diff_summary?: string[];
+}
+
+export interface RevisionResponseData {
+  updated_config: CabinetConfig;
+  assistant_message: string;
+  diff_summary: string[];
+}
+
+export interface RevisionResponse {
+  success: boolean;
+  message: string;
+  data: RevisionResponseData;
+}
+

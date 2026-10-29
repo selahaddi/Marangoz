@@ -19,6 +19,7 @@ from app.engines.dxf_engine import DXFProductionEngine
 from app.engines.geometry_engine import CabinetGeometryEngine
 from app.engines.nesting_engine import NestingEngine
 from app.engines.parser_engine import SemanticParserEngine
+from app.engines.revision_engine import RevisionEngine
 from app.schemas.cabinet import (
     ApiResponse,
     BOMReport,
@@ -26,6 +27,11 @@ from app.schemas.cabinet import (
     ParsePromptRequest,
     ParseSketchRequest,
     ProductionPackageResponse,
+)
+from app.schemas.revision import (
+    RevisionRequest,
+    RevisionResponse,
+    RevisionResponseData,
 )
 
 logger = logging.getLogger(__name__)
@@ -147,6 +153,37 @@ async def parse_sketch_image(
             success=False,
             data=None,
             error=f"Eskiz görseli ayrıştırılamadı: {exc}",
+        )
+
+
+@router.post("/revise", response_model=RevisionResponse)
+async def revise_cabinet(payload: RevisionRequest) -> RevisionResponse:
+    """Mevcut dolap parametrelerini doğal dilde konuşarak iteratif olarak günceller."""
+    try:
+        updated_cfg, assistant_msg, diffs = RevisionEngine.revise_config(
+            current_config=payload.current_config,
+            instruction=payload.instruction,
+            history=payload.history,
+        )
+        return RevisionResponse(
+            success=True,
+            message="Tasarım başarıyla revize edildi",
+            data=RevisionResponseData(
+                updated_config=updated_cfg,
+                assistant_message=assistant_msg,
+                diff_summary=diffs,
+            ),
+        )
+    except Exception as exc:
+        logger.exception("Dolap revizyon hatası: %s", exc)
+        return RevisionResponse(
+            success=False,
+            message=f"Revizyon uygulanamadı: {exc}",
+            data=RevisionResponseData(
+                updated_config=payload.current_config,
+                assistant_message=f"İşlem sırasında hata oluştu: {exc}",
+                diff_summary=[],
+            ),
         )
 
 
