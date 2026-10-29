@@ -6041,35 +6041,137 @@ export function generateBomLocal(config: CabinetConfig): BOMReport {
       note: "Hareketli raflar için (raf başı 4 adet)",
     });
   }
+  const brand = (config.hardware_brand || "generic").toLowerCase();
+
   if (totalDrawerSlides > 0) {
-    const slideLen = selectDrawerSlideLength(config.depth_mm);
-    hardware.push({
-      code: `HRD-CRAY-${slideLen}`,
-      name: `Frenli Teleskopik Çekmece Rayı (${slideLen}mm)`,
-      unit: "Takım",
-      quantity: totalDrawerSlides,
-      note: `${totalDrawerSlides} adet çekmece için sağ/sol ray takımı`,
-    });
+    if (brand === "blum") {
+      hardware.push({
+        code: "BLM-TNDM-ANT-500",
+        name: "Blum Tandembox Antaro Çift Cidarlı Çekmece Kiti (500mm, 30kg, Blumotion)",
+        unit: "Takım",
+        quantity: totalDrawerSlides,
+        note: `${totalDrawerSlides} adet çekmece için entegre Blumotion frenli Tandembox kiti`,
+      });
+    } else if (brand === "hafele") {
+      hardware.push({
+        code: "HAF-MTX-P-500",
+        name: "Häfele Matrix Box P Antrasit Çift Cidarlı Çekmece (500mm, 35kg, Soft-Close)",
+        unit: "Takım",
+        quantity: totalDrawerSlides,
+        note: `${totalDrawerSlides} adet çekmece için antrasit Soft-Close Matrix Box P kiti`,
+      });
+    } else if (brand === "samet") {
+      hardware.push({
+        code: "SMT-FLW-500",
+        name: "Samet Flowbox Antrasit İnce Yanaklı Çekmece Sistemi (500mm, 40kg, Frenli)",
+        unit: "Takım",
+        quantity: totalDrawerSlides,
+        note: `${totalDrawerSlides} adet çekmece için 12.8mm Flowbox frenli çekmece kiti`,
+      });
+    } else {
+      const slideLen = selectDrawerSlideLength(config.depth_mm);
+      hardware.push({
+        code: `HRD-CRAY-${slideLen}`,
+        name: `Frenli Teleskopik Çekmece Rayı (${slideLen}mm)`,
+        unit: "Takım",
+        quantity: totalDrawerSlides,
+        note: `${totalDrawerSlides} adet çekmece için sağ/sol ray takımı`,
+      });
+    }
   }
-  if (totalHinges > 0) {
-    hardware.push({
-      code: "HRD-MNTS-35",
-      name: "Frenli Düz Tas Menteşe (Ø35mm)",
-      unit: "Adet",
-      quantity: totalHinges,
-      note: "Kapak bağlantıları için",
-    });
-  }
+
   if (totalGasStruts > 0) {
-    hardware.push({
-      code: "HRD-PSTN-100",
-      name: "Gazlı Piston Kalkar Kapak Makası (100N)",
-      unit: "Adet",
-      quantity: totalGasStruts,
-      note: "Üst kalkar kapak sağ/sol amortisörleri",
-    });
+    if (brand === "blum") {
+      hardware.push({
+        code: "BLM-AVN-HKS",
+        name: "Blum Aventos HK-S Kompakt Mekanik Kalkar Kapak Seti",
+        unit: "Takım",
+        quantity: Math.max(1, Math.floor(totalGasStruts / 2)),
+        note: "Entegre Blumotion frenli mekanik kalkar mekanizma seti",
+      });
+    } else if (brand === "hafele") {
+      hardware.push({
+        code: "HAF-FREE-17",
+        name: "Häfele Free Flap 1.7 Mekanik Kademeli Kalkar Kapak Makası",
+        unit: "Takım",
+        quantity: Math.max(1, Math.floor(totalGasStruts / 2)),
+        note: "Kademeli durdurma özellikli mekanik kalkar kapak seti",
+      });
+    } else if (brand === "samet") {
+      hardware.push({
+        code: "SMT-D-LITE",
+        name: "Samet D-Lite Lift İnce Mekanik Kalkar Kapak Sistemi",
+        unit: "Takım",
+        quantity: Math.max(1, Math.floor(totalGasStruts / 2)),
+        note: "İnce gövdeli mekanik kalkar kapak seti",
+      });
+    } else {
+      hardware.push({
+        code: "HRD-PSTN-100",
+        name: "Gazlı Piston Kalkar Kapak Makası (100N)",
+        unit: "Adet",
+        quantity: totalGasStruts,
+        note: "Üst kalkar kapak sağ/sol amortisörleri",
+      });
+    }
   }
-  if (totalHandles > 0) {
+
+  if (totalHinges > 0) {
+    if (brand === "blum") {
+      hardware.push({
+        code: "BLM-CLIP-110",
+        name: "Blum Clip Top Blumotion 110° Entegre Frenli Düz Menteşe (Ø35mm)",
+        unit: "Adet",
+        quantity: totalHinges,
+        note: "Blumotion entegre sıvı pistonlu kapak menteşeleri",
+      });
+    } else if (brand === "hafele") {
+      hardware.push({
+        code: "HAF-MET-110",
+        name: "Häfele Metalla 300 Frenli Klipsli Tas Menteşe (Ø35mm, 110°)",
+        unit: "Adet",
+        quantity: totalHinges,
+        note: "Häfele klipsli hidrolik yavaşlatıcılı tas menteşeler",
+      });
+    } else if (brand === "samet") {
+      hardware.push({
+        code: "SMT-MSTR-110",
+        name: "Samet Master Frenli Klipsli Tas Menteşe (Ø35mm, 110°)",
+        unit: "Adet",
+        quantity: totalHinges,
+        note: "Samet Master entegre frenli klipsli kapak menteşeleri",
+      });
+    } else {
+      hardware.push({
+        code: "HRD-MNTS-35",
+        name: "Frenli Düz Tas Menteşe (Ø35mm)",
+        unit: "Adet",
+        quantity: totalHinges,
+        note: "Kapak bağlantıları için",
+      });
+    }
+  }
+
+  const handleType = (config.handle_type || "standard_handle").toLowerCase();
+  if (handleType.includes("l_gola")) {
+    const totalWM = round2(allModules.reduce((acc, m) => acc + m.width_mm, 0) / 1000.0);
+    hardware.push({
+      code: "PRF-GOLA-L",
+      name: "Häfele L-Gola Yatay Alüminyum Profil (Tezgah Altı Kulpsuz)",
+      unit: "Metre",
+      quantity: totalWM,
+      note: `${totalWM} m tezgah altı ve üst çekmece L kesitli gizli kulp profili`,
+    });
+  } else if (handleType.includes("c_gola")) {
+    const totalWM = round2(allModules.reduce((acc, m) => acc + m.width_mm, 0) / 1000.0);
+    hardware.push({
+      code: "PRF-GOLA-C",
+      name: "Häfele C-Gola Yatay Alüminyum Profil (Çekmece Arası)",
+      unit: "Metre",
+      quantity: totalWM,
+      note: `${totalWM} m orta çekmeceler arası çift yönlü C kesitli gizli kulp profili`,
+    });
+  } else if (totalHandles > 0) {
     hardware.push({
       code: "HRD-KULP-160",
       name: "Alüminyum Mobilya Kulpu (160mm)",

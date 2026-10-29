@@ -388,6 +388,28 @@ class CabinetConfig(BaseModel):
         description="L-Köşe birleşim kör kapama paneli genişliği (mm)",
     )
 
+    # Donanım ve Mekanizma Seçenekleri (Blum, Häfele, Samet, Gola)
+    hardware_brand: str = Field(
+        default="generic",
+        description="Donanım markası (generic, blum, hafele, samet)",
+    )
+    drawer_system: str = Field(
+        default="telescopic",
+        description="Çekmece mekanizması (telescopic, blum_tandembox, blum_legrabox, hafele_matrix, samet_flowbox)",
+    )
+    hinge_system: str = Field(
+        default="standard_softclose",
+        description="Menteşe serisi (standard_softclose, blum_cliptop, hafele_metalla, samet_master)",
+    )
+    lift_system: str = Field(
+        default="gas_strut",
+        description="Kalkar kapak sistemi (gas_strut, blum_aventos_hk, blum_aventos_hf, hafele_free_flap)",
+    )
+    handle_type: str = Field(
+        default="standard_handle",
+        description="Kulp ve açılım tipi (standard_handle, profile_l_gola, profile_c_gola, push_to_open, recessed_j_pull)",
+    )
+
     @field_validator("front_pvc_thickness_mm", "hidden_pvc_thickness_mm")
     @classmethod
     def validate_pvc_thickness(cls, value: float) -> float:

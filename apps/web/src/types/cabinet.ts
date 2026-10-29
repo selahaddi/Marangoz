@@ -104,6 +104,11 @@ export interface CabinetConfig {
   is_corner_module?: boolean;
   corner_angle_deg?: number;
   corner_blind_width_mm?: number;
+  hardware_brand?: "generic" | "blum" | "hafele" | "samet";
+  drawer_system?: string;
+  hinge_system?: string;
+  lift_system?: string;
+  handle_type?: string;
 }
 
 export type CatalogCategoryId =
