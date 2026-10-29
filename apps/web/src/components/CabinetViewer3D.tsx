@@ -469,6 +469,37 @@ function PanelMesh3D({
     );
   }
 
+  // Elbise askı borusu (Metal silindir ve yan rozetler)
+  if (t3d.is_hanging_rod) {
+    return (
+      <group position={[cx, cy, cz]}>
+        <mesh rotation={[0, 0, Math.PI / 2]} castShadow receiveShadow>
+          <cylinderGeometry args={[0.012, 0.012, sx, 24]} />
+          <meshStandardMaterial
+            color="#E2E8F0"
+            metalness={0.9}
+            roughness={0.15}
+          />
+        </mesh>
+        <mesh position={[-sx / 2 + 0.005, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.02, 0.02, 0.01, 16]} />
+          <meshStandardMaterial color="#94A3B8" metalness={0.8} roughness={0.25} />
+        </mesh>
+        <mesh position={[sx / 2 - 0.005, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.02, 0.02, 0.01, 16]} />
+          <meshStandardMaterial color="#94A3B8" metalness={0.8} roughness={0.25} />
+        </mesh>
+        {isSelected && (
+          <Html position={[0, 0.05, 0]} center distanceFactor={3.5}>
+            <div className="pointer-events-none whitespace-nowrap rounded-md border border-sky-400/50 bg-slate-900/95 px-2.5 py-1 text-xs font-medium text-sky-200 shadow-lg">
+              {part.name} ({part.cut_length_mm} mm)
+            </div>
+          </Html>
+        )}
+      </group>
+    );
+  }
+
   return (
     <group position={[cx, cy, cz]}>
       <mesh

@@ -7,6 +7,7 @@ import type {
   BOMReport,
   CabinetConfig,
   CabinetType,
+  CabinetZone,
   CatalogCategoryMeta,
   CuttingMode,
   DoorType,
@@ -1751,6 +1752,81 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     }
   }
 
+  // Çoklu Bölme (Zones) Tespiti
+  let zones: CabinetZone[] | undefined = undefined;
+  if (
+    text.includes("bölmeli") ||
+    text.includes("bolmeli") ||
+    text.includes("dikmeli") ||
+    text.includes("kolonlu") ||
+    ((text.includes("sol") || text.includes("solu") || text.includes("solda")) &&
+      (text.includes("sağ") || text.includes("sağı") || text.includes("sagda")))
+  ) {
+    let solRaf = 0;
+    let sagRaf = 0;
+    let solCek = 0;
+    let sagCek = 0;
+    let solAski = false;
+    let sagAski = false;
+
+    const mSolRaf = text.match(/sol[a-z\s]*?(\d+)\s*raf/);
+    if (mSolRaf) solRaf = parseInt(mSolRaf[1], 10);
+    else if (text.includes("sol") && text.includes("raf")) solRaf = 3;
+
+    const mSolCek = text.match(/sol[a-z\s]*?(\d+)\s*çekmece/);
+    if (mSolCek) solCek = parseInt(mSolCek[1], 10);
+
+    if (
+      text.includes("sol") &&
+      (text.includes("askı") || text.includes("aski") || text.includes("elbise"))
+    ) {
+      solAski = true;
+    }
+
+    const mSagRaf = text.match(/sağ[a-z\s]*?(\d+)\s*raf/);
+    if (mSagRaf) sagRaf = parseInt(mSagRaf[1], 10);
+
+    const mSagCek = text.match(/sağ[a-z\s]*?(\d+)\s*çekmece/);
+    if (mSagCek) sagCek = parseInt(mSagCek[1], 10);
+    else if (text.includes("sağ") && text.includes("çekmece")) sagCek = 2;
+
+    if (
+      text.includes("sağ") &&
+      (text.includes("askı") || text.includes("aski") || text.includes("elbise"))
+    ) {
+      sagAski = true;
+    }
+
+    if (
+      !solAski &&
+      !sagAski &&
+      (text.includes("askı") || text.includes("aski") || text.includes("elbise"))
+    ) {
+      sagAski = true;
+    }
+
+    zones = [
+      {
+        id: "z_1",
+        name: "Sol Bölme",
+        width_ratio: 1.0,
+        shelf_count: solRaf,
+        drawer_count: solCek,
+        has_hanging_rod: solAski,
+        door_type: "single_left",
+      },
+      {
+        id: "z_2",
+        name: "Sağ Bölme",
+        width_ratio: 1.0,
+        shelf_count: sagRaf,
+        drawer_count: sagCek,
+        has_hanging_rod: sagAski,
+        door_type: "single_right",
+      },
+    ];
+  }
+
   return {
     name,
     cabinet_type: cabinetType,
@@ -1763,6 +1839,7 @@ export function parsePromptDeterministic(prompt: string): CabinetConfig {
     drawer_front_height_mm: 180.0,
     appliance_niche_height_mm: applianceNicheHeightMm,
     additional_modules: [],
+    zones,
     has_plinth: hasPlinth,
     plinth_height_mm: plinthHeightMm,
     plinth_type: plinthType,
@@ -1835,6 +1912,610 @@ function selectDrawerSlideLength(depthMm: number): number {
     if (size <= maxAllowed) chosen = size;
   }
   return chosen;
+}
+
+function buildDoorDrills(
+  doorH: number,
+  doorW: number,
+  hingeOnLeft: boolean
+): DrillPoint[] {
+  const count = hingeCountForHeight(doorH);
+  const hingeY = hingeOnLeft
+    ? MC.HINGE_CUP_CENTER_FROM_EDGE_MM
+    : round2(doorW - MC.HINGE_CUP_CENTER_FROM_EDGE_MM);
+  const topX = round2(
+    Math.max(doorH - MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, doorH * 0.75)
+  );
+  const bottomX = round2(
+    Math.min(MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, doorH * 0.25)
+  );
+  const step =
+    count > 2 && topX > bottomX ? (topX - bottomX) / (count - 1) : 0;
+  const drills: DrillPoint[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const xPos =
+      count === 2 || topX <= bottomX
+        ? i === 0
+          ? bottomX
+          : topX
+        : round2(bottomX + i * step);
+    drills.push({
+      x_mm: xPos,
+      y_mm: hingeY,
+      diameter_mm: MC.HINGE_CUP_DIAMETER_MM,
+      depth_mm: MC.HINGE_CUP_DEPTH_MM,
+      layer: MC.LAYER_HINGE_CUP,
+      description: `Tas Menteşe Yuvası #${i + 1} (Ø35mm)`,
+    });
+  }
+  return drills;
+}
+
+function generateZonesParts(
+  config: CabinetConfig,
+  moduleIdx: number,
+  xOffsetMm: number,
+  startPartCounter: number,
+  multiMode: boolean
+): {
+  parts: PanelPart[];
+  nextCounter: number;
+  totalHandles: number;
+  totalHinges: number;
+  totalGasStruts: number;
+} {
+  const parts: PanelPart[] = [];
+  let partCounter = startPartCounter;
+  const padId = (n: number): string => `P${String(n).padStart(2, "0")}`;
+  const prefix = multiMode ? `M${moduleIdx}_` : "";
+  const labelPrefix = multiMode ? `[Modül ${moduleIdx}] ` : "";
+
+  const t = MC.BODY_THICKNESS_MM;
+  const w = config.width_mm;
+  const h = config.height_mm;
+  const d = config.depth_mm;
+  const nicheH = Math.min(
+    config.appliance_niche_height_mm ?? 0.0,
+    Math.max(0.0, h - 260.0)
+  );
+  const plinthH = config.has_plinth && nicheH <= 0 ? config.plinth_height_mm : 0.0;
+  const baseOffsetY = Math.max(plinthH, nicheH);
+  const innerW = round2(w - 2.0 * t);
+  const clearInnerH = round2(h - baseOffsetY - 2.0 * t);
+  const isGrooved = config.back_panel_type === "grooved_8mm";
+  const rearLoss = isGrooved
+    ? MC.BACK_GROOVE_OFFSET_FROM_REAR_MM + MC.BACK_GROOVE_WIDTH_MM
+    : 0.0;
+
+  const doorMat =
+    config.door_material && config.door_material.trim()
+      ? config.door_material.trim()
+      : config.body_material;
+
+  let totalHandles = 0;
+  let totalHinges = 0;
+  let totalGasStruts = 0;
+
+  const zones = config.zones ?? [];
+  const dividerCount = Math.max(0, zones.length - 1);
+  const totalDividerT = dividerCount * t;
+  const availW = Math.max(100.0, innerW - totalDividerT);
+
+  // Genişlik Dağılımı
+  let fixedWTotal = 0;
+  let flexRatioTotal = 0;
+  zones.forEach((z) => {
+    if (z.width_mm && z.width_mm > 0) fixedWTotal += z.width_mm;
+    else flexRatioTotal += (z.width_ratio && z.width_ratio > 0 ? z.width_ratio : 1.0);
+  });
+  const remainingFlexW = Math.max(50.0, availW - fixedWTotal);
+  const zoneWidths: number[] = zones.map((z) => {
+    if (z.width_mm && z.width_mm > 0) return round2(z.width_mm);
+    const r = (z.width_ratio && z.width_ratio > 0 ? z.width_ratio : 1.0);
+    return round2(remainingFlexW * (r / (flexRatioTotal || 1.0)));
+  });
+
+  // Koordinatların Hesaplanması
+  let curX = round2(xOffsetMm - innerW / 2.0);
+  const zoneCoords: { startX: number; endX: number; centerX: number; width: number }[] = [];
+  const dividerCoords: { centerX: number }[] = [];
+
+  for (let i = 0; i < zones.length; i++) {
+    const zw = zoneWidths[i];
+    const startX = curX;
+    const endX = round2(curX + zw);
+    const centerX = round2((startX + endX) / 2.0);
+    zoneCoords.push({ startX, endX, centerX, width: zw });
+    curX = endX;
+    if (i < dividerCount) {
+      dividerCoords.push({ centerX: round2(curX + t / 2.0) });
+      curX = round2(curX + t);
+    }
+  }
+
+  // 1. İç Ara Dikmeler (Vertical Dividers)
+  const dividerNetW = round2(d - rearLoss - 10.0);
+  const dividerEdge: EdgeBandSpec = {
+    length_1_mm: config.front_pvc_thickness_mm,
+    length_2_mm: config.hidden_pvc_thickness_mm,
+    width_1_mm: 0.0,
+    width_2_mm: 0.0,
+  };
+  const [divCutL, divCutW, divDedL, divDedW] = computeCutDimensions(
+    clearInnerH,
+    dividerNetW,
+    dividerEdge
+  );
+
+  dividerCoords.forEach((dc, divIdx) => {
+    const divNum = String(divIdx + 1).padStart(2, "0");
+    parts.push({
+      part_id: padId(partCounter++),
+      code: `${prefix}DIKME_${divNum}`,
+      name: `${labelPrefix}İç Ara Dikme #${divIdx + 1}`,
+      material: config.body_material,
+      thickness_mm: t,
+      quantity: 1,
+      net_length_mm: clearInnerH,
+      net_width_mm: dividerNetW,
+      cut_length_mm: divCutL,
+      cut_width_mm: divCutW,
+      pvc_deduction_length_mm: divDedL,
+      pvc_deduction_width_mm: divDedW,
+      edge_band: dividerEdge,
+      area_m2: round4((clearInnerH * dividerNetW) / 1_000_000.0),
+      grain_direction: "length",
+      drills: [],
+      grooves: [],
+      transform_3d: {
+        center_x_mm: dc.centerX,
+        center_y_mm: round2(baseOffsetY + t + clearInnerH / 2.0),
+        center_z_mm: round2(-5.0),
+        size_x_mm: t,
+        size_y_mm: clearInnerH,
+        size_z_mm: dividerNetW,
+        color_hex: config.body_color_hex,
+        is_door: false,
+        is_drawer: false,
+        hinge_side: null,
+        module_index: moduleIdx,
+      },
+    });
+  });
+
+  // 2. Her Bölmenin (Zone) Donanımları: Çekmeceler, Raflar, Askılık ve Kapaklar
+  zones.forEach((z, zi) => {
+    const zc = zoneCoords[zi];
+    const zw = zc.width;
+    const zName = z.name || `Bölme #${zi + 1}`;
+
+    // 2a. Çekmeceler
+    const zDrawerCount = z.drawer_count ?? 0;
+    let zDrawerFrontH = z.drawer_front_height_mm ?? 180.0;
+    if (zDrawerCount > 0 && zDrawerCount * zDrawerFrontH > clearInnerH - 40.0) {
+      zDrawerFrontH = round2((clearInnerH - 20.0) / zDrawerCount);
+    }
+    const zDrawerZoneH = round2(zDrawerCount * zDrawerFrontH);
+
+    if (zDrawerCount > 0) {
+      const slideLen = selectDrawerSlideLength(d);
+      const boxH = round2(Math.max(80.0, zDrawerFrontH - MC.DRAWER_BOX_HEIGHT_REDUCTION_MM));
+      const boxInnerW = round2(zw - MC.DRAWER_SLIDE_CLEARANCE_TOTAL_MM - 2.0 * t);
+      const frontNetW = round2(zw - 2.0 * MC.DOOR_OUTER_GAP_MM);
+      const frontNetH = round2(zDrawerFrontH - MC.DOOR_CENTER_GAP_MM);
+
+      const frontEdge: EdgeBandSpec = {
+        length_1_mm: config.front_pvc_thickness_mm,
+        length_2_mm: config.front_pvc_thickness_mm,
+        width_1_mm: config.front_pvc_thickness_mm,
+        width_2_mm: config.front_pvc_thickness_mm,
+      };
+      const [fCutL, fCutW, fDedL, fDedW] = computeCutDimensions(frontNetW, frontNetH, frontEdge);
+
+      const boxEdge: EdgeBandSpec = {
+        length_1_mm: config.hidden_pvc_thickness_mm,
+        length_2_mm: 0.0,
+        width_1_mm: 0.0,
+        width_2_mm: 0.0,
+      };
+      const [bsCutL, bsCutW, bsDedL, bsDedW] = computeCutDimensions(slideLen, boxH, boxEdge);
+      const [bfCutL, bfCutW, bfDedL, bfDedW] = computeCutDimensions(boxInnerW, boxH, boxEdge);
+
+      const bottomW = round2(boxInnerW + 15.0);
+      const bottomL = round2(slideLen - 2.0 * t + 15.0);
+      const noEdge: EdgeBandSpec = { length_1_mm: 0, length_2_mm: 0, width_1_mm: 0, width_2_mm: 0 };
+
+      for (let dIdx = 1; dIdx <= zDrawerCount; dIdx += 1) {
+        const dStr = String(dIdx).padStart(2, "0");
+        const centerY = round2(baseOffsetY + t + (dIdx - 0.5) * zDrawerFrontH);
+        const klapaZ = round2(d / 2.0 + t / 2.0 + 1.5);
+        const boxZ = round2(d / 2.0 - slideLen / 2.0 - 5.0);
+        totalHandles += 1;
+
+        // Klapa
+        parts.push({
+          part_id: padId(partCounter++),
+          code: `${prefix}Z${zi + 1}_CEK_KLAPA_${dStr}`,
+          name: `${labelPrefix}${zName} Çekmece #${dIdx} Klapası`,
+          material: doorMat,
+          thickness_mm: t,
+          quantity: 1,
+          net_length_mm: frontNetW,
+          net_width_mm: frontNetH,
+          cut_length_mm: fCutL,
+          cut_width_mm: fCutW,
+          pvc_deduction_length_mm: fDedL,
+          pvc_deduction_width_mm: fDedW,
+          edge_band: frontEdge,
+          area_m2: round4((frontNetW * frontNetH) / 1_000_000.0),
+          grain_direction: "length",
+          drills: [],
+          grooves: [],
+          transform_3d: {
+            center_x_mm: zc.centerX,
+            center_y_mm: centerY,
+            center_z_mm: klapaZ,
+            size_x_mm: frontNetW,
+            size_y_mm: frontNetH,
+            size_z_mm: t,
+            color_hex: z.door_color_hex || config.door_color_hex,
+            is_door: false,
+            is_drawer: true,
+            hinge_side: null,
+            module_index: moduleIdx,
+          },
+        });
+
+        // Yanlar
+        for (const [sideCode, sideName, sideX] of [
+          ["SOL", "Sol Yan", round2(zc.centerX - boxInnerW / 2.0 - t / 2.0)],
+          ["SAG", "Sağ Yan", round2(zc.centerX + boxInnerW / 2.0 + t / 2.0)],
+        ] as const) {
+          parts.push({
+            part_id: padId(partCounter++),
+            code: `${prefix}Z${zi + 1}_CEK_${dStr}_${sideCode}`,
+            name: `${labelPrefix}${zName} Çekmece #${dIdx} ${sideName}`,
+            material: config.body_material,
+            thickness_mm: t,
+            quantity: 1,
+            net_length_mm: slideLen,
+            net_width_mm: boxH,
+            cut_length_mm: bsCutL,
+            cut_width_mm: bsCutW,
+            pvc_deduction_length_mm: bsDedL,
+            pvc_deduction_width_mm: bsDedW,
+            edge_band: boxEdge,
+            area_m2: round4((slideLen * boxH) / 1_000_000.0),
+            grain_direction: "length",
+            drills: [],
+            grooves: [],
+            transform_3d: {
+              center_x_mm: sideX,
+              center_y_mm: centerY,
+              center_z_mm: boxZ,
+              size_x_mm: t,
+              size_y_mm: boxH,
+              size_z_mm: slideLen,
+              color_hex: config.body_color_hex,
+              is_door: false,
+              is_drawer: true,
+              hinge_side: null,
+              module_index: moduleIdx,
+            },
+          });
+        }
+
+        // Ön & Arka
+        for (const [fbCode, fbName, fbZ] of [
+          ["ON", "İç Ön Kasa", round2(boxZ + slideLen / 2.0 - t / 2.0)],
+          ["ARKA", "İç Arka Kasa", round2(boxZ - slideLen / 2.0 + t / 2.0)],
+        ] as const) {
+          parts.push({
+            part_id: padId(partCounter++),
+            code: `${prefix}Z${zi + 1}_CEK_${dStr}_${fbCode}`,
+            name: `${labelPrefix}${zName} Çekmece #${dIdx} ${fbName}`,
+            material: config.body_material,
+            thickness_mm: t,
+            quantity: 1,
+            net_length_mm: boxInnerW,
+            net_width_mm: boxH,
+            cut_length_mm: bfCutL,
+            cut_width_mm: bfCutW,
+            pvc_deduction_length_mm: bfDedL,
+            pvc_deduction_width_mm: bfDedW,
+            edge_band: boxEdge,
+            area_m2: round4((boxInnerW * boxH) / 1_000_000.0),
+            grain_direction: "length",
+            drills: [],
+            grooves: [],
+            transform_3d: {
+              center_x_mm: zc.centerX,
+              center_y_mm: centerY,
+              center_z_mm: fbZ,
+              size_x_mm: boxInnerW,
+              size_y_mm: boxH,
+              size_z_mm: t,
+              color_hex: config.body_color_hex,
+              is_door: false,
+              is_drawer: true,
+              hinge_side: null,
+              module_index: moduleIdx,
+            },
+          });
+        }
+
+        // Taban
+        parts.push({
+          part_id: padId(partCounter++),
+          code: `${prefix}Z${zi + 1}_CEK_${dStr}_TABAN`,
+          name: `${labelPrefix}${zName} Çekmece #${dIdx} Tabanı (8mm)`,
+          material: "8mm Beyaz MDF-Lam Arkalık",
+          thickness_mm: MC.BACK_PANEL_GROOVED_THICKNESS_MM,
+          quantity: 1,
+          net_length_mm: bottomW,
+          net_width_mm: bottomL,
+          cut_length_mm: bottomW,
+          cut_width_mm: bottomL,
+          pvc_deduction_length_mm: 0.0,
+          pvc_deduction_width_mm: 0.0,
+          edge_band: noEdge,
+          area_m2: round4((bottomW * bottomL) / 1_000_000.0),
+          grain_direction: "length",
+          drills: [],
+          grooves: [],
+          transform_3d: {
+            center_x_mm: zc.centerX,
+            center_y_mm: round2(centerY - boxH / 2.0 + 8.0),
+            center_z_mm: boxZ,
+            size_x_mm: bottomW,
+            size_y_mm: MC.BACK_PANEL_GROOVED_THICKNESS_MM,
+            size_z_mm: bottomL,
+            color_hex: "#E5E0D5",
+            is_door: false,
+            is_drawer: true,
+            hinge_side: null,
+            module_index: moduleIdx,
+          },
+        });
+      }
+    }
+
+    // 2b. Elbise Askılığı
+    const zRemainH = round2(clearInnerH - zDrawerZoneH);
+    if (z.has_hanging_rod && zRemainH > 300.0) {
+      const rodL = round2(zw - 4.0);
+      parts.push({
+        part_id: padId(partCounter++),
+        code: `${prefix}Z${zi + 1}_ASKILIK`,
+        name: `${labelPrefix}${zName} Elbise Askı Borusu (Alüminyum)`,
+        material: "Alüminyum Oval Askı Borusu",
+        thickness_mm: 15,
+        quantity: 1,
+        net_length_mm: rodL,
+        net_width_mm: 30,
+        cut_length_mm: rodL,
+        cut_width_mm: 30,
+        pvc_deduction_length_mm: 0,
+        pvc_deduction_width_mm: 0,
+        edge_band: { length_1_mm: 0, length_2_mm: 0, width_1_mm: 0, width_2_mm: 0 },
+        area_m2: 0.01,
+        grain_direction: "none",
+        drills: [],
+        grooves: [],
+        transform_3d: {
+          center_x_mm: zc.centerX,
+          center_y_mm: round2(baseOffsetY + t + clearInnerH - 70.0),
+          center_z_mm: 0.0,
+          size_x_mm: rodL,
+          size_y_mm: 30.0,
+          size_z_mm: 15.0,
+          color_hex: "#CBD5E1",
+          is_door: false,
+          is_drawer: false,
+          is_hanging_rod: true,
+          hinge_side: null,
+          module_index: moduleIdx,
+        },
+      });
+    }
+
+    // 2c. Raflar
+    if (z.shelf_count > 0 && zRemainH > 120.0) {
+      const shelfNetL = round2(zw - MC.SHELF_WIDTH_CLEARANCE_MM);
+      const shelfNetW = round2(d - rearLoss - MC.SHELF_FRONT_SETBACK_MM);
+      const shelfEdge: EdgeBandSpec = {
+        length_1_mm: config.front_pvc_thickness_mm,
+        length_2_mm: config.hidden_pvc_thickness_mm,
+        width_1_mm: config.hidden_pvc_thickness_mm,
+        width_2_mm: config.hidden_pvc_thickness_mm,
+      };
+      const [sCutL, sCutW, sDedL, sDedW] = computeCutDimensions(shelfNetL, shelfNetW, shelfEdge);
+      const stepH = zRemainH / (z.shelf_count + 1);
+      const shelfZCenter = round2((rearLoss - MC.SHELF_FRONT_SETBACK_MM) / 2.0);
+
+      for (let sIdx = 1; sIdx <= z.shelf_count; sIdx += 1) {
+        parts.push({
+          part_id: padId(partCounter++),
+          code: `${prefix}Z${zi + 1}_RAF_${String(sIdx).padStart(2, "0")}`,
+          name: `${labelPrefix}${zName} Hareketli Raf #${sIdx}`,
+          material: config.body_material,
+          thickness_mm: t,
+          quantity: 1,
+          net_length_mm: shelfNetL,
+          net_width_mm: shelfNetW,
+          cut_length_mm: sCutL,
+          cut_width_mm: sCutW,
+          pvc_deduction_length_mm: sDedL,
+          pvc_deduction_width_mm: sDedW,
+          edge_band: shelfEdge,
+          area_m2: round4((shelfNetL * shelfNetW) / 1_000_000.0),
+          grain_direction: "length",
+          drills: [],
+          grooves: [],
+          transform_3d: {
+            center_x_mm: zc.centerX,
+            center_y_mm: round2(baseOffsetY + t + zDrawerZoneH + sIdx * stepH),
+            center_z_mm: shelfZCenter,
+            size_x_mm: shelfNetL,
+            size_y_mm: t,
+            size_z_mm: shelfNetW,
+            color_hex: config.body_color_hex,
+            is_door: false,
+            is_drawer: false,
+            hinge_side: null,
+            module_index: moduleIdx,
+          },
+        });
+      }
+    }
+
+    // 2d. Kapaklar
+    const zDoorAvailH = round2(clearInnerH - zDrawerZoneH);
+    if (z.door_type && z.door_type !== "none" && zDoorAvailH >= 200.0) {
+      const doorNetH = round2(zDoorAvailH + (zDrawerCount === 0 ? 2.0 * t : t) - 4.0);
+      const doorEdge: EdgeBandSpec = {
+        length_1_mm: config.front_pvc_thickness_mm,
+        length_2_mm: config.front_pvc_thickness_mm,
+        width_1_mm: config.front_pvc_thickness_mm,
+        width_2_mm: config.front_pvc_thickness_mm,
+      };
+      const doorYCenter = round2(baseOffsetY + zDrawerZoneH + zDoorAvailH / 2.0);
+      const doorZCenter = round2(d / 2.0 + t / 2.0 + 1.5);
+      const doorColor = z.door_color_hex || config.door_color_hex;
+
+      if (z.door_type === "flap_up") {
+        const doorNetW = round2(zw - 2.0 * MC.DOOR_OUTER_GAP_MM);
+        const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(doorNetH, doorNetW, doorEdge);
+        totalGasStruts += 2;
+        totalHandles += 1;
+        parts.push({
+          part_id: padId(partCounter++),
+          code: `${prefix}Z${zi + 1}_KAPAK_KALKAR`,
+          name: `${labelPrefix}${zName} Kalkar Kapak`,
+          material: doorMat,
+          thickness_mm: t,
+          quantity: 1,
+          net_length_mm: doorNetH,
+          net_width_mm: doorNetW,
+          cut_length_mm: dCutL,
+          cut_width_mm: dCutW,
+          pvc_deduction_length_mm: dDedL,
+          pvc_deduction_width_mm: dDedW,
+          edge_band: doorEdge,
+          area_m2: round4((doorNetH * doorNetW) / 1_000_000.0),
+          grain_direction: "length",
+          drills: [],
+          grooves: [],
+          transform_3d: {
+            center_x_mm: zc.centerX,
+            center_y_mm: doorYCenter,
+            center_z_mm: doorZCenter,
+            size_x_mm: doorNetW,
+            size_y_mm: doorNetH,
+            size_z_mm: t,
+            color_hex: doorColor,
+            is_door: true,
+            is_drawer: false,
+            hinge_side: "top",
+            module_index: moduleIdx,
+          },
+        });
+      } else if (z.door_type === "single_left" || z.door_type === "single_right") {
+        const doorNetW = round2(zw - 2.0 * MC.DOOR_OUTER_GAP_MM);
+        const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(doorNetH, doorNetW, doorEdge);
+        const hingeLeft = z.door_type === "single_left";
+        const dDrills = buildDoorDrills(doorNetH, doorNetW, hingeLeft);
+        totalHinges += dDrills.length;
+        totalHandles += 1;
+        parts.push({
+          part_id: padId(partCounter++),
+          code: `${prefix}Z${zi + 1}_KAPAK_TEK`,
+          name: hingeLeft
+            ? `${labelPrefix}${zName} Tek Kapak (Sol Menteşeli)`
+            : `${labelPrefix}${zName} Tek Kapak (Sağ Menteşeli)`,
+          material: doorMat,
+          thickness_mm: t,
+          quantity: 1,
+          net_length_mm: doorNetH,
+          net_width_mm: doorNetW,
+          cut_length_mm: dCutL,
+          cut_width_mm: dCutW,
+          pvc_deduction_length_mm: dDedL,
+          pvc_deduction_width_mm: dDedW,
+          edge_band: doorEdge,
+          area_m2: round4((doorNetH * doorNetW) / 1_000_000.0),
+          grain_direction: "length",
+          drills: dDrills,
+          grooves: [],
+          transform_3d: {
+            center_x_mm: zc.centerX,
+            center_y_mm: doorYCenter,
+            center_z_mm: doorZCenter,
+            size_x_mm: doorNetW,
+            size_y_mm: doorNetH,
+            size_z_mm: t,
+            color_hex: doorColor,
+            is_door: true,
+            is_drawer: false,
+            hinge_side: hingeLeft ? "left" : "right",
+            module_index: moduleIdx,
+          },
+        });
+      } else if (z.door_type === "double") {
+        const doorNetW = round2((zw - 2.0 * MC.DOOR_OUTER_GAP_MM - MC.DOOR_CENTER_GAP_MM) / 2.0);
+        const [dCutL, dCutW, dDedL, dDedW] = computeCutDimensions(doorNetH, doorNetW, doorEdge);
+        totalHandles += 2;
+
+        for (const [sideCode, sideLabel, isLeft, relCx] of [
+          ["SOL", "Sol Kapak", true, round2(-doorNetW / 2.0 - MC.DOOR_CENTER_GAP_MM / 2.0)],
+          ["SAG", "Sağ Kapak", false, round2(doorNetW / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0)],
+        ] as const) {
+          const dDrills = buildDoorDrills(doorNetH, doorNetW, isLeft);
+          totalHinges += dDrills.length;
+          parts.push({
+            part_id: padId(partCounter++),
+            code: `${prefix}Z${zi + 1}_KAPAK_${sideCode}`,
+            name: `${labelPrefix}${zName} ${sideLabel}`,
+            material: doorMat,
+            thickness_mm: t,
+            quantity: 1,
+            net_length_mm: doorNetH,
+            net_width_mm: doorNetW,
+            cut_length_mm: dCutL,
+            cut_width_mm: dCutW,
+            pvc_deduction_length_mm: dDedL,
+            pvc_deduction_width_mm: dDedW,
+            edge_band: doorEdge,
+            area_m2: round4((doorNetH * doorNetW) / 1_000_000.0),
+            grain_direction: "length",
+            drills: dDrills,
+            grooves: [],
+            transform_3d: {
+              center_x_mm: round2(zc.centerX + relCx),
+              center_y_mm: doorYCenter,
+              center_z_mm: doorZCenter,
+              size_x_mm: doorNetW,
+              size_y_mm: doorNetH,
+              size_z_mm: t,
+              color_hex: doorColor,
+              is_door: true,
+              is_drawer: false,
+              hinge_side: isLeft ? "left" : "right",
+              module_index: moduleIdx,
+            },
+          });
+        }
+      }
+    }
+  });
+
+  return {
+    parts,
+    nextCounter: partCounter,
+    totalHandles,
+    totalHinges,
+    totalGasStruts,
+  };
 }
 
 function generateSingleModuleParts(
@@ -2274,8 +2955,87 @@ function generateSingleModuleParts(
     }
   }
 
-  // Çekmece Kasa ve Klapaları
+  // Arkalık (Gövde arkası paneli)
+  const isGrooved = config.back_panel_type === "grooved_8mm";
+  const backT = isGrooved
+    ? MC.BACK_PANEL_GROOVED_THICKNESS_MM
+    : MC.BACK_PANEL_NAILED_THICKNESS_MM;
+  const backMat = isGrooved
+    ? "8mm Beyaz MDF-Lam Arkalık"
+    : "3mm Beyaz Duralit Arkalık";
+  const backL = isGrooved
+    ? round2(clearInnerH + 2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM)
+    : round2(h - baseOffsetY - 4.0);
+  const backW = isGrooved
+    ? round2(innerW + 2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM)
+    : round2(w - 4.0);
+  const backZ = isGrooved
+    ? round2(
+        -d / 2.0 +
+          MC.BACK_GROOVE_OFFSET_FROM_REAR_MM +
+          MC.BACK_GROOVE_WIDTH_MM / 2.0
+      )
+    : round2(-d / 2.0 - backT / 2.0);
+  const noEdgeBack: EdgeBandSpec = {
+    length_1_mm: 0.0,
+    length_2_mm: 0.0,
+    width_1_mm: 0.0,
+    width_2_mm: 0.0,
+  };
+
+  parts.push({
+    part_id: padId(partCounter++),
+    code: `${prefix}ARKALIK`,
+    name: `${labelPrefix}Arkalık Paneli`,
+    material: backMat,
+    thickness_mm: backT,
+    quantity: 1,
+    net_length_mm: backL,
+    net_width_mm: backW,
+    cut_length_mm: backL,
+    cut_width_mm: backW,
+    pvc_deduction_length_mm: 0.0,
+    pvc_deduction_width_mm: 0.0,
+    edge_band: noEdgeBack,
+    area_m2: round4((backL * backW) / 1_000_000.0),
+    grain_direction: "length",
+    drills: [],
+    grooves: [],
+    transform_3d: {
+      center_x_mm: xOffsetMm,
+      center_y_mm: round2(baseOffsetY + (h - baseOffsetY) / 2.0),
+      center_z_mm: backZ,
+      size_x_mm: backW,
+      size_y_mm: backL,
+      size_z_mm: backT,
+      color_hex: "#E5E0D5",
+      is_door: false,
+      is_drawer: false,
+      hinge_side: null,
+      module_index: moduleIdx,
+    },
+  });
+
   let totalHandles = 0;
+  let totalHinges = 0;
+  let totalGasStruts = 0;
+
+  const hasZones = Boolean(config.zones && config.zones.length > 1);
+  if (hasZones) {
+    const zRes = generateZonesParts(
+      config,
+      moduleIdx,
+      xOffsetMm,
+      partCounter,
+      multiMode
+    );
+    parts.push(...zRes.parts);
+    partCounter = zRes.nextCounter;
+    totalHandles += zRes.totalHandles;
+    totalHinges += zRes.totalHinges;
+    totalGasStruts += zRes.totalGasStruts;
+  } else {
+    // Çekmece Kasa ve Klapaları (Tek Gövde Modu)
   if (drawerCount > 0) {
     const slideLen = selectDrawerSlideLength(d);
     const boxH = round2(
@@ -2536,107 +3296,7 @@ function generateSingleModuleParts(
     }
   }
 
-  // Arkalık (Alt cihaz/buzdolabı niş boşluğu varsa arkalık yalnızca üst dolap arkasını kapatır)
-  const noEdge: EdgeBandSpec = {
-    length_1_mm: 0.0,
-    length_2_mm: 0.0,
-    width_1_mm: 0.0,
-    width_2_mm: 0.0,
-  };
-  const isGrooved = config.back_panel_type === "grooved_8mm";
-  const backT = isGrooved
-    ? MC.BACK_PANEL_GROOVED_THICKNESS_MM
-    : MC.BACK_PANEL_NAILED_THICKNESS_MM;
-  const backMat = isGrooved
-    ? "8mm Beyaz MDF-Lam Arkalık"
-    : "3mm Beyaz Duralit Arkalık";
-  const backL = isGrooved
-    ? round2(clearInnerH + 2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM)
-    : round2(h - baseOffsetY - 4.0);
-  const backW = isGrooved
-    ? round2(innerW + 2.0 * MC.BACK_PANEL_INSERTION_PER_SIDE_MM)
-    : round2(w - 4.0);
-  const backZ = isGrooved
-    ? round2(
-        -d / 2.0 +
-          MC.BACK_GROOVE_OFFSET_FROM_REAR_MM +
-          MC.BACK_GROOVE_WIDTH_MM / 2.0
-      )
-    : round2(-d / 2.0 - backT / 2.0);
-
-  parts.push({
-    part_id: padId(partCounter++),
-    code: `${prefix}ARKALIK`,
-    name: `${labelPrefix}Arkalık Paneli`,
-    material: backMat,
-    thickness_mm: backT,
-    quantity: 1,
-    net_length_mm: backL,
-    net_width_mm: backW,
-    cut_length_mm: backL,
-    cut_width_mm: backW,
-    pvc_deduction_length_mm: 0.0,
-    pvc_deduction_width_mm: 0.0,
-    edge_band: noEdge,
-    area_m2: round4((backL * backW) / 1_000_000.0),
-    grain_direction: "length",
-    drills: [],
-    grooves: [],
-    transform_3d: {
-      center_x_mm: xOffsetMm,
-      center_y_mm: round2(baseOffsetY + (h - baseOffsetY) / 2.0),
-      center_z_mm: backZ,
-      size_x_mm: backW,
-      size_y_mm: backL,
-      size_z_mm: backT,
-      color_hex: "#E5E0D5",
-      is_door: false,
-      is_drawer: false,
-      hinge_side: null,
-      module_index: moduleIdx,
-    },
-  });
-
-  // Kapaklar
-  let totalHinges = 0;
-  let totalGasStruts = 0;
-  const buildDoorDrills = (
-    doorH: number,
-    doorW: number,
-    hingeOnLeft: boolean
-  ): DrillPoint[] => {
-    const count = hingeCountForHeight(doorH);
-    const hingeY = hingeOnLeft
-      ? MC.HINGE_CUP_CENTER_FROM_EDGE_MM
-      : round2(doorW - MC.HINGE_CUP_CENTER_FROM_EDGE_MM);
-    const topX = round2(
-      Math.max(doorH - MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, doorH * 0.75)
-    );
-    const bottomX = round2(
-      Math.min(MC.HINGE_EDGE_OFFSET_TOP_BOTTOM_MM, doorH * 0.25)
-    );
-    const step =
-      count > 2 && topX > bottomX ? (topX - bottomX) / (count - 1) : 0;
-    const drills: DrillPoint[] = [];
-    for (let i = 0; i < count; i += 1) {
-      const xPos =
-        count === 2 || topX <= bottomX
-          ? i === 0
-            ? bottomX
-            : topX
-          : round2(bottomX + i * step);
-      drills.push({
-        x_mm: xPos,
-        y_mm: hingeY,
-        diameter_mm: MC.HINGE_CUP_DIAMETER_MM,
-        depth_mm: MC.HINGE_CUP_DEPTH_MM,
-        layer: MC.LAYER_HINGE_CUP,
-        description: `Tas Menteşe Yuvası #${i + 1} (Ø35mm)`,
-      });
-    }
-    return drills;
-  };
-
+  // Kapaklar (Tek Gövde Modu)
   const doorAvailH = round2(h - baseOffsetY - drawerZoneH);
   if (config.door_type !== "none" && doorAvailH >= 240.0) {
     const doorNetH = round2(doorAvailH - 2.0 * MC.DOOR_OUTER_GAP_MM);
@@ -2830,6 +3490,7 @@ function generateSingleModuleParts(
       }
     }
   }
+}
 
   // 7. Şantiye ve Rölöve Kör Çıtaları (Sol / Sağ Duvar Alıştırma Payı)
   for (const [fillerW, sideCode, sideLabel, sign] of [

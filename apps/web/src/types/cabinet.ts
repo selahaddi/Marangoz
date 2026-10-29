@@ -40,6 +40,20 @@ export interface EdgeBandSpec {
   width_2_mm: number;
 }
 
+export interface CabinetZone {
+  id?: string;
+  name?: string;
+  width_ratio?: number; // e.g. 1.0 (equal), 0.5, 2.0
+  width_mm?: number; // explicit mm width (optional)
+  shelf_count: number; // 0..12
+  door_type: DoorType; // "none" | "single_left" | "single_right" | "double" | "flap_up"
+  drawer_count: number; // 0..6
+  drawer_front_height_mm?: number;
+  has_hanging_rod?: boolean; // Elbise askı borusu
+  appliance_niche_height_mm?: number; // Bu bölmedeki açık cihaz/niş yüksekliği
+  door_color_hex?: string; // Bu bölmeye özel kapak rengi
+}
+
 export interface CabinetConfig {
   name: string;
   cabinet_type: CabinetType;
@@ -52,6 +66,7 @@ export interface CabinetConfig {
   drawer_front_height_mm: number;
   appliance_niche_height_mm?: number;
   additional_modules?: CabinetConfig[];
+  zones?: CabinetZone[];
   has_plinth: boolean;
   plinth_height_mm: number;
   body_material: string;
@@ -130,6 +145,7 @@ export interface Box3DTransform {
   color_hex: string;
   is_door: boolean;
   is_drawer: boolean;
+  is_hanging_rod?: boolean;
   hinge_side: string | null;
   module_index: number;
 }

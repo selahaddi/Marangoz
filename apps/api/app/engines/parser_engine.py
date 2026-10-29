@@ -19,6 +19,7 @@ from app.schemas.cabinet import (
     BackPanelType,
     CabinetConfig,
     CabinetType,
+    CabinetZone,
     CuttingMode,
     DoorType,
     FastenerType,
@@ -27,6 +28,21 @@ from app.schemas.cabinet import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class ZoneParseSchema(BaseModel):
+    """Bölme (Zone) ayrıştırma şeması."""
+
+    name: str = Field(default="", description="Bölme adı (örn: Sol Bölme, Sağ Bölme, Orta)")
+    width_ratio: float = Field(default=1.0, description="Genişlik payı oranı (örn: 1.0)")
+    width_mm: float = Field(default=0.0, description="Sabit genişlik (mm) verilmişse, yoksa 0.0")
+    shelf_count: int = Field(default=0, description="Bu bölmedeki hareketli raf adedi")
+    door_type: DoorType = Field(default=DoorType.NONE, description="Bu bölmenin kapak tipi")
+    drawer_count: int = Field(default=0, description="Bu bölmedeki çekmece adedi")
+    drawer_front_height_mm: float = Field(default=180.0, description="Çekmece klapa yüksekliği (mm)")
+    has_hanging_rod: bool = Field(default=False, description="Bu bölmede elbise askı borusu var mı")
+    appliance_niche_height_mm: float = Field(default=0.0, description="Bölme alt nişi (mm)")
+    door_color_hex: str = Field(default="", description="Bölme kapağı özel rengi")
 
 
 class CabinetParseSchema(BaseModel):
@@ -55,6 +71,10 @@ class CabinetParseSchema(BaseModel):
     hidden_pvc_thickness_mm: float = Field(default=0.4, description="Görünmeyen kenar PVC kalınlığı (mm)")
     back_panel_type: BackPanelType = Field(default=BackPanelType.GROOVED_8MM, description="Arkalık tipi")
     sheet_size: SheetSizeOption = Field(default=SheetSizeOption.SHEET_2800_2100, description="Plaka ebadı")
+    zones: list[ZoneParseSchema] = Field(
+        default_factory=list,
+        description="İç dikmelerle ayrılmış dikey bölmeler listesi (örn: sol raflı, sağ askılı ve çekmeceli)",
+    )
 
 
 class SemanticParserEngine:
@@ -70,6 +90,9 @@ class SemanticParserEngine:
         "appliance_niche_height_mm alanına mm cinsinden (1850) yaz ve has_plinth=false yap. "
         "Gazlı pistonlu / yukarı doğru açılan kalkar kapak istenmişse door_type='flap_up' seç. "
         "İstemde açıkça raf adedi belirtilmemişse ve üst kalkar kapaklı niş dolabıysa shelf_count=0 ver. "
+        "Eğer kullanıcı dolabın içini dikey bölmelere / kolonlara ayırmışsa (örn: 'sol tarafı 4 raflı, sağ tarafı askılıklı ve 2 çekmeceli', "
+        "'2 bölmeli gardırop', '3 bölmeli sol raflı orta askılı'), her bölmeyi 'zones' dizisinde tanımla. "
+        "Her bölme için name, width_ratio, shelf_count, door_type, drawer_count, has_hanging_rod parametrelerini doldur. "
         "Hiçbir kesim veya delik hesabı yapma, sadece şema parametrelerini çıkar."
     )
 
@@ -396,6 +419,67 @@ class SemanticParserEngine:
             0.0, min(height_mm - 260.0, appliance_niche_height_mm)
         )
 
+        # 8. Çoklu Bölme (Zones) Tespiti
+        zones: list[CabinetZone] = []
+        if any(k in text for k in ("bölmeli", "bolmeli", "dikmeli", "kolonlu")) or (
+            ("sol" in text or "solu" in text or "solda" in text)
+            and ("sağ" in text or "sağı" in text or "sagda" in text)
+        ):
+            sol_raf = 0
+            sag_raf = 0
+            sol_cek = 0
+            sag_cek = 0
+            sol_aski = False
+            sag_aski = False
+
+            m_sol_raf = re.search(r"sol[a-z\s]*?(\d+)\s*raf", text)
+            if m_sol_raf:
+                sol_raf = int(m_sol_raf.group(1))
+            elif "sol" in text and "raf" in text:
+                sol_raf = 3
+
+            m_sol_cek = re.search(r"sol[a-z\s]*?(\d+)\s*çekmece", text)
+            if m_sol_cek:
+                sol_cek = int(m_sol_cek.group(1))
+
+            if "sol" in text and any(k in text for k in ("askı", "aski", "elbise")):
+                sol_aski = True
+
+            m_sag_raf = re.search(r"sağ[a-z\s]*?(\d+)\s*raf", text)
+            if m_sag_raf:
+                sag_raf = int(m_sag_raf.group(1))
+
+            m_sag_cek = re.search(r"sağ[a-z\s]*?(\d+)\s*çekmece", text)
+            if m_sag_cek:
+                sag_cek = int(m_sag_cek.group(1))
+            elif "sağ" in text and "çekmece" in text:
+                sag_cek = 2
+
+            if "sağ" in text and any(k in text for k in ("askı", "aski", "elbise")):
+                sag_aski = True
+
+            if not sol_aski and not sag_aski and any(k in text for k in ("askı", "aski", "elbise")):
+                sag_aski = True
+
+            zones = [
+                CabinetZone(
+                    name="Sol Bölme",
+                    width_ratio=1.0,
+                    shelf_count=sol_raf,
+                    drawer_count=sol_cek,
+                    has_hanging_rod=sol_aski,
+                    door_type=DoorType.SINGLE_LEFT,
+                ),
+                CabinetZone(
+                    name="Sağ Bölme",
+                    width_ratio=1.0,
+                    shelf_count=sag_raf,
+                    drawer_count=sag_cek,
+                    has_hanging_rod=sag_aski,
+                    door_type=DoorType.SINGLE_RIGHT,
+                ),
+            ]
+
         return CabinetConfig(
             name=name,
             cabinet_type=cabinet_type,
@@ -423,6 +507,7 @@ class SemanticParserEngine:
             has_column_notch=has_column_notch,
             left_filler_width_mm=left_filler_width_mm,
             right_filler_width_mm=right_filler_width_mm,
+            zones=zones,
         )
 
     @classmethod
@@ -469,6 +554,9 @@ class SemanticParserEngine:
                         model_name,
                         exc,
                     )
+                    if any(err in str(exc) for err in ("RESOURCE_EXHAUSTED", "429", "QuotaFailure", "limit exceeded")):
+                        logger.info("Gemini kota sınırı algılandı, doğrudan kural tabanlı ayrıştırıcıya geçiliyor.")
+                        break
                     continue
 
         return cls._deterministic_rule_parse(prompt)
@@ -489,6 +577,23 @@ class SemanticParserEngine:
             min(height_mm - 260.0, parsed.appliance_niche_height_mm or 0.0),
         )
         has_plinth = False if niche_h > 0 else parsed.has_plinth
+
+        zones: list[CabinetZone] = []
+        for z in parsed.zones:
+            zones.append(
+                CabinetZone(
+                    name=z.name,
+                    width_ratio=max(0.1, z.width_ratio),
+                    width_mm=max(0.0, z.width_mm),
+                    shelf_count=max(0, min(12, z.shelf_count)),
+                    door_type=z.door_type,
+                    drawer_count=max(0, min(6, z.drawer_count)),
+                    drawer_front_height_mm=z.drawer_front_height_mm,
+                    has_hanging_rod=z.has_hanging_rod,
+                    appliance_niche_height_mm=z.appliance_niche_height_mm,
+                    door_color_hex=z.door_color_hex,
+                )
+            )
 
         return CabinetConfig(
             name=parsed.name,
@@ -512,6 +617,7 @@ class SemanticParserEngine:
             back_panel_type=parsed.back_panel_type,
             sheet_size=parsed.sheet_size,
             additional_modules=[],
+            zones=zones,
         )
 
     @classmethod

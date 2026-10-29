@@ -1,4 +1,4 @@
-import type { CabinetConfig, CabinetType, DoorType } from "../types/cabinet";
+import type { CabinetConfig, CabinetType, CabinetZone, DoorType } from "../types/cabinet";
 
 /**
  * Kullanıcının kendi Gemini API anahtarıyla doğrudan tarayıcıdan ayrıştırma (isteğe bağlı).
@@ -38,6 +38,8 @@ const SYSTEM_INSTRUCTION =
   "bunu appliance_niche_height_mm alanına mm olarak (1850) yaz ve has_plinth=false yap. " +
   "Gazlı pistonlu / yukarı doğru açılan kalkar kapak istenmişse door_type='flap_up' seç. " +
   "İstemde açıkça raf adedi belirtilmemişse ve üst kalkar kapaklı niş dolabıysa shelf_count=0 ver. " +
+  "Eğer kullanıcı dolap içini dikey bölmelere ayırmışsa (sol tarafı raflı, sağ tarafı askılı ve çekmeceli, vb.), 'zones' dizisinde tanımla. " +
+  "Her bölme için name, width_ratio, shelf_count, door_type, drawer_count, has_hanging_rod parametrelerini doldur. " +
   "Renkleri hex koduna çevir (beyaz #F4F1EA, meşe #C89F70, ceviz #6E472B, antrasit #374151). " +
   "Kapak malzemesi ayrı belirtilmişse door_material alanına yaz (örn: '18mm Doğal Meşe MDF-Lam'). " +
   "'Tavandan tabana' bazasız demektir. Hiçbir kesim, delik veya parça hesabı yapma.";
@@ -63,6 +65,24 @@ const RESPONSE_SCHEMA = {
     door_color_hex: { type: "STRING" },
     back_panel_type: { type: "STRING", enum: ["grooved_8mm", "nailed_3mm"] },
     sheet_size: { type: "STRING", enum: ["2800x2100", "3660x1830"] },
+    zones: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          name: { type: "STRING" },
+          width_ratio: { type: "NUMBER" },
+          width_mm: { type: "NUMBER" },
+          shelf_count: { type: "INTEGER" },
+          door_type: { type: "STRING", enum: DOOR_TYPES },
+          drawer_count: { type: "INTEGER" },
+          drawer_front_height_mm: { type: "NUMBER" },
+          has_hanging_rod: { type: "BOOLEAN" },
+          appliance_niche_height_mm: { type: "NUMBER" },
+          door_color_hex: { type: "STRING" },
+        },
+      },
+    },
   },
   required: ["cabinet_type", "width_mm", "height_mm", "depth_mm"],
 } as const;
@@ -86,6 +106,7 @@ interface GeminiRawConfig {
   door_color_hex?: unknown;
   back_panel_type?: unknown;
   sheet_size?: unknown;
+  zones?: unknown;
 }
 
 interface GeminiResponsePayload {
@@ -122,6 +143,22 @@ export function normalizeGeminiConfig(raw: GeminiRawConfig): CabinetConfig {
     nicheH > 0 ? false : typeof raw.has_plinth === "boolean" ? raw.has_plinth : true;
   const cabinetType = CABINET_TYPES.find((t) => t === raw.cabinet_type) ?? "wardrobe";
   const doorType = DOOR_TYPES.find((t) => t === raw.door_type) ?? "double";
+
+  const rawZones = Array.isArray(raw.zones) ? (raw.zones as Record<string, unknown>[]) : [];
+  const zones: CabinetZone[] = rawZones.map((z, idx) => ({
+    id: typeof z.id === "string" ? z.id : `z_${idx + 1}`,
+    name: typeof z.name === "string" && z.name.trim() ? z.name.trim() : `Bölme #${idx + 1}`,
+    width_ratio: typeof z.width_ratio === "number" && z.width_ratio > 0 ? z.width_ratio : 1.0,
+    width_mm: typeof z.width_mm === "number" && z.width_mm > 0 ? z.width_mm : undefined,
+    shelf_count: Math.round(clamp(z.shelf_count, 0, 12, 0)),
+    door_type: (DOOR_TYPES.find((dt) => dt === z.door_type) ?? "none") as DoorType,
+    drawer_count: Math.round(clamp(z.drawer_count, 0, 6, 0)),
+    drawer_front_height_mm: typeof z.drawer_front_height_mm === "number" ? z.drawer_front_height_mm : 180,
+    has_hanging_rod: Boolean(z.has_hanging_rod),
+    appliance_niche_height_mm: typeof z.appliance_niche_height_mm === "number" ? z.appliance_niche_height_mm : 0,
+    door_color_hex: isHex(z.door_color_hex) ? z.door_color_hex : undefined,
+  }));
+
   return {
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "Parametrik Dolap",
     cabinet_type: cabinetType,
@@ -150,6 +187,7 @@ export function normalizeGeminiConfig(raw: GeminiRawConfig): CabinetConfig {
     back_panel_type: raw.back_panel_type === "nailed_3mm" ? "nailed_3mm" : "grooved_8mm",
     sheet_size: raw.sheet_size === "3660x1830" ? "3660x1830" : "2800x2100",
     additional_modules: [],
+    zones: zones.length > 0 ? zones : undefined,
   };
 }
 

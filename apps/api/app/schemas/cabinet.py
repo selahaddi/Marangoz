@@ -109,6 +109,32 @@ class EdgeBandSpec(BaseModel):
     )
 
 
+class CabinetZone(BaseModel):
+    """Dolap içi dikey bölme (Zone) konfigürasyonu."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(default="", description="Bölme kimliği")
+    name: str = Field(default="Bölme", description="Bölme adı (Sol Bölme, Sağ Bölme vb.)")
+    width_ratio: float = Field(
+        default=1.0, ge=0.1, le=10.0, description="Genişlik oranı payı (varsayılan 1.0 = eşit)"
+    )
+    width_mm: float | None = Field(
+        default=None, ge=100.0, le=2500.0, description="Özel net genişlik mm (varsa oranın yerine geçer)"
+    )
+    shelf_count: int = Field(default=0, ge=0, le=12, description="Bu bölmedeki hareketli raf adedi")
+    door_type: DoorType = Field(default=DoorType.NONE, description="Bu bölmeye ait kapak tipi")
+    drawer_count: int = Field(default=0, ge=0, le=6, description="Bu bölmedeki alt çekmece adedi")
+    drawer_front_height_mm: float = Field(
+        default=180.0, ge=120.0, le=350.0, description="Çekmece klapa yüksekliği (mm)"
+    )
+    has_hanging_rod: bool = Field(default=False, description="Elbise askı borusu var mı?")
+    appliance_niche_height_mm: float = Field(
+        default=0.0, ge=0.0, le=2200.0, description="Açık niş / cihaz boşluğu yüksekliği (mm)"
+    )
+    door_color_hex: str | None = Field(default=None, description="Bu bölmenin kapağına özel renk (HEX)")
+
+
 class CabinetConfig(BaseModel):
     """Doğal dilden veya arayüzden gelen doğrulanmış parametrik dolap modeli."""
 
@@ -173,6 +199,10 @@ class CabinetConfig(BaseModel):
     additional_modules: list["CabinetConfig"] = Field(
         default_factory=list,
         description="Çoklu modül / oda hattı içindeki yan yana ek modüller",
+    )
+    zones: list[CabinetZone] = Field(
+        default_factory=list,
+        description="Dolap içi dikey bölmeler ve donanımları (boş ise tekil standart gövde kullanılır)",
     )
     has_plinth: bool = Field(
         default=True,
@@ -356,6 +386,7 @@ class Box3DTransform(BaseModel):
     color_hex: str = Field(description="Parça 3D rengi (HEX)")
     is_door: bool = Field(default=False, description="Kapak parçası mı?")
     is_drawer: bool = Field(default=False, description="Çekmece parçası mı?")
+    is_hanging_rod: bool = Field(default=False, description="Elbise askı borusu mu?")
     hinge_side: str | None = Field(
         default=None, description="Kapak menteşe yönü (left / right / None)"
     )

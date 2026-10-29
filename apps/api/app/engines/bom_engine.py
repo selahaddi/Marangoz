@@ -12,6 +12,7 @@ from app.schemas.cabinet import (
     BOMReport,
     Box3DTransform,
     CabinetConfig,
+    CabinetZone,
     CuttingMode,
     DoorType,
     DrillPoint,
@@ -282,6 +283,577 @@ class BOMEngine:
                 )
             )
         return drills
+
+    @classmethod
+    def _generate_zones_parts(
+        cls,
+        config: CabinetConfig,
+        module_idx: int,
+        x_offset_mm: float,
+        start_part_counter: int,
+        multi_mode: bool,
+    ) -> tuple[list[PanelPart], int, int, int, int]:
+        """İç ara dikmeler ve her bölme (zone) için çekmece, askılık, raf ve kapak parçalarını üretir.
+
+        Returns:
+            (parts, next_part_counter, total_handles, total_hinges, total_gas_struts)
+        """
+        parts: list[PanelPart] = []
+        part_counter = start_part_counter
+        prefix = f"M{module_idx}_" if multi_mode else ""
+        label_prefix = f"[Modül {module_idx}] " if multi_mode else ""
+
+        t = MC.BODY_THICKNESS_MM
+        w = config.width_mm
+        h = config.height_mm
+        d = config.depth_mm
+        niche_h = min(
+            config.appliance_niche_height_mm,
+            max(0.0, h - 260.0),
+        )
+        plinth_h = config.plinth_height_mm if (config.has_plinth and niche_h <= 0.0) else 0.0
+        base_offset_y = max(plinth_h, niche_h)
+        inner_w = round(w - 2.0 * t, 2)
+        clear_inner_h = round(h - base_offset_y - 2.0 * t, 2)
+        is_grooved = config.back_panel_type == BackPanelType.GROOVED_8MM
+        rear_loss = (
+            MC.BACK_GROOVE_OFFSET_FROM_REAR_MM + MC.BACK_GROOVE_WIDTH_MM
+            if is_grooved
+            else 0.0
+        )
+        door_mat = (
+            config.door_material.strip()
+            if config.door_material and config.door_material.strip()
+            else config.body_material
+        )
+
+        total_handles = 0
+        total_hinges = 0
+        total_gas_struts = 0
+
+        zones = config.zones or []
+        divider_count = max(0, len(zones) - 1)
+        total_divider_t = divider_count * t
+        avail_w = max(100.0, inner_w - total_divider_t)
+
+        fixed_w_total = sum(z.width_mm for z in zones if z.width_mm and z.width_mm > 0.0)
+        flex_ratio_total = sum(
+            z.width_ratio if z.width_ratio and z.width_ratio > 0.0 else 1.0
+            for z in zones
+            if not (z.width_mm and z.width_mm > 0.0)
+        )
+        remaining_flex_w = max(50.0, avail_w - fixed_w_total)
+        zone_widths: list[float] = []
+        for z in zones:
+            if z.width_mm and z.width_mm > 0.0:
+                zone_widths.append(round(z.width_mm, 2))
+            else:
+                r = z.width_ratio if z.width_ratio and z.width_ratio > 0.0 else 1.0
+                zone_widths.append(round(remaining_flex_w * (r / (flex_ratio_total or 1.0)), 2))
+
+        cur_x = round(x_offset_mm - inner_w / 2.0, 2)
+        zone_coords: list[dict[str, float]] = []
+        divider_coords: list[dict[str, float]] = []
+
+        for i, zw in enumerate(zone_widths):
+            start_x = cur_x
+            end_x = round(cur_x + zw, 2)
+            center_x = round((start_x + end_x) / 2.0, 2)
+            zone_coords.append({"startX": start_x, "endX": end_x, "centerX": center_x, "width": zw})
+            cur_x = end_x
+            if i < divider_count:
+                divider_coords.append({"centerX": round(cur_x + t / 2.0, 2)})
+                cur_x = round(cur_x + t, 2)
+
+        # 1. İç Ara Dikmeler (Vertical Dividers)
+        divider_net_w = round(d - rear_loss - 10.0, 2)
+        divider_edge = EdgeBandSpec(
+            length_1_mm=config.front_pvc_thickness_mm,
+            length_2_mm=config.hidden_pvc_thickness_mm,
+            width_1_mm=0.0,
+            width_2_mm=0.0,
+        )
+        div_cut_l, div_cut_w, div_ded_l, div_ded_w = cls.compute_cut_dimensions(
+            clear_inner_h, divider_net_w, divider_edge
+        )
+
+        for div_idx, dc in enumerate(divider_coords, start=1):
+            div_num = f"{div_idx:02d}"
+            parts.append(
+                PanelPart(
+                    part_id=f"P{part_counter:02d}",
+                    code=f"{prefix}DIKME_{div_num}",
+                    name=f"{label_prefix}İç Ara Dikme #{div_idx}",
+                    material=config.body_material,
+                    thickness_mm=t,
+                    quantity=1,
+                    net_length_mm=clear_inner_h,
+                    net_width_mm=divider_net_w,
+                    cut_length_mm=div_cut_l,
+                    cut_width_mm=div_cut_w,
+                    pvc_deduction_length_mm=div_ded_l,
+                    pvc_deduction_width_mm=div_ded_w,
+                    edge_band=divider_edge,
+                    area_m2=round((clear_inner_h * divider_net_w) / 1_000_000.0, 4),
+                    grain_direction="length",
+                    drills=[],
+                    grooves=[],
+                    transform_3d=Box3DTransform(
+                        center_x_mm=dc["centerX"],
+                        center_y_mm=round(base_offset_y + t + clear_inner_h / 2.0, 2),
+                        center_z_mm=-5.0,
+                        size_x_mm=t,
+                        size_y_mm=clear_inner_h,
+                        size_z_mm=divider_net_w,
+                        color_hex=config.body_color_hex,
+                        module_index=module_idx,
+                    ),
+                )
+            )
+            part_counter += 1
+
+        # 2. Bölmeler (Zones)
+        for zi, z in enumerate(zones):
+            zc = zone_coords[zi]
+            zw = zc["width"]
+            z_name = z.name or f"Bölme #{zi + 1}"
+
+            # 2a. Çekmeceler
+            z_drawer_count = z.drawer_count or 0
+            z_drawer_front_h = z.drawer_front_height_mm or 180.0
+            if z_drawer_count > 0 and z_drawer_count * z_drawer_front_h > clear_inner_h - 40.0:
+                z_drawer_front_h = round((clear_inner_h - 20.0) / z_drawer_count, 2)
+            z_drawer_zone_h = round(z_drawer_count * z_drawer_front_h, 2)
+
+            if z_drawer_count > 0:
+                slide_len = cls.select_drawer_slide_length(d)
+                box_h = round(max(80.0, z_drawer_front_h - MC.DRAWER_BOX_HEIGHT_REDUCTION_MM), 2)
+                box_inner_w = round(zw - MC.DRAWER_SLIDE_CLEARANCE_TOTAL_MM - 2.0 * t, 2)
+                front_net_w = round(zw - 2.0 * MC.DOOR_OUTER_GAP_MM, 2)
+                front_net_h = round(z_drawer_front_h - MC.DOOR_CENTER_GAP_MM, 2)
+
+                front_edge = EdgeBandSpec(
+                    length_1_mm=config.front_pvc_thickness_mm,
+                    length_2_mm=config.front_pvc_thickness_mm,
+                    width_1_mm=config.front_pvc_thickness_mm,
+                    width_2_mm=config.front_pvc_thickness_mm,
+                )
+                f_cut_l, f_cut_w, f_ded_l, f_ded_w = cls.compute_cut_dimensions(
+                    front_net_w, front_net_h, front_edge
+                )
+
+                box_edge = EdgeBandSpec(
+                    length_1_mm=config.hidden_pvc_thickness_mm,
+                    length_2_mm=0.0,
+                    width_1_mm=0.0,
+                    width_2_mm=0.0,
+                )
+                bs_cut_l, bs_cut_w, bs_ded_l, bs_ded_w = cls.compute_cut_dimensions(
+                    slide_len, box_h, box_edge
+                )
+                bf_cut_l, bf_cut_w, bf_ded_l, bf_ded_w = cls.compute_cut_dimensions(
+                    box_inner_w, box_h, box_edge
+                )
+
+                bottom_w = round(box_inner_w + 15.0, 2)
+                bottom_l = round(slide_len - 2.0 * t + 15.0, 2)
+                no_edge = EdgeBandSpec(length_1_mm=0.0, length_2_mm=0.0, width_1_mm=0.0, width_2_mm=0.0)
+
+                for d_idx in range(1, z_drawer_count + 1):
+                    d_str = f"{d_idx:02d}"
+                    center_y = round(base_offset_y + t + (d_idx - 0.5) * z_drawer_front_h, 2)
+                    klapa_z = round(d / 2.0 + t / 2.0 + 1.5, 2)
+                    box_z = round(d / 2.0 - slide_len / 2.0 - 5.0, 2)
+                    total_handles += 1
+
+                    # Klapa
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}Z{zi + 1}_CEK_KLAPA_{d_str}",
+                            name=f"{label_prefix}{z_name} Çekmece #{d_idx} Klapası",
+                            material=door_mat,
+                            thickness_mm=t,
+                            quantity=1,
+                            net_length_mm=front_net_w,
+                            net_width_mm=front_net_h,
+                            cut_length_mm=f_cut_l,
+                            cut_width_mm=f_cut_w,
+                            pvc_deduction_length_mm=f_ded_l,
+                            pvc_deduction_width_mm=f_ded_w,
+                            edge_band=front_edge,
+                            area_m2=round((front_net_w * front_net_h) / 1_000_000.0, 4),
+                            grain_direction="length",
+                            drills=[],
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=zc["centerX"],
+                                center_y_mm=center_y,
+                                center_z_mm=klapa_z,
+                                size_x_mm=front_net_w,
+                                size_y_mm=front_net_h,
+                                size_z_mm=t,
+                                color_hex=z.door_color_hex or config.door_color_hex,
+                                is_drawer=True,
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+
+                    # Yanlar
+                    for side_code, side_name, side_x in (
+                        ("SOL", "Sol Yan", round(zc["centerX"] - box_inner_w / 2.0 - t / 2.0, 2)),
+                        ("SAG", "Sağ Yan", round(zc["centerX"] + box_inner_w / 2.0 + t / 2.0, 2)),
+                    ):
+                        parts.append(
+                            PanelPart(
+                                part_id=f"P{part_counter:02d}",
+                                code=f"{prefix}Z{zi + 1}_CEK_{d_str}_{side_code}",
+                                name=f"{label_prefix}{z_name} Çekmece #{d_idx} {side_name}",
+                                material=config.body_material,
+                                thickness_mm=t,
+                                quantity=1,
+                                net_length_mm=slide_len,
+                                net_width_mm=box_h,
+                                cut_length_mm=bs_cut_l,
+                                cut_width_mm=bs_cut_w,
+                                pvc_deduction_length_mm=bs_ded_l,
+                                pvc_deduction_width_mm=bs_ded_w,
+                                edge_band=box_edge,
+                                area_m2=round((slide_len * box_h) / 1_000_000.0, 4),
+                                grain_direction="length",
+                                drills=[],
+                                grooves=[],
+                                transform_3d=Box3DTransform(
+                                    center_x_mm=side_x,
+                                    center_y_mm=center_y,
+                                    center_z_mm=box_z,
+                                    size_x_mm=t,
+                                    size_y_mm=box_h,
+                                    size_z_mm=slide_len,
+                                    color_hex=config.body_color_hex,
+                                    is_drawer=True,
+                                    module_index=module_idx,
+                                ),
+                            )
+                        )
+                        part_counter += 1
+
+                    # Ön & Arka
+                    for fb_code, fb_name, fb_z in (
+                        ("ON", "İç Ön Kasa", round(box_z + slide_len / 2.0 - t / 2.0, 2)),
+                        ("ARKA", "İç Arka Kasa", round(box_z - slide_len / 2.0 + t / 2.0, 2)),
+                    ):
+                        parts.append(
+                            PanelPart(
+                                part_id=f"P{part_counter:02d}",
+                                code=f"{prefix}Z{zi + 1}_CEK_{d_str}_{fb_code}",
+                                name=f"{label_prefix}{z_name} Çekmece #{d_idx} {fb_name}",
+                                material=config.body_material,
+                                thickness_mm=t,
+                                quantity=1,
+                                net_length_mm=box_inner_w,
+                                net_width_mm=box_h,
+                                cut_length_mm=bf_cut_l,
+                                cut_width_mm=bf_cut_w,
+                                pvc_deduction_length_mm=bf_ded_l,
+                                pvc_deduction_width_mm=bf_ded_w,
+                                edge_band=box_edge,
+                                area_m2=round((box_inner_w * box_h) / 1_000_000.0, 4),
+                                grain_direction="length",
+                                drills=[],
+                                grooves=[],
+                                transform_3d=Box3DTransform(
+                                    center_x_mm=zc["centerX"],
+                                    center_y_mm=center_y,
+                                    center_z_mm=fb_z,
+                                    size_x_mm=box_inner_w,
+                                    size_y_mm=box_h,
+                                    size_z_mm=t,
+                                    color_hex=config.body_color_hex,
+                                    is_drawer=True,
+                                    module_index=module_idx,
+                                ),
+                            )
+                        )
+                        part_counter += 1
+
+                    # Taban
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}Z{zi + 1}_CEK_{d_str}_TABAN",
+                            name=f"{label_prefix}{z_name} Çekmece #{d_idx} Tabanı (8mm)",
+                            material="8mm Beyaz MDF-Lam Arkalık",
+                            thickness_mm=MC.BACK_PANEL_GROOVED_THICKNESS_MM,
+                            quantity=1,
+                            net_length_mm=bottom_w,
+                            net_width_mm=bottom_l,
+                            cut_length_mm=bottom_w,
+                            cut_width_mm=bottom_l,
+                            pvc_deduction_length_mm=0.0,
+                            pvc_deduction_width_mm=0.0,
+                            edge_band=no_edge,
+                            area_m2=round((bottom_w * bottom_l) / 1_000_000.0, 4),
+                            grain_direction="length",
+                            drills=[],
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=zc["centerX"],
+                                center_y_mm=round(center_y - box_h / 2.0 + 8.0, 2),
+                                center_z_mm=box_z,
+                                size_x_mm=bottom_w,
+                                size_y_mm=MC.BACK_PANEL_GROOVED_THICKNESS_MM,
+                                size_z_mm=bottom_l,
+                                color_hex="#E5E0D5",
+                                is_drawer=True,
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+
+            # 2b. Elbise Askılığı
+            z_remain_h = round(clear_inner_h - z_drawer_zone_h, 2)
+            if z.has_hanging_rod and z_remain_h > 300.0:
+                rod_l = round(zw - 4.0, 2)
+                no_edge = EdgeBandSpec(length_1_mm=0.0, length_2_mm=0.0, width_1_mm=0.0, width_2_mm=0.0)
+                parts.append(
+                    PanelPart(
+                        part_id=f"P{part_counter:02d}",
+                        code=f"{prefix}Z{zi + 1}_ASKILIK",
+                        name=f"{label_prefix}{z_name} Elbise Askı Borusu (Alüminyum)",
+                        material="Alüminyum Oval Askı Borusu",
+                        thickness_mm=15.0,
+                        quantity=1,
+                        net_length_mm=rod_l,
+                        net_width_mm=30.0,
+                        cut_length_mm=rod_l,
+                        cut_width_mm=30.0,
+                        pvc_deduction_length_mm=0.0,
+                        pvc_deduction_width_mm=0.0,
+                        edge_band=no_edge,
+                        area_m2=0.01,
+                        grain_direction="none",
+                        drills=[],
+                        grooves=[],
+                        transform_3d=Box3DTransform(
+                            center_x_mm=zc["centerX"],
+                            center_y_mm=round(base_offset_y + t + clear_inner_h - 70.0, 2),
+                            center_z_mm=0.0,
+                            size_x_mm=rod_l,
+                            size_y_mm=30.0,
+                            size_z_mm=15.0,
+                            color_hex="#CBD5E1",
+                            is_hanging_rod=True,
+                            module_index=module_idx,
+                        ),
+                    )
+                )
+                part_counter += 1
+
+            # 2c. Raflar
+            if z.shelf_count > 0 and z_remain_h > 120.0:
+                shelf_net_l = round(zw - MC.SHELF_WIDTH_CLEARANCE_MM, 2)
+                shelf_net_w = round(d - rear_loss - MC.SHELF_FRONT_SETBACK_MM, 2)
+                shelf_edge = EdgeBandSpec(
+                    length_1_mm=config.front_pvc_thickness_mm,
+                    length_2_mm=config.hidden_pvc_thickness_mm,
+                    width_1_mm=config.hidden_pvc_thickness_mm,
+                    width_2_mm=config.hidden_pvc_thickness_mm,
+                )
+                s_cut_l, s_cut_w, s_ded_l, s_ded_w = cls.compute_cut_dimensions(
+                    shelf_net_l, shelf_net_w, shelf_edge
+                )
+                step_h = z_remain_h / (z.shelf_count + 1)
+                shelf_z_center = round((rear_loss - MC.SHELF_FRONT_SETBACK_MM) / 2.0, 2)
+
+                for s_idx in range(1, z.shelf_count + 1):
+                    shelf_y = round(base_offset_y + t + z_drawer_zone_h + s_idx * step_h, 2)
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}Z{zi + 1}_RAF_{s_idx:02d}",
+                            name=f"{label_prefix}{z_name} Hareketli Raf #{s_idx}",
+                            material=config.body_material,
+                            thickness_mm=t,
+                            quantity=1,
+                            net_length_mm=shelf_net_l,
+                            net_width_mm=shelf_net_w,
+                            cut_length_mm=s_cut_l,
+                            cut_width_mm=s_cut_w,
+                            pvc_deduction_length_mm=s_ded_l,
+                            pvc_deduction_width_mm=s_ded_w,
+                            edge_band=shelf_edge,
+                            area_m2=round((shelf_net_l * shelf_net_w) / 1_000_000.0, 4),
+                            grain_direction="length",
+                            drills=[],
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=zc["centerX"],
+                                center_y_mm=shelf_y,
+                                center_z_mm=shelf_z_center,
+                                size_x_mm=shelf_net_l,
+                                size_y_mm=t,
+                                size_z_mm=shelf_net_w,
+                                color_hex=config.body_color_hex,
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+
+            # 2d. Kapaklar
+            z_door_avail_h = round(clear_inner_h - z_drawer_zone_h, 2)
+            if z.door_type and z.door_type != DoorType.NONE and z_door_avail_h >= 200.0:
+                door_net_h = round(z_door_avail_h + (2.0 * t if z_drawer_count == 0 else t) - 4.0, 2)
+                door_edge = EdgeBandSpec(
+                    length_1_mm=config.front_pvc_thickness_mm,
+                    length_2_mm=config.front_pvc_thickness_mm,
+                    width_1_mm=config.front_pvc_thickness_mm,
+                    width_2_mm=config.front_pvc_thickness_mm,
+                )
+                door_y_center = round(base_offset_y + z_drawer_zone_h + z_door_avail_h / 2.0, 2)
+                door_z_center = round(d / 2.0 + t / 2.0 + 1.5, 2)
+                door_color = z.door_color_hex or config.door_color_hex
+
+                if z.door_type == DoorType.FLAP_UP:
+                    door_net_w = round(zw - 2.0 * MC.DOOR_OUTER_GAP_MM, 2)
+                    d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
+                        door_net_h, door_net_w, door_edge
+                    )
+                    total_gas_struts += 2
+                    total_handles += 1
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}Z{zi + 1}_KAPAK_KALKAR",
+                            name=f"{label_prefix}{z_name} Kalkar Kapak",
+                            material=door_mat,
+                            thickness_mm=t,
+                            quantity=1,
+                            net_length_mm=door_net_h,
+                            net_width_mm=door_net_w,
+                            cut_length_mm=d_cut_l,
+                            cut_width_mm=d_cut_w,
+                            pvc_deduction_length_mm=d_ded_l,
+                            pvc_deduction_width_mm=d_ded_w,
+                            edge_band=door_edge,
+                            area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
+                            grain_direction="length",
+                            drills=[],
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=zc["centerX"],
+                                center_y_mm=door_y_center,
+                                center_z_mm=door_z_center,
+                                size_x_mm=door_net_w,
+                                size_y_mm=door_net_h,
+                                size_z_mm=t,
+                                color_hex=door_color,
+                                is_door=True,
+                                hinge_side="top",
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+                elif z.door_type in (DoorType.SINGLE_LEFT, DoorType.SINGLE_RIGHT):
+                    door_net_w = round(zw - 2.0 * MC.DOOR_OUTER_GAP_MM, 2)
+                    d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
+                        door_net_h, door_net_w, door_edge
+                    )
+                    hinge_left = z.door_type == DoorType.SINGLE_LEFT
+                    d_drills = cls._build_door_hinge_drills(door_net_h, door_net_w, hinge_on_left=hinge_left)
+                    total_hinges += len(d_drills)
+                    total_handles += 1
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}Z{zi + 1}_KAPAK_TEK",
+                            name=(
+                                f"{label_prefix}{z_name} Tek Kapak (Sol Menteşeli)"
+                                if hinge_left
+                                else f"{label_prefix}{z_name} Tek Kapak (Sağ Menteşeli)"
+                            ),
+                            material=door_mat,
+                            thickness_mm=t,
+                            quantity=1,
+                            net_length_mm=door_net_h,
+                            net_width_mm=door_net_w,
+                            cut_length_mm=d_cut_l,
+                            cut_width_mm=d_cut_w,
+                            pvc_deduction_length_mm=d_ded_l,
+                            pvc_deduction_width_mm=d_ded_w,
+                            edge_band=door_edge,
+                            area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
+                            grain_direction="length",
+                            drills=d_drills,
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=zc["centerX"],
+                                center_y_mm=door_y_center,
+                                center_z_mm=door_z_center,
+                                size_x_mm=door_net_w,
+                                size_y_mm=door_net_h,
+                                size_z_mm=t,
+                                color_hex=door_color,
+                                is_door=True,
+                                hinge_side="left" if hinge_left else "right",
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+                elif z.door_type == DoorType.DOUBLE:
+                    door_net_w = round((zw - 2.0 * MC.DOOR_OUTER_GAP_MM - MC.DOOR_CENTER_GAP_MM) / 2.0, 2)
+                    d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
+                        door_net_h, door_net_w, door_edge
+                    )
+                    total_handles += 2
+                    for side_code, side_label, is_left, rel_cx in (
+                        ("SOL", "Sol Kapak", True, round(-door_net_w / 2.0 - MC.DOOR_CENTER_GAP_MM / 2.0, 2)),
+                        ("SAG", "Sağ Kapak", False, round(door_net_w / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0, 2)),
+                    ):
+                        d_drills = cls._build_door_hinge_drills(door_net_h, door_net_w, hinge_on_left=is_left)
+                        total_hinges += len(d_drills)
+                        parts.append(
+                            PanelPart(
+                                part_id=f"P{part_counter:02d}",
+                                code=f"{prefix}Z{zi + 1}_KAPAK_{side_code}",
+                                name=f"{label_prefix}{z_name} {side_label}",
+                                material=door_mat,
+                                thickness_mm=t,
+                                quantity=1,
+                                net_length_mm=door_net_h,
+                                net_width_mm=door_net_w,
+                                cut_length_mm=d_cut_l,
+                                cut_width_mm=d_cut_w,
+                                pvc_deduction_length_mm=d_ded_l,
+                                pvc_deduction_width_mm=d_ded_w,
+                                edge_band=door_edge,
+                                area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
+                                grain_direction="length",
+                                drills=d_drills,
+                                grooves=[],
+                                transform_3d=Box3DTransform(
+                                    center_x_mm=round(zc["centerX"] + rel_cx, 2),
+                                    center_y_mm=door_y_center,
+                                    center_z_mm=door_z_center,
+                                    size_x_mm=door_net_w,
+                                    size_y_mm=door_net_h,
+                                    size_z_mm=t,
+                                    color_hex=door_color,
+                                    is_door=True,
+                                    hinge_side="left" if is_left else "right",
+                                    module_index=module_idx,
+                                ),
+                            )
+                        )
+                        part_counter += 1
+
+        return parts, part_counter, total_handles, total_hinges, total_gas_struts
 
     @classmethod
     def _generate_single_module_parts(
@@ -584,269 +1156,6 @@ class BOMEngine:
                 )
                 part_counter += 1
 
-        # 4. Çekmece Kasa ve Klapaları (Varsa)
-        total_handles = 0
-        if drawer_count > 0:
-            slide_len = cls.select_drawer_slide_length(d)
-            box_h = round(max(80.0, drawer_front_h - MC.DRAWER_BOX_HEIGHT_REDUCTION_MM), 2)
-            box_inner_w = round(
-                inner_w - MC.DRAWER_SLIDE_CLEARANCE_TOTAL_MM - (2.0 * t), 2
-            )
-            front_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
-            front_net_h = round(drawer_front_h - MC.DOOR_CENTER_GAP_MM, 2)
-
-            front_edge = EdgeBandSpec(
-                length_1_mm=config.front_pvc_thickness_mm,
-                length_2_mm=config.front_pvc_thickness_mm,
-                width_1_mm=config.front_pvc_thickness_mm,
-                width_2_mm=config.front_pvc_thickness_mm,
-            )
-            f_cut_l, f_cut_w, f_ded_l, f_ded_w = cls.compute_cut_dimensions(
-                front_net_w, front_net_h, front_edge
-            )
-
-            box_edge = EdgeBandSpec(
-                length_1_mm=config.hidden_pvc_thickness_mm,
-                length_2_mm=0.0,
-                width_1_mm=0.0,
-                width_2_mm=0.0,
-            )
-            bs_cut_l, bs_cut_w, bs_ded_l, bs_ded_w = cls.compute_cut_dimensions(
-                slide_len, box_h, box_edge
-            )
-            bf_cut_l, bf_cut_w, bf_ded_l, bf_ded_w = cls.compute_cut_dimensions(
-                box_inner_w, box_h, box_edge
-            )
-
-            no_edge = EdgeBandSpec(
-                length_1_mm=0.0, length_2_mm=0.0, width_1_mm=0.0, width_2_mm=0.0
-            )
-            bottom_w = round(box_inner_w + 15.0, 2)
-            bottom_l = round(slide_len - (2.0 * t) + 15.0, 2)
-
-            for d_idx in range(1, drawer_count + 1):
-                center_y = round(
-                    base_offset_y
-                    + t
-                    + ((d_idx - 0.5) * drawer_front_h),
-                    2,
-                )
-                klapa_z = round(d / 2.0 + t / 2.0 + 1.5, 2)
-                box_z = round((d / 2.0) - (slide_len / 2.0) - 5.0, 2)
-                total_handles += 1
-
-                # 4a. Çekmece Ön Klapası
-                parts.append(
-                    PanelPart(
-                        part_id=f"P{part_counter:02d}",
-                        code=f"{prefix}CEK_KLAPA_{d_idx:02d}",
-                        name=f"{label_prefix}Çekmece #{d_idx} Ön Klapası",
-                        material=door_mat,
-                        thickness_mm=t,
-                        quantity=1,
-                        net_length_mm=front_net_w,
-                        net_width_mm=front_net_h,
-                        cut_length_mm=f_cut_l,
-                        cut_width_mm=f_cut_w,
-                        pvc_deduction_length_mm=f_ded_l,
-                        pvc_deduction_width_mm=f_ded_w,
-                        edge_band=front_edge,
-                        area_m2=round((front_net_w * front_net_h) / 1_000_000.0, 4),
-                        drills=[],
-                        grooves=[],
-                        transform_3d=Box3DTransform(
-                            center_x_mm=x_offset_mm,
-                            center_y_mm=center_y,
-                            center_z_mm=klapa_z,
-                            size_x_mm=front_net_w,
-                            size_y_mm=front_net_h,
-                            size_z_mm=t,
-                            color_hex=config.door_color_hex,
-                            is_drawer=True,
-                            module_index=module_idx,
-                        ),
-                    )
-                )
-                part_counter += 1
-
-                # 4b. Çekmece Yan Kasaları (Sol & Sağ)
-                for s_code, s_name, sx_sign in (
-                    ("SOL", "Sol Yan Kasa", -1.0),
-                    ("SAG", "Sağ Yan Kasa", 1.0),
-                ):
-                    side_box_x = round(
-                        x_offset_mm
-                        + sx_sign * ((box_inner_w / 2.0) + (t / 2.0)),
-                        2,
-                    )
-                    parts.append(
-                        PanelPart(
-                            part_id=f"P{part_counter:02d}",
-                            code=f"{prefix}CEK_{d_idx:02d}_YAN_{s_code}",
-                            name=f"{label_prefix}Çekmece #{d_idx} {s_name}",
-                            material=config.body_material,
-                            thickness_mm=t,
-                            quantity=1,
-                            net_length_mm=slide_len,
-                            net_width_mm=box_h,
-                            cut_length_mm=bs_cut_l,
-                            cut_width_mm=bs_cut_w,
-                            pvc_deduction_length_mm=bs_ded_l,
-                            pvc_deduction_width_mm=bs_ded_w,
-                            edge_band=box_edge,
-                            area_m2=round((slide_len * box_h) / 1_000_000.0, 4),
-                            drills=[],
-                            grooves=[],
-                            transform_3d=Box3DTransform(
-                                center_x_mm=side_box_x,
-                                center_y_mm=center_y,
-                                center_z_mm=box_z,
-                                size_x_mm=t,
-                                size_y_mm=box_h,
-                                size_z_mm=slide_len,
-                                color_hex=config.body_color_hex,
-                                is_drawer=True,
-                                module_index=module_idx,
-                            ),
-                        )
-                    )
-                    part_counter += 1
-
-                # 4c. Çekmece İç Ön ve Arka Kasa
-                for fb_code, fb_name, fbz in (
-                    ("ON", "İç Ön Kasa", round(box_z + slide_len / 2.0 - t / 2.0, 2)),
-                    (
-                        "ARKA",
-                        "İç Arka Kasa",
-                        round(box_z - slide_len / 2.0 + t / 2.0, 2),
-                    ),
-                ):
-                    parts.append(
-                        PanelPart(
-                            part_id=f"P{part_counter:02d}",
-                            code=f"{prefix}CEK_{d_idx:02d}_{fb_code}",
-                            name=f"{label_prefix}Çekmece #{d_idx} {fb_name}",
-                            material=config.body_material,
-                            thickness_mm=t,
-                            quantity=1,
-                            net_length_mm=box_inner_w,
-                            net_width_mm=box_h,
-                            cut_length_mm=bf_cut_l,
-                            cut_width_mm=bf_cut_w,
-                            pvc_deduction_length_mm=bf_ded_l,
-                            pvc_deduction_width_mm=bf_ded_w,
-                            edge_band=box_edge,
-                            area_m2=round((box_inner_w * box_h) / 1_000_000.0, 4),
-                            drills=[],
-                            grooves=[],
-                            transform_3d=Box3DTransform(
-                                center_x_mm=x_offset_mm,
-                                center_y_mm=center_y,
-                                center_z_mm=fbz,
-                                size_x_mm=box_inner_w,
-                                size_y_mm=box_h,
-                                size_z_mm=t,
-                                color_hex=config.body_color_hex,
-                                is_drawer=True,
-                                module_index=module_idx,
-                            ),
-                        )
-                    )
-                    part_counter += 1
-
-                # 4d. Çekmece Tabanı (8 mm MDF-Lam)
-                parts.append(
-                    PanelPart(
-                        part_id=f"P{part_counter:02d}",
-                        code=f"{prefix}CEK_{d_idx:02d}_TABAN",
-                        name=f"{label_prefix}Çekmece #{d_idx} Alt Tabanı (8mm)",
-                        material="8mm Beyaz MDF-Lam Arkalık",
-                        thickness_mm=MC.BACK_PANEL_GROOVED_THICKNESS_MM,
-                        quantity=1,
-                        net_length_mm=bottom_w,
-                        net_width_mm=bottom_l,
-                        cut_length_mm=bottom_w,
-                        cut_width_mm=bottom_l,
-                        pvc_deduction_length_mm=0.0,
-                        pvc_deduction_width_mm=0.0,
-                        edge_band=no_edge,
-                        area_m2=round((bottom_w * bottom_l) / 1_000_000.0, 4),
-                        drills=[],
-                        grooves=[],
-                        transform_3d=Box3DTransform(
-                            center_x_mm=x_offset_mm,
-                            center_y_mm=round(center_y - box_h / 2.0 + 8.0, 2),
-                            center_z_mm=box_z,
-                            size_x_mm=bottom_w,
-                            size_y_mm=MC.BACK_PANEL_GROOVED_THICKNESS_MM,
-                            size_z_mm=bottom_l,
-                            color_hex="#E5E0D5",
-                            is_drawer=True,
-                            module_index=module_idx,
-                        ),
-                    )
-                )
-                part_counter += 1
-
-        # 5. Hareketli Raflar
-        remaining_clear_h = round(clear_inner_h - drawer_zone_h, 2)
-        if config.shelf_count > 0 and remaining_clear_h > 120.0:
-            shelf_net_l = round(inner_w - MC.SHELF_WIDTH_CLEARANCE_MM, 2)
-            if config.back_panel_type == BackPanelType.GROOVED_8MM:
-                rear_loss = MC.BACK_GROOVE_OFFSET_FROM_REAR_MM + MC.BACK_GROOVE_WIDTH_MM
-            else:
-                rear_loss = 0.0
-            shelf_net_w = round(d - rear_loss - MC.SHELF_FRONT_SETBACK_MM, 2)
-
-            shelf_edge = EdgeBandSpec(
-                length_1_mm=config.front_pvc_thickness_mm,
-                length_2_mm=config.hidden_pvc_thickness_mm,
-                width_1_mm=config.hidden_pvc_thickness_mm,
-                width_2_mm=config.hidden_pvc_thickness_mm,
-            )
-            s_cut_l, s_cut_w, s_ded_l, s_ded_w = cls.compute_cut_dimensions(
-                shelf_net_l, shelf_net_w, shelf_edge
-            )
-
-            step_h = remaining_clear_h / (config.shelf_count + 1)
-            shelf_z_center = round((rear_loss - MC.SHELF_FRONT_SETBACK_MM) / 2.0, 2)
-
-            for s_idx in range(1, config.shelf_count + 1):
-                shelf_y = round(
-                    base_offset_y + t + drawer_zone_h + (s_idx * step_h), 2
-                )
-                parts.append(
-                    PanelPart(
-                        part_id=f"P{part_counter:02d}",
-                        code=f"{prefix}RAF_{s_idx:02d}",
-                        name=f"{label_prefix}Hareketli Raf #{s_idx}",
-                        material=config.body_material,
-                        thickness_mm=t,
-                        quantity=1,
-                        net_length_mm=shelf_net_l,
-                        net_width_mm=shelf_net_w,
-                        cut_length_mm=s_cut_l,
-                        cut_width_mm=s_cut_w,
-                        pvc_deduction_length_mm=s_ded_l,
-                        pvc_deduction_width_mm=s_ded_w,
-                        edge_band=shelf_edge,
-                        area_m2=round((shelf_net_l * shelf_net_w) / 1_000_000.0, 4),
-                        drills=[],
-                        grooves=[],
-                        transform_3d=Box3DTransform(
-                            center_x_mm=x_offset_mm,
-                            center_y_mm=shelf_y,
-                            center_z_mm=shelf_z_center,
-                            size_x_mm=shelf_net_l,
-                            size_y_mm=t,
-                            size_z_mm=shelf_net_w,
-                            color_hex=config.body_color_hex,
-                            module_index=module_idx,
-                        ),
-                    )
-                )
-                part_counter += 1
-
         # 6. Arkalık Paneli (Niş varsa yalnızca üst dolap arkalığı)
         no_edge = EdgeBandSpec(
             length_1_mm=0.0, length_2_mm=0.0, width_1_mm=0.0, width_2_mm=0.0
@@ -907,163 +1216,338 @@ class BOMEngine:
         )
         part_counter += 1
 
-        # 7. Kapaklar (Çekmece/Niş bölgesinin üstünde kalan alan için)
+
+        total_handles = 0
         total_hinges = 0
-        door_avail_h = round((h - base_offset_y - drawer_zone_h), 2)
-        if config.door_type != DoorType.NONE and door_avail_h >= 240.0:
-            door_net_h = round(door_avail_h - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
-            door_edge = EdgeBandSpec(
-                length_1_mm=config.front_pvc_thickness_mm,
-                length_2_mm=config.front_pvc_thickness_mm,
-                width_1_mm=config.front_pvc_thickness_mm,
-                width_2_mm=config.front_pvc_thickness_mm,
+        has_zones = bool(config.zones and len(config.zones) > 1)
+
+        if has_zones:
+            (
+                z_parts,
+                part_counter,
+                total_handles,
+                total_hinges,
+                _z_gas,
+            ) = cls._generate_zones_parts(
+                config=config,
+                module_idx=module_idx,
+                x_offset_mm=x_offset_mm,
+                start_part_counter=part_counter,
+                multi_mode=multi_mode,
             )
-            door_y_center = round(
-                base_offset_y + drawer_zone_h + (door_avail_h / 2.0), 2
-            )
-            door_z_center = round(d / 2.0 + t / 2.0 + 1.5, 2)
+            parts.extend(z_parts)
+        else:
+            # 4. Çekmece Kasa ve Klapaları (Varsa)
+            total_handles = 0
+            if drawer_count > 0:
+                slide_len = cls.select_drawer_slide_length(d)
+                box_h = round(max(80.0, drawer_front_h - MC.DRAWER_BOX_HEIGHT_REDUCTION_MM), 2)
+                box_inner_w = round(
+                    inner_w - MC.DRAWER_SLIDE_CLEARANCE_TOTAL_MM - (2.0 * t), 2
+                )
+                front_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+                front_net_h = round(drawer_front_h - MC.DOOR_CENTER_GAP_MM, 2)
 
-            if config.door_type == DoorType.FLAP_UP:
-                door_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
-                d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
-                    door_net_h, door_net_w, door_edge
+                front_edge = EdgeBandSpec(
+                    length_1_mm=config.front_pvc_thickness_mm,
+                    length_2_mm=config.front_pvc_thickness_mm,
+                    width_1_mm=config.front_pvc_thickness_mm,
+                    width_2_mm=config.front_pvc_thickness_mm,
                 )
-                top_hinge_x = round(door_net_h - MC.HINGE_CUP_CENTER_FROM_EDGE_MM, 2)
-                hinge_drills = [
-                    DrillPoint(
-                        x_mm=top_hinge_x,
-                        y_mm=100.0,
-                        diameter_mm=MC.HINGE_CUP_DIAMETER_MM,
-                        depth_mm=MC.HINGE_CUP_DEPTH_MM,
-                        layer=MC.LAYER_HINGE_CUP,
-                        description="Üst Kalkar Kapak Sol Tas Menteşe Yuvası (Ø35mm)",
-                    ),
-                    DrillPoint(
-                        x_mm=top_hinge_x,
-                        y_mm=round(door_net_w - 100.0, 2),
-                        diameter_mm=MC.HINGE_CUP_DIAMETER_MM,
-                        depth_mm=MC.HINGE_CUP_DEPTH_MM,
-                        layer=MC.LAYER_HINGE_CUP,
-                        description="Üst Kalkar Kapak Sağ Tas Menteşe Yuvası (Ø35mm)",
-                    ),
-                ]
-                total_hinges += 2
-                total_handles += 1
+                f_cut_l, f_cut_w, f_ded_l, f_ded_w = cls.compute_cut_dimensions(
+                    front_net_w, front_net_h, front_edge
+                )
 
-                parts.append(
-                    PanelPart(
-                        part_id=f"P{part_counter:02d}",
-                        code=f"{prefix}KAPAK_KALKAR",
-                        name=f"{label_prefix}Üst Kalkar Kapak (Gazlı Pistonlu)",
-                        material=door_mat,
-                        thickness_mm=t,
-                        quantity=1,
-                        net_length_mm=door_net_h,
-                        net_width_mm=door_net_w,
-                        cut_length_mm=d_cut_l,
-                        cut_width_mm=d_cut_w,
-                        pvc_deduction_length_mm=d_ded_l,
-                        pvc_deduction_width_mm=d_ded_w,
-                        edge_band=door_edge,
-                        area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
-                        drills=hinge_drills,
-                        grooves=[],
-                        transform_3d=Box3DTransform(
-                            center_x_mm=x_offset_mm,
-                            center_y_mm=door_y_center,
-                            center_z_mm=door_z_center,
-                            size_x_mm=door_net_w,
-                            size_y_mm=door_net_h,
-                            size_z_mm=t,
-                            color_hex=config.door_color_hex,
-                            is_door=True,
-                            hinge_side="top",
-                            module_index=module_idx,
-                        ),
-                    )
+                box_edge = EdgeBandSpec(
+                    length_1_mm=config.hidden_pvc_thickness_mm,
+                    length_2_mm=0.0,
+                    width_1_mm=0.0,
+                    width_2_mm=0.0,
                 )
-                part_counter += 1
-            elif config.door_type in (DoorType.SINGLE_LEFT, DoorType.SINGLE_RIGHT):
-                door_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
-                d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
-                    door_net_h, door_net_w, door_edge
+                bs_cut_l, bs_cut_w, bs_ded_l, bs_ded_w = cls.compute_cut_dimensions(
+                    slide_len, box_h, box_edge
                 )
-                hinge_left = config.door_type == DoorType.SINGLE_LEFT
-                hinge_drills = cls._build_door_hinge_drills(
-                    door_net_h, door_net_w, hinge_on_left=hinge_left
+                bf_cut_l, bf_cut_w, bf_ded_l, bf_ded_w = cls.compute_cut_dimensions(
+                    box_inner_w, box_h, box_edge
                 )
-                total_hinges += len(hinge_drills)
-                total_handles += 1
 
-                parts.append(
-                    PanelPart(
-                        part_id=f"P{part_counter:02d}",
-                        code=f"{prefix}KAPAK_TEK",
-                        name=(
-                            f"{label_prefix}Tek Kapak (Sol Menteşeli)"
-                            if hinge_left
-                            else f"{label_prefix}Tek Kapak (Sağ Menteşeli)"
-                        ),
-                        material=door_mat,
-                        thickness_mm=t,
-                        quantity=1,
-                        net_length_mm=door_net_h,
-                        net_width_mm=door_net_w,
-                        cut_length_mm=d_cut_l,
-                        cut_width_mm=d_cut_w,
-                        pvc_deduction_length_mm=d_ded_l,
-                        pvc_deduction_width_mm=d_ded_w,
-                        edge_band=door_edge,
-                        area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
-                        drills=hinge_drills,
-                        grooves=[],
-                        transform_3d=Box3DTransform(
-                            center_x_mm=x_offset_mm,
-                            center_y_mm=door_y_center,
-                            center_z_mm=door_z_center,
-                            size_x_mm=door_net_w,
-                            size_y_mm=door_net_h,
-                            size_z_mm=t,
-                            color_hex=config.door_color_hex,
-                            is_door=True,
-                            hinge_side="left" if hinge_left else "right",
-                            module_index=module_idx,
-                        ),
+                no_edge = EdgeBandSpec(
+                    length_1_mm=0.0, length_2_mm=0.0, width_1_mm=0.0, width_2_mm=0.0
+                )
+                bottom_w = round(box_inner_w + 15.0, 2)
+                bottom_l = round(slide_len - (2.0 * t) + 15.0, 2)
+
+                for d_idx in range(1, drawer_count + 1):
+                    center_y = round(
+                        base_offset_y
+                        + t
+                        + ((d_idx - 0.5) * drawer_front_h),
+                        2,
                     )
-                )
-                part_counter += 1
-            elif config.door_type == DoorType.DOUBLE:
-                door_net_w = round(
-                    (w - (2.0 * MC.DOOR_OUTER_GAP_MM) - MC.DOOR_CENTER_GAP_MM) / 2.0,
-                    2,
-                )
-                d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
-                    door_net_h, door_net_w, door_edge
-                )
-                for side_code, side_label, is_left, rel_cx in (
-                    (
-                        "SOL",
-                        "Sol Kapak",
-                        True,
-                        -(door_net_w / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0),
-                    ),
-                    (
-                        "SAG",
-                        "Sağ Kapak",
-                        False,
-                        door_net_w / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0,
-                    ),
-                ):
-                    hinge_drills = cls._build_door_hinge_drills(
-                        door_net_h, door_net_w, hinge_on_left=is_left
-                    )
-                    total_hinges += len(hinge_drills)
+                    klapa_z = round(d / 2.0 + t / 2.0 + 1.5, 2)
+                    box_z = round((d / 2.0) - (slide_len / 2.0) - 5.0, 2)
                     total_handles += 1
+
+                    # 4a. Çekmece Ön Klapası
                     parts.append(
                         PanelPart(
                             part_id=f"P{part_counter:02d}",
-                            code=f"{prefix}KAPAK_{side_code}",
-                            name=f"{label_prefix}{side_label}",
+                            code=f"{prefix}CEK_KLAPA_{d_idx:02d}",
+                            name=f"{label_prefix}Çekmece #{d_idx} Ön Klapası",
+                            material=door_mat,
+                            thickness_mm=t,
+                            quantity=1,
+                            net_length_mm=front_net_w,
+                            net_width_mm=front_net_h,
+                            cut_length_mm=f_cut_l,
+                            cut_width_mm=f_cut_w,
+                            pvc_deduction_length_mm=f_ded_l,
+                            pvc_deduction_width_mm=f_ded_w,
+                            edge_band=front_edge,
+                            area_m2=round((front_net_w * front_net_h) / 1_000_000.0, 4),
+                            drills=[],
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=x_offset_mm,
+                                center_y_mm=center_y,
+                                center_z_mm=klapa_z,
+                                size_x_mm=front_net_w,
+                                size_y_mm=front_net_h,
+                                size_z_mm=t,
+                                color_hex=config.door_color_hex,
+                                is_drawer=True,
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+
+                    # 4b. Çekmece Yan Kasaları (Sol & Sağ)
+                    for s_code, s_name, sx_sign in (
+                        ("SOL", "Sol Yan Kasa", -1.0),
+                        ("SAG", "Sağ Yan Kasa", 1.0),
+                    ):
+                        side_box_x = round(
+                            x_offset_mm
+                            + sx_sign * ((box_inner_w / 2.0) + (t / 2.0)),
+                            2,
+                        )
+                        parts.append(
+                            PanelPart(
+                                part_id=f"P{part_counter:02d}",
+                                code=f"{prefix}CEK_{d_idx:02d}_YAN_{s_code}",
+                                name=f"{label_prefix}Çekmece #{d_idx} {s_name}",
+                                material=config.body_material,
+                                thickness_mm=t,
+                                quantity=1,
+                                net_length_mm=slide_len,
+                                net_width_mm=box_h,
+                                cut_length_mm=bs_cut_l,
+                                cut_width_mm=bs_cut_w,
+                                pvc_deduction_length_mm=bs_ded_l,
+                                pvc_deduction_width_mm=bs_ded_w,
+                                edge_band=box_edge,
+                                area_m2=round((slide_len * box_h) / 1_000_000.0, 4),
+                                drills=[],
+                                grooves=[],
+                                transform_3d=Box3DTransform(
+                                    center_x_mm=side_box_x,
+                                    center_y_mm=center_y,
+                                    center_z_mm=box_z,
+                                    size_x_mm=t,
+                                    size_y_mm=box_h,
+                                    size_z_mm=slide_len,
+                                    color_hex=config.body_color_hex,
+                                    is_drawer=True,
+                                    module_index=module_idx,
+                                ),
+                            )
+                        )
+                        part_counter += 1
+
+                    # 4c. Çekmece İç Ön ve Arka Kasa
+                    for fb_code, fb_name, fbz in (
+                        ("ON", "İç Ön Kasa", round(box_z + slide_len / 2.0 - t / 2.0, 2)),
+                        (
+                            "ARKA",
+                            "İç Arka Kasa",
+                            round(box_z - slide_len / 2.0 + t / 2.0, 2),
+                        ),
+                    ):
+                        parts.append(
+                            PanelPart(
+                                part_id=f"P{part_counter:02d}",
+                                code=f"{prefix}CEK_{d_idx:02d}_{fb_code}",
+                                name=f"{label_prefix}Çekmece #{d_idx} {fb_name}",
+                                material=config.body_material,
+                                thickness_mm=t,
+                                quantity=1,
+                                net_length_mm=box_inner_w,
+                                net_width_mm=box_h,
+                                cut_length_mm=bf_cut_l,
+                                cut_width_mm=bf_cut_w,
+                                pvc_deduction_length_mm=bf_ded_l,
+                                pvc_deduction_width_mm=bf_ded_w,
+                                edge_band=box_edge,
+                                area_m2=round((box_inner_w * box_h) / 1_000_000.0, 4),
+                                drills=[],
+                                grooves=[],
+                                transform_3d=Box3DTransform(
+                                    center_x_mm=x_offset_mm,
+                                    center_y_mm=center_y,
+                                    center_z_mm=fbz,
+                                    size_x_mm=box_inner_w,
+                                    size_y_mm=box_h,
+                                    size_z_mm=t,
+                                    color_hex=config.body_color_hex,
+                                    is_drawer=True,
+                                    module_index=module_idx,
+                                ),
+                            )
+                        )
+                        part_counter += 1
+
+                    # 4d. Çekmece Tabanı (8 mm MDF-Lam)
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}CEK_{d_idx:02d}_TABAN",
+                            name=f"{label_prefix}Çekmece #{d_idx} Alt Tabanı (8mm)",
+                            material="8mm Beyaz MDF-Lam Arkalık",
+                            thickness_mm=MC.BACK_PANEL_GROOVED_THICKNESS_MM,
+                            quantity=1,
+                            net_length_mm=bottom_w,
+                            net_width_mm=bottom_l,
+                            cut_length_mm=bottom_w,
+                            cut_width_mm=bottom_l,
+                            pvc_deduction_length_mm=0.0,
+                            pvc_deduction_width_mm=0.0,
+                            edge_band=no_edge,
+                            area_m2=round((bottom_w * bottom_l) / 1_000_000.0, 4),
+                            drills=[],
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=x_offset_mm,
+                                center_y_mm=round(center_y - box_h / 2.0 + 8.0, 2),
+                                center_z_mm=box_z,
+                                size_x_mm=bottom_w,
+                                size_y_mm=MC.BACK_PANEL_GROOVED_THICKNESS_MM,
+                                size_z_mm=bottom_l,
+                                color_hex="#E5E0D5",
+                                is_drawer=True,
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+
+            # 5. Hareketli Raflar
+            remaining_clear_h = round(clear_inner_h - drawer_zone_h, 2)
+            if config.shelf_count > 0 and remaining_clear_h > 120.0:
+                shelf_net_l = round(inner_w - MC.SHELF_WIDTH_CLEARANCE_MM, 2)
+                if config.back_panel_type == BackPanelType.GROOVED_8MM:
+                    rear_loss = MC.BACK_GROOVE_OFFSET_FROM_REAR_MM + MC.BACK_GROOVE_WIDTH_MM
+                else:
+                    rear_loss = 0.0
+                shelf_net_w = round(d - rear_loss - MC.SHELF_FRONT_SETBACK_MM, 2)
+
+                shelf_edge = EdgeBandSpec(
+                    length_1_mm=config.front_pvc_thickness_mm,
+                    length_2_mm=config.hidden_pvc_thickness_mm,
+                    width_1_mm=config.hidden_pvc_thickness_mm,
+                    width_2_mm=config.hidden_pvc_thickness_mm,
+                )
+                s_cut_l, s_cut_w, s_ded_l, s_ded_w = cls.compute_cut_dimensions(
+                    shelf_net_l, shelf_net_w, shelf_edge
+                )
+
+                step_h = remaining_clear_h / (config.shelf_count + 1)
+                shelf_z_center = round((rear_loss - MC.SHELF_FRONT_SETBACK_MM) / 2.0, 2)
+
+                for s_idx in range(1, config.shelf_count + 1):
+                    shelf_y = round(
+                        base_offset_y + t + drawer_zone_h + (s_idx * step_h), 2
+                    )
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}RAF_{s_idx:02d}",
+                            name=f"{label_prefix}Hareketli Raf #{s_idx}",
+                            material=config.body_material,
+                            thickness_mm=t,
+                            quantity=1,
+                            net_length_mm=shelf_net_l,
+                            net_width_mm=shelf_net_w,
+                            cut_length_mm=s_cut_l,
+                            cut_width_mm=s_cut_w,
+                            pvc_deduction_length_mm=s_ded_l,
+                            pvc_deduction_width_mm=s_ded_w,
+                            edge_band=shelf_edge,
+                            area_m2=round((shelf_net_l * shelf_net_w) / 1_000_000.0, 4),
+                            drills=[],
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=x_offset_mm,
+                                center_y_mm=shelf_y,
+                                center_z_mm=shelf_z_center,
+                                size_x_mm=shelf_net_l,
+                                size_y_mm=t,
+                                size_z_mm=shelf_net_w,
+                                color_hex=config.body_color_hex,
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+
+            # 7. Kapaklar (Çekmece/Niş bölgesinin üstünde kalan alan için)
+            total_hinges = 0
+            door_avail_h = round((h - base_offset_y - drawer_zone_h), 2)
+            if config.door_type != DoorType.NONE and door_avail_h >= 240.0:
+                door_net_h = round(door_avail_h - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+                door_edge = EdgeBandSpec(
+                    length_1_mm=config.front_pvc_thickness_mm,
+                    length_2_mm=config.front_pvc_thickness_mm,
+                    width_1_mm=config.front_pvc_thickness_mm,
+                    width_2_mm=config.front_pvc_thickness_mm,
+                )
+                door_y_center = round(
+                    base_offset_y + drawer_zone_h + (door_avail_h / 2.0), 2
+                )
+                door_z_center = round(d / 2.0 + t / 2.0 + 1.5, 2)
+
+                if config.door_type == DoorType.FLAP_UP:
+                    door_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+                    d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
+                        door_net_h, door_net_w, door_edge
+                    )
+                    top_hinge_x = round(door_net_h - MC.HINGE_CUP_CENTER_FROM_EDGE_MM, 2)
+                    hinge_drills = [
+                        DrillPoint(
+                            x_mm=top_hinge_x,
+                            y_mm=100.0,
+                            diameter_mm=MC.HINGE_CUP_DIAMETER_MM,
+                            depth_mm=MC.HINGE_CUP_DEPTH_MM,
+                            layer=MC.LAYER_HINGE_CUP,
+                            description="Üst Kalkar Kapak Sol Tas Menteşe Yuvası (Ø35mm)",
+                        ),
+                        DrillPoint(
+                            x_mm=top_hinge_x,
+                            y_mm=round(door_net_w - 100.0, 2),
+                            diameter_mm=MC.HINGE_CUP_DIAMETER_MM,
+                            depth_mm=MC.HINGE_CUP_DEPTH_MM,
+                            layer=MC.LAYER_HINGE_CUP,
+                            description="Üst Kalkar Kapak Sağ Tas Menteşe Yuvası (Ø35mm)",
+                        ),
+                    ]
+                    total_hinges += 2
+                    total_handles += 1
+
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}KAPAK_KALKAR",
+                            name=f"{label_prefix}Üst Kalkar Kapak (Gazlı Pistonlu)",
                             material=door_mat,
                             thickness_mm=t,
                             quantity=1,
@@ -1078,7 +1562,7 @@ class BOMEngine:
                             drills=hinge_drills,
                             grooves=[],
                             transform_3d=Box3DTransform(
-                                center_x_mm=round(x_offset_mm + rel_cx, 2),
+                                center_x_mm=x_offset_mm,
                                 center_y_mm=door_y_center,
                                 center_z_mm=door_z_center,
                                 size_x_mm=door_net_w,
@@ -1086,12 +1570,121 @@ class BOMEngine:
                                 size_z_mm=t,
                                 color_hex=config.door_color_hex,
                                 is_door=True,
-                                hinge_side="left" if is_left else "right",
+                                hinge_side="top",
                                 module_index=module_idx,
                             ),
                         )
                     )
                     part_counter += 1
+                elif config.door_type in (DoorType.SINGLE_LEFT, DoorType.SINGLE_RIGHT):
+                    door_net_w = round(w - (2.0 * MC.DOOR_OUTER_GAP_MM), 2)
+                    d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
+                        door_net_h, door_net_w, door_edge
+                    )
+                    hinge_left = config.door_type == DoorType.SINGLE_LEFT
+                    hinge_drills = cls._build_door_hinge_drills(
+                        door_net_h, door_net_w, hinge_on_left=hinge_left
+                    )
+                    total_hinges += len(hinge_drills)
+                    total_handles += 1
+
+                    parts.append(
+                        PanelPart(
+                            part_id=f"P{part_counter:02d}",
+                            code=f"{prefix}KAPAK_TEK",
+                            name=(
+                                f"{label_prefix}Tek Kapak (Sol Menteşeli)"
+                                if hinge_left
+                                else f"{label_prefix}Tek Kapak (Sağ Menteşeli)"
+                            ),
+                            material=door_mat,
+                            thickness_mm=t,
+                            quantity=1,
+                            net_length_mm=door_net_h,
+                            net_width_mm=door_net_w,
+                            cut_length_mm=d_cut_l,
+                            cut_width_mm=d_cut_w,
+                            pvc_deduction_length_mm=d_ded_l,
+                            pvc_deduction_width_mm=d_ded_w,
+                            edge_band=door_edge,
+                            area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
+                            drills=hinge_drills,
+                            grooves=[],
+                            transform_3d=Box3DTransform(
+                                center_x_mm=x_offset_mm,
+                                center_y_mm=door_y_center,
+                                center_z_mm=door_z_center,
+                                size_x_mm=door_net_w,
+                                size_y_mm=door_net_h,
+                                size_z_mm=t,
+                                color_hex=config.door_color_hex,
+                                is_door=True,
+                                hinge_side="left" if hinge_left else "right",
+                                module_index=module_idx,
+                            ),
+                        )
+                    )
+                    part_counter += 1
+                elif config.door_type == DoorType.DOUBLE:
+                    door_net_w = round(
+                        (w - (2.0 * MC.DOOR_OUTER_GAP_MM) - MC.DOOR_CENTER_GAP_MM) / 2.0,
+                        2,
+                    )
+                    d_cut_l, d_cut_w, d_ded_l, d_ded_w = cls.compute_cut_dimensions(
+                        door_net_h, door_net_w, door_edge
+                    )
+                    for side_code, side_label, is_left, rel_cx in (
+                        (
+                            "SOL",
+                            "Sol Kapak",
+                            True,
+                            -(door_net_w / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0),
+                        ),
+                        (
+                            "SAG",
+                            "Sağ Kapak",
+                            False,
+                            door_net_w / 2.0 + MC.DOOR_CENTER_GAP_MM / 2.0,
+                        ),
+                    ):
+                        hinge_drills = cls._build_door_hinge_drills(
+                            door_net_h, door_net_w, hinge_on_left=is_left
+                        )
+                        total_hinges += len(hinge_drills)
+                        total_handles += 1
+                        parts.append(
+                            PanelPart(
+                                part_id=f"P{part_counter:02d}",
+                                code=f"{prefix}KAPAK_{side_code}",
+                                name=f"{label_prefix}{side_label}",
+                                material=door_mat,
+                                thickness_mm=t,
+                                quantity=1,
+                                net_length_mm=door_net_h,
+                                net_width_mm=door_net_w,
+                                cut_length_mm=d_cut_l,
+                                cut_width_mm=d_cut_w,
+                                pvc_deduction_length_mm=d_ded_l,
+                                pvc_deduction_width_mm=d_ded_w,
+                                edge_band=door_edge,
+                                area_m2=round((door_net_h * door_net_w) / 1_000_000.0, 4),
+                                drills=hinge_drills,
+                                grooves=[],
+                                transform_3d=Box3DTransform(
+                                    center_x_mm=round(x_offset_mm + rel_cx, 2),
+                                    center_y_mm=door_y_center,
+                                    center_z_mm=door_z_center,
+                                    size_x_mm=door_net_w,
+                                    size_y_mm=door_net_h,
+                                    size_z_mm=t,
+                                    color_hex=config.door_color_hex,
+                                    is_door=True,
+                                    hinge_side="left" if is_left else "right",
+                                    module_index=module_idx,
+                                ),
+                            )
+                        )
+                        part_counter += 1
 
         # 8. Şantiye Rölöve Duvar Kapama Payları (Scribing Fillers / Kör Çıtalar)
         filler_edge = EdgeBandSpec(
@@ -1150,7 +1743,17 @@ class BOMEngine:
                 part_counter += 1
 
         conn_count_per_corner = len(cls._connection_depth_coords(d))
-        minifix_sets = conn_count_per_corner * 4 + (drawer_count * 4)
+        divider_count = max(0, len(config.zones) - 1) if has_zones else 0
+        effective_drawers = (
+            sum(z.drawer_count or 0 for z in config.zones)
+            if has_zones
+            else drawer_count
+        )
+        minifix_sets = (
+            conn_count_per_corner * 4
+            + (divider_count * conn_count_per_corner * 2)
+            + (effective_drawers * 4)
+        )
         dowel_count = minifix_sets + (8 if config.has_plinth else 0)
 
         return (
@@ -1203,8 +1806,12 @@ class BOMEngine:
             total_dowels += m_dowels
             total_hinges += m_hinges
             total_handles += m_handles
-            total_shelf_pins += mod_cfg.shelf_count * 4
-            total_drawer_slides += mod_cfg.drawer_count
+            if mod_cfg.zones and len(mod_cfg.zones) > 1:
+                total_shelf_pins += sum((z.shelf_count or 0) for z in mod_cfg.zones) * 4
+                total_drawer_slides += sum((z.drawer_count or 0) for z in mod_cfg.zones)
+            else:
+                total_shelf_pins += mod_cfg.shelf_count * 4
+                total_drawer_slides += mod_cfg.drawer_count
 
         # CNC Router Nesting modunda küçük parçalara vakum tutunma sekmesi (holding tabs) tanımla
         if config.cutting_mode == CuttingMode.CNC_ROUTER:
@@ -1313,9 +1920,15 @@ class BOMEngine:
                 )
             )
 
-        total_gas_struts = sum(
-            2 for m in all_modules if m.door_type == DoorType.FLAP_UP
-        )
+        total_gas_struts = 0
+        total_hanging_rods = 0
+        for m in all_modules:
+            if m.zones and len(m.zones) > 1:
+                total_gas_struts += sum(2 for z in m.zones if z.door_type == DoorType.FLAP_UP)
+                total_hanging_rods += sum(1 for z in m.zones if z.has_hanging_rod)
+            elif m.door_type == DoorType.FLAP_UP:
+                total_gas_struts += 2
+
         if total_gas_struts > 0:
             hardware.append(
                 HardwareItem(
@@ -1347,6 +1960,26 @@ class BOMEngine:
                     quantity=float(total_handles),
                     note="Kapak ve çekmece kulpları",
                 )
+            )
+
+        if total_hanging_rods > 0:
+            hardware.extend(
+                [
+                    HardwareItem(
+                        code="HRD-ELB-ASK",
+                        name="Oval Krom Elbise Askı Borusu (Alüminyum/Krom)",
+                        unit="Adet",
+                        quantity=float(total_hanging_rods),
+                        note="Elbise dolabı bölmeleri için askı borusu",
+                    ),
+                    HardwareItem(
+                        code="HRD-ASK-FLS",
+                        name="Oval Askı Borusu Yan Bağlantı Flanşı",
+                        unit="Adet",
+                        quantity=float(total_hanging_rods * 2),
+                        note="Askı borusu gövde/dikme sabitleme flanşları (borusu başı 2 adet)",
+                    ),
+                ]
             )
 
         if pvc_20_m > 0:

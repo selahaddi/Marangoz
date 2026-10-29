@@ -17,6 +17,7 @@ from app.main import app
 from app.schemas.cabinet import (
     BackPanelType,
     CabinetConfig,
+    CabinetZone,
     CuttingMode,
     DoorType,
     EdgeBandSpec,
@@ -370,6 +371,74 @@ def test_parse_sketch_api_and_router_true_shape_nesting() -> None:
     ]
     assert len(notched_placements) >= 2
     assert any("[L-KERTME]" in nesting.combined_svg for sheet in nesting.sheets)
+
+
+def test_cabinet_zones_and_vertical_dividers() -> None:
+    """Faz 1 İç Bölme & Dikme Motoru: Çoklu bölme, ara dikme, askılık ve bağımsız kapak/çekmeceleri doğrular."""
+    cfg = CabinetConfig(
+        name="2 Bölmeli Gardırop (Sol Raflı, Sağ Askılı ve Çekmeceli)",
+        width_mm=1600.0,
+        height_mm=2200.0,
+        depth_mm=600.0,
+        zones=[
+            CabinetZone(
+                name="Sol Bölme",
+                width_ratio=1.0,
+                shelf_count=4,
+                drawer_count=0,
+                has_hanging_rod=False,
+                door_type=DoorType.SINGLE_LEFT,
+            ),
+            CabinetZone(
+                name="Sağ Bölme",
+                width_ratio=1.0,
+                shelf_count=0,
+                drawer_count=2,
+                has_hanging_rod=True,
+                door_type=DoorType.SINGLE_RIGHT,
+            ),
+        ],
+    )
+
+    bom = BOMEngine.generate_bom(cfg)
+    part_codes = [p.code for p in bom.parts]
+
+    # 1. İç ara dikme doğrulaması
+    assert "DIKME_01" in part_codes
+    dikme = next(p for p in bom.parts if p.code == "DIKME_01")
+    assert dikme.net_length_mm == 2200.0 - cfg.plinth_height_mm - (2.0 * MC.BODY_THICKNESS_MM)
+    assert dikme.thickness_mm == MC.BODY_THICKNESS_MM
+
+    # 2. Sol Bölme (4 adet hareketli raf ve tek sol kapak)
+    assert "Z1_RAF_01" in part_codes
+    assert "Z1_RAF_04" in part_codes
+    assert "Z1_KAPAK_TEK" in part_codes
+    sol_kapak = next(p for p in bom.parts if p.code == "Z1_KAPAK_TEK")
+    assert sol_kapak.transform_3d.hinge_side == "left"
+
+    # 3. Sağ Bölme (2 adet çekmece, askılık borusu ve tek sağ kapak)
+    assert "Z2_CEK_KLAPA_01" in part_codes
+    assert "Z2_CEK_KLAPA_02" in part_codes
+    assert "Z2_ASKILIK" in part_codes
+    askilik = next(p for p in bom.parts if p.code == "Z2_ASKILIK")
+    assert askilik.transform_3d.is_hanging_rod is True
+    assert "Z2_KAPAK_TEK" in part_codes
+    sag_kapak = next(p for p in bom.parts if p.code == "Z2_KAPAK_TEK")
+    assert sag_kapak.transform_3d.hinge_side == "right"
+
+    # 4. Donanım (Hardware) doğrulaması
+    hw_codes = {h.code: h.quantity for h in bom.hardware}
+    # Askı borusu ve 2 adet flanş
+    assert "HRD-ELB-ASK" in hw_codes
+    assert hw_codes["HRD-ELB-ASK"] == 1.0
+    assert "HRD-ASK-FLS" in hw_codes
+    assert hw_codes["HRD-ASK-FLS"] == 2.0
+    # 4 raf x 4 pim = 16 adet pim
+    assert "HRD-RAFP-05" in hw_codes
+    assert hw_codes["HRD-RAFP-05"] == 16.0
+    # 2 çekmece rayı takımı
+    assert any("HRD-CRAY" in c for c in hw_codes)
+
 
 
 

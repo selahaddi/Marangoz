@@ -13,12 +13,15 @@ import {
   Wrench,
   Boxes,
   DoorOpen,
+  Columns,
+  Shirt,
 } from "lucide-react";
 import { AddModuleModal } from "./AddModuleModal";
 import type {
   BackPanelType,
   CabinetConfig,
   CabinetType,
+  CabinetZone,
   CuttingMode,
   DoorType,
   FastenerType,
@@ -57,14 +60,17 @@ export function ParametricSidebar({
   const safeIdx = Math.min(activeModuleIndex, allModules.length - 1);
   const activeModule = allModules[safeIdx] ?? config;
 
-  // Akordeon Açık/Kapalı Durumları (Varsayılan olarak ilk 2 açık)
+  // Akordeon Açık/Kapalı Durumları
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     dimensions: true,
+    zones: true,
     doors_drawers: true,
     fasteners: false,
     base_notches: false,
     materials: false,
   });
+
+  const [activeZoneIndex, setActiveZoneIndex] = useState<number>(0);
 
   // Hatta Modül Ekleme Listesi Modal State'i
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -272,7 +278,294 @@ export function ParametricSidebar({
           )}
         </div>
 
-        {/* GRUP 2: Kapak, Çekmece & Raf */}
+        {/* GRUP 2: İç Bölmeler & Dikmeler (Zones) */}
+        <div className="rounded-xl border border-slate-800/90 bg-slate-950/60 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => toggleSection("zones")}
+            className="flex w-full items-center justify-between px-3 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-900/60 transition"
+          >
+            <div className="flex items-center gap-2">
+              <Columns className="h-4 w-4 text-amber-400" />
+              <span>
+                2. İç Bölmeler &amp; Dikmeler{" "}
+                {activeModule.zones && activeModule.zones.length > 1
+                  ? `(${activeModule.zones.length} Bölmeli)`
+                  : "(Tek Gövde)"}
+              </span>
+            </div>
+            {openSections.zones ? (
+              <ChevronDown className="h-4 w-4 text-slate-400" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-slate-400" />
+            )}
+          </button>
+
+          {openSections.zones && (
+            <div className="p-3 pt-1 space-y-3 border-t border-slate-800/60 text-xs">
+              {/* Düzen Seçimi (Preset Butonları) */}
+              <div>
+                <label className="block text-slate-300 font-medium mb-1.5">
+                  Gövde Bölme Düzeni
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateActiveModule({ zones: undefined });
+                      setActiveZoneIndex(0);
+                    }}
+                    className={`rounded-lg py-1.5 px-2 text-center text-[11px] font-semibold transition border ${
+                      !activeModule.zones || activeModule.zones.length <= 1
+                        ? "border-amber-500 bg-amber-500/20 text-amber-200 shadow-sm"
+                        : "border-slate-800 bg-slate-900/80 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Tek Gövde (1)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateActiveModule({
+                        zones: [
+                          {
+                            id: "z_1",
+                            name: "Sol Bölme",
+                            width_ratio: 1.0,
+                            shelf_count: 3,
+                            door_type: "single_left",
+                            drawer_count: 0,
+                            has_hanging_rod: false,
+                          },
+                          {
+                            id: "z_2",
+                            name: "Sağ Bölme",
+                            width_ratio: 1.0,
+                            shelf_count: 0,
+                            door_type: "single_right",
+                            drawer_count: 2,
+                            has_hanging_rod: true,
+                          },
+                        ],
+                      });
+                      setActiveZoneIndex(0);
+                    }}
+                    className={`rounded-lg py-1.5 px-2 text-center text-[11px] font-semibold transition border ${
+                      activeModule.zones && activeModule.zones.length === 2
+                        ? "border-amber-500 bg-amber-500/20 text-amber-200 shadow-sm"
+                        : "border-slate-800 bg-slate-900/80 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    2 Bölmeli (1 Dikme)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateActiveModule({
+                        zones: [
+                          {
+                            id: "z_1",
+                            name: "Sol Bölme",
+                            width_ratio: 1.0,
+                            shelf_count: 4,
+                            door_type: "single_left",
+                            drawer_count: 0,
+                            has_hanging_rod: false,
+                          },
+                          {
+                            id: "z_2",
+                            name: "Orta Bölme",
+                            width_ratio: 1.0,
+                            shelf_count: 0,
+                            door_type: "single_right",
+                            drawer_count: 0,
+                            has_hanging_rod: true,
+                          },
+                          {
+                            id: "z_3",
+                            name: "Sağ Bölme",
+                            width_ratio: 1.0,
+                            shelf_count: 2,
+                            door_type: "single_right",
+                            drawer_count: 3,
+                            has_hanging_rod: false,
+                          },
+                        ],
+                      });
+                      setActiveZoneIndex(0);
+                    }}
+                    className={`rounded-lg py-1.5 px-2 text-center text-[11px] font-semibold transition border ${
+                      activeModule.zones && activeModule.zones.length === 3
+                        ? "border-amber-500 bg-amber-500/20 text-amber-200 shadow-sm"
+                        : "border-slate-800 bg-slate-900/80 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    3 Bölmeli (2 Dikme)
+                  </button>
+                </div>
+              </div>
+
+              {/* Çoklu Bölme Aktifse: Bölme Sekmeleri ve Detay Ayarları */}
+              {activeModule.zones && activeModule.zones.length > 1 && (
+                <div className="space-y-3 pt-1 border-t border-slate-800/60">
+                  {/* Bölme Sekmeleri */}
+                  <div className="flex gap-1 overflow-x-auto pb-1">
+                    {activeModule.zones.map((zone, zIdx) => {
+                      const isSelected = zIdx === activeZoneIndex;
+                      return (
+                        <button
+                          key={zone.id || zIdx}
+                          type="button"
+                          onClick={() => setActiveZoneIndex(zIdx)}
+                          className={`flex-1 min-w-[70px] rounded-lg py-1 px-2 text-[11px] font-bold transition border ${
+                            isSelected
+                              ? "border-sky-500 bg-sky-500/20 text-sky-200 shadow-sm"
+                              : "border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          {zone.name || `Bölme ${zIdx + 1}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Seçili Bölmenin Parametreleri */}
+                  {(() => {
+                    const currentZones = activeModule.zones ?? [];
+                    const curZoneIdx = Math.min(activeZoneIndex, currentZones.length - 1);
+                    const currentZone = currentZones[curZoneIdx];
+                    if (!currentZone) return null;
+
+                    const updateZone = (partial: Partial<CabinetZone>) => {
+                      const next = currentZones.map((z, i) =>
+                        i === curZoneIdx ? { ...z, ...partial } : z
+                      );
+                      onUpdateActiveModule({ zones: next });
+                    };
+
+                    return (
+                      <div className="space-y-2.5 rounded-lg border border-slate-800/80 bg-slate-900/50 p-2.5">
+                        <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300">
+                          <span>Bölme #{curZoneIdx + 1} Detayları</span>
+                          <span className="text-amber-400 font-mono">
+                            {currentZone.width_ratio ? `${currentZone.width_ratio}x Oran` : ""}
+                            {currentZone.width_mm ? ` (${currentZone.width_mm}mm)` : ""}
+                          </span>
+                        </div>
+
+                        {/* Bölme Adı ve Genişlik Oranı */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-0.5">
+                              Bölme Adı
+                            </label>
+                            <input
+                              type="text"
+                              value={currentZone.name || ""}
+                              onChange={(e) => updateZone({ name: e.target.value })}
+                              placeholder={`Bölme #${curZoneIdx + 1}`}
+                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-0.5">
+                              Genişlik Oranı
+                            </label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0.2"
+                              max="5.0"
+                              value={currentZone.width_ratio ?? 1.0}
+                              onChange={(e) =>
+                                updateZone({ width_ratio: Number(e.target.value) || 1.0 })
+                              }
+                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Kapak Tipi & Raf Sayısı */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-0.5">
+                              Kapak Tipi
+                            </label>
+                            <select
+                              value={currentZone.door_type ?? "none"}
+                              onChange={(e) =>
+                                updateZone({ door_type: e.target.value as DoorType })
+                              }
+                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100"
+                            >
+                              <option value="none">Kapaksız (Açık)</option>
+                              <option value="single_left">Tek (Sol Menteşeli)</option>
+                              <option value="single_right">Tek (Sağ Menteşeli)</option>
+                              <option value="double">Çift Kapak</option>
+                              <option value="flap_up">Kalkar Kapak (Gazlı)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-0.5">
+                              Hareketli Raf
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={12}
+                              value={currentZone.shelf_count ?? 0}
+                              onChange={(e) =>
+                                updateZone({ shelf_count: Number(e.target.value) })
+                              }
+                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Çekmece Sayısı & Elbise Askılığı Switch */}
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/50">
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-0.5">
+                              Alt Çekmece Adedi
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={6}
+                              value={currentZone.drawer_count ?? 0}
+                              onChange={(e) =>
+                                updateZone({ drawer_count: Number(e.target.value) })
+                              }
+                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
+                            />
+                          </div>
+                          <div className="flex flex-col justify-end">
+                            <label className="flex items-center gap-2 cursor-pointer rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-slate-300 hover:border-slate-700 transition">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(currentZone.has_hanging_rod)}
+                                onChange={(e) =>
+                                  updateZone({ has_hanging_rod: e.target.checked })
+                                }
+                                className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-0"
+                              />
+                              <div className="flex items-center gap-1.5 text-[11px] font-medium">
+                                <Shirt className="h-3.5 w-3.5 text-amber-400" />
+                                <span>Elbise Askılığı</span>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* GRUP 3: Tek Gövde Kapak, Çekmece & Raf (Bölmesiz Mod) */}
         <div className="rounded-xl border border-slate-800/90 bg-slate-950/60 overflow-hidden">
           <button
             type="button"
@@ -281,7 +574,12 @@ export function ParametricSidebar({
           >
             <div className="flex items-center gap-2">
               <DoorOpen className="h-4 w-4 text-emerald-400" />
-              <span>2. Kapak, Çekmece &amp; Raflar</span>
+              <span>
+                3. Genel Kapak, Çekmece &amp; Raflar
+                {activeModule.zones && activeModule.zones.length > 1
+                  ? " (İç Bölmeler Devrede)"
+                  : ""}
+              </span>
             </div>
             {openSections.doors_drawers ? (
               <ChevronDown className="h-4 w-4 text-slate-400" />
@@ -292,6 +590,12 @@ export function ParametricSidebar({
 
           {openSections.doors_drawers && (
             <div className="p-3 pt-1 space-y-3 border-t border-slate-800/60 text-xs">
+              {activeModule.zones && activeModule.zones.length > 1 && (
+                <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-2 text-[11px] text-amber-300">
+                  Bu modülde <strong>{activeModule.zones.length} dikey bölme</strong> tanımlı.
+                  Raflar, kapaklar ve çekmeceler yukarıdaki <em>2. İç Bölmeler &amp; Dikmeler</em> sekmesinden bölme bazlı yönetilmektedir.
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
@@ -375,7 +679,7 @@ export function ParametricSidebar({
           )}
         </div>
 
-        {/* GRUP 3: Bağlantı Elemanı & CNC */}
+        {/* GRUP 4: Bağlantı Elemanı & CNC */}
         <div className="rounded-xl border border-slate-800/90 bg-slate-950/60 overflow-hidden">
           <button
             type="button"
@@ -384,7 +688,7 @@ export function ParametricSidebar({
           >
             <div className="flex items-center gap-2">
               <Wrench className="h-4 w-4 text-amber-400" />
-              <span>3. Bağlantı Sistemi &amp; CNC</span>
+              <span>4. Bağlantı Sistemi &amp; CNC</span>
             </div>
             {openSections.fasteners ? (
               <ChevronDown className="h-4 w-4 text-slate-400" />
@@ -477,7 +781,7 @@ export function ParametricSidebar({
           )}
         </div>
 
-        {/* GRUP 4: Baza, Niş & Duvar Kertmeleri */}
+        {/* GRUP 5: Baza, Niş & Duvar Kertmeleri */}
         <div className="rounded-xl border border-slate-800/90 bg-slate-950/60 overflow-hidden">
           <button
             type="button"
@@ -486,7 +790,7 @@ export function ParametricSidebar({
           >
             <div className="flex items-center gap-2">
               <Layers className="h-4 w-4 text-indigo-400" />
-              <span>4. Baza, Niş &amp; Kertmeler</span>
+              <span>5. Baza, Niş &amp; Kertmeler</span>
             </div>
             {openSections.base_notches ? (
               <ChevronDown className="h-4 w-4 text-slate-400" />
@@ -566,7 +870,7 @@ export function ParametricSidebar({
           )}
         </div>
 
-        {/* GRUP 5: Malzeme & Renkler */}
+        {/* GRUP 6: Malzeme & Renkler */}
         <div className="rounded-xl border border-slate-800/90 bg-slate-950/60 overflow-hidden">
           <button
             type="button"
@@ -575,7 +879,7 @@ export function ParametricSidebar({
           >
             <div className="flex items-center gap-2">
               <Paintbrush className="h-4 w-4 text-purple-400" />
-              <span>5. Malzeme, Renk &amp; Plaka</span>
+              <span>6. Malzeme, Renk &amp; Plaka</span>
             </div>
             {openSections.materials ? (
               <ChevronDown className="h-4 w-4 text-slate-400" />
