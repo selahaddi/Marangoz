@@ -14,6 +14,7 @@ import {
   Boxes,
   DoorOpen,
 } from "lucide-react";
+import { AddModuleModal } from "./AddModuleModal";
 import type {
   BackPanelType,
   CabinetConfig,
@@ -29,7 +30,7 @@ interface ParametricSidebarProps {
   config: CabinetConfig;
   activeModuleIndex: number;
   onSelectModule: (idx: number) => void;
-  onAddModule: () => void;
+  onAddModule: (moduleConfig?: Partial<CabinetConfig>) => void;
   onRemoveModule: (idx: number) => void;
   onUpdateActiveModule: (partial: Partial<CabinetConfig>) => void;
   onUpdateGlobalConfig: (partial: Partial<CabinetConfig>) => void;
@@ -64,6 +65,9 @@ export function ParametricSidebar({
     base_notches: false,
     materials: false,
   });
+
+  // Hatta Modül Ekleme Listesi Modal State'i
+  const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
 
   const toggleSection = (sec: string) => {
     setOpenSections((prev) => ({ ...prev, [sec]: !prev[sec] }));
@@ -115,11 +119,13 @@ export function ParametricSidebar({
           </span>
           <button
             type="button"
-            onClick={onAddModule}
-            className="inline-flex items-center gap-1 rounded-lg bg-indigo-600/90 px-2.5 py-1 text-[11px] font-bold text-white transition hover:bg-indigo-500 shadow-sm"
+            onClick={() => setIsAddModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600/90 px-2.5 py-1 text-[11px] font-bold text-white transition hover:bg-indigo-500 shadow-sm"
+            title="Hatta eklenecek hazır modül veya mimari ürünü listeden seçin"
           >
-            <Plus className="h-3 w-3" />
-            Yanına Ekle
+            <Plus className="h-3.5 w-3.5" />
+            <span>Yanına Ekle</span>
+            <ChevronDown className="h-3 w-3 opacity-80" />
           </button>
         </div>
 
@@ -658,6 +664,18 @@ export function ParametricSidebar({
           <span>⚡ Anında Güncelle &amp; Hesapla</span>
         </button>
       </div>
+
+      {/* Hatta Yeni Modül / Ürün Ekleme Seçim Listesi Modalı */}
+      <AddModuleModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        activeModule={activeModule}
+        activeModuleIndex={safeIdx}
+        onSelectOption={(optionConfig) => {
+          onAddModule(optionConfig);
+          setIsAddModalOpen(false);
+        }}
+      />
     </aside>
   );
 }

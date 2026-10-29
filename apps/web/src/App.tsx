@@ -166,16 +166,33 @@ export function App() {
     }
   };
 
-  const handleAddSideModule = () => {
+  const handleAddSideModule = (presetModule?: Partial<CabinetConfig>) => {
     const nextIdx = (config.additional_modules?.length ?? 0) + 2;
-    const clonedModule: CabinetConfig = {
-      ...activeModule,
-      name: `Ek Modül #${nextIdx}`,
-      additional_modules: [],
-    };
+    const newModule: CabinetConfig = presetModule
+      ? {
+          ...activeModule,
+          ...presetModule,
+          // Tutarlı mimari hat için gövde rengi ve bağlantı standardını aktif modülden devral:
+          body_material: activeModule.body_material,
+          body_color_hex: activeModule.body_color_hex,
+          door_color_hex: activeModule.door_color_hex,
+          front_pvc_thickness_mm: activeModule.front_pvc_thickness_mm,
+          hidden_pvc_thickness_mm: activeModule.hidden_pvc_thickness_mm,
+          back_panel_type: activeModule.back_panel_type,
+          fastener_type: activeModule.fastener_type,
+          sheet_size: activeModule.sheet_size,
+          cutting_mode: activeModule.cutting_mode,
+          name: presetModule.name ?? `Ek Modül #${nextIdx}`,
+          additional_modules: [],
+        }
+      : {
+          ...activeModule,
+          name: `Ek Modül #${nextIdx}`,
+          additional_modules: [],
+        };
     const nextConfig: CabinetConfig = {
       ...config,
-      additional_modules: [...(config.additional_modules ?? []), clonedModule],
+      additional_modules: [...(config.additional_modules ?? []), newModule],
     };
     setConfig(nextConfig);
     setActiveModuleIndex((config.additional_modules?.length ?? 0) + 1);
