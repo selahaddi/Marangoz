@@ -9,6 +9,7 @@ docs/05_MULTI_MODULE_ROOMS_DRAWERS_AND_CNC_POST.md içerisindeki tüm kuralları
 import math
 
 from app.core.config import ManufacturingConstants as MC
+from app.engines.engineering_engine import EngineeringEngine
 from app.schemas.cabinet import (
     BackPanelType,
     BOMReport,
@@ -2809,4 +2810,5 @@ class BOMEngine:
             total_pvc_20_meters=pvc_20_m,
             total_parts_count=sum(p.quantity for p in parts),
             total_drill_count=total_drills,
+            engineering_audit=EngineeringEngine.audit_cabinet(config, parts),
         )

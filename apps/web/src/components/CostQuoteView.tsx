@@ -1,11 +1,14 @@
 import { useState } from "react";
 import {
+  AlertTriangle,
   Calculator,
+  CheckCircle,
   Clock,
   Coins,
   FileCheck,
   FileText,
   Printer,
+  ShieldCheck,
   TrendingUp,
   X,
 } from "lucide-react";
@@ -398,6 +401,109 @@ export function CostQuoteView({ jobId, bom, nesting }: CostQuoteViewProps) {
           </div>
         </div>
       </div>
+
+      {/* Mühendislik ve Statik Sehim Denetim Kartı */}
+      {bom.engineering_audit && (
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-4 shadow-xl backdrop-blur-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+            <div className="flex items-center gap-2.5">
+              <ShieldCheck
+                className={`h-5 w-5 ${
+                  bom.engineering_audit.has_critical_issues
+                    ? "text-amber-400"
+                    : "text-emerald-400"
+                }`}
+              />
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-100">
+                  Mobilya Mühendislik ve Statik Sehim Denetim Raporu
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  TS EN 14749 &amp; Euler-Bernoulli Kiriş Teorisi Standartlarında Taşıma Kapasitesi Analizi
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`rounded-lg px-2.5 py-1 font-mono text-xs font-bold ${
+                  bom.engineering_audit.has_critical_issues
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                    : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                }`}
+              >
+                Sağlık Skoru: %{bom.engineering_audit.overall_health_score} / 100
+              </span>
+            </div>
+          </div>
+
+          {/* Özet Mesajlar */}
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            {bom.engineering_audit.summary_messages.map((msg, idx) => (
+              <div
+                key={`audit-msg-${idx}`}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-medium ${
+                  bom.engineering_audit?.has_critical_issues
+                    ? "bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                    : "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                }`}
+              >
+                {bom.engineering_audit?.has_critical_issues ? (
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <CheckCircle className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <span>{msg}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Sehim Uyarıları ve Detayları */}
+          {bom.engineering_audit.shelf_deflections.some((s) => !s.is_acceptable) && (
+            <div className="mt-3 space-y-2">
+              <h4 className="text-[11px] font-bold text-amber-300 uppercase tracking-wider">
+                Raf Esneme (Sehim) Uyarıları
+              </h4>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {bom.engineering_audit.shelf_deflections
+                  .filter((s) => !s.is_acceptable)
+                  .map((s) => (
+                    <div
+                      key={s.shelf_id}
+                      className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs"
+                    >
+                      <div className="flex items-center justify-between font-bold text-amber-300">
+                        <span>
+                          {s.shelf_id} ({s.span_mm}×{s.depth_mm} mm)
+                        </span>
+                        <span className="font-mono">{s.deflection_mm} mm sehim</span>
+                      </div>
+                      <p className="mt-1 text-slate-300 text-[11px]">{s.warning}</p>
+                      {s.recommendation && (
+                        <p className="mt-1.5 font-medium text-sky-300 text-[11px]">
+                          💡 Tavsiye: {s.recommendation}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Şantiye ve Duvar Uyarıları */}
+          {bom.engineering_audit.site_fitting.warnings.length > 0 && (
+            <div className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 text-xs">
+              <h4 className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">
+                Şantiye &amp; Rölöve Montaj Uyarıları
+              </h4>
+              <ul className="mt-1.5 space-y-1 text-slate-300 text-[11px] list-disc list-inside">
+                {bom.engineering_audit.site_fitting.warnings.map((w, idx) => (
+                  <li key={`site-warn-${idx}`}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Modern Web Guidance: responsive-table */}
       <div

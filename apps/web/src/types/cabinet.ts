@@ -205,6 +205,49 @@ export interface HardwareItem {
   note: string;
 }
 
+export interface ShelfDeflectionResult {
+  shelf_id: string;
+  span_mm: number;
+  depth_mm: number;
+  thickness_mm: number;
+  material: string;
+  load_kg: number;
+  deflection_mm: number;
+  allowable_deflection_mm: number;
+  is_acceptable: boolean;
+  warning?: string | null;
+  recommendation?: string | null;
+}
+
+export interface DoorHardwareAudit {
+  door_id: string;
+  height_mm: number;
+  width_mm: number;
+  weight_kg: number;
+  door_type: string;
+  current_hinge_count: number;
+  recommended_hinge_count: number;
+  recommended_gas_piston_n?: number | null;
+  is_acceptable: boolean;
+  warning?: string | null;
+}
+
+export interface SiteFittingAudit {
+  has_wall_clash_risk: boolean;
+  has_baseboard_clash_risk: boolean;
+  warnings: string[];
+  recommendations: string[];
+}
+
+export interface EngineeringAuditReport {
+  shelf_deflections: ShelfDeflectionResult[];
+  door_audits: DoorHardwareAudit[];
+  site_fitting: SiteFittingAudit;
+  overall_health_score: number;
+  has_critical_issues: boolean;
+  summary_messages: string[];
+}
+
 export interface BOMReport {
   config: CabinetConfig;
   parts: PanelPart[];
@@ -216,6 +259,7 @@ export interface BOMReport {
   total_pvc_20_meters: number;
   total_parts_count: number;
   total_drill_count: number;
+  engineering_audit?: EngineeringAuditReport;
 }
 
 export interface NestedPartPlacement {

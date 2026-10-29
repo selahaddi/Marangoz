@@ -6,6 +6,7 @@ import {
   Layers,
   LayoutGrid,
   Scissors,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import type { CabinetConfig, ProductionPackageResponse } from "../types/cabinet";
@@ -149,6 +150,36 @@ export function ProductionStatsRibbon({
             {metrics ? `₺${metrics.approxTotal}` : "-"}
           </span>
         </div>
+
+        {/* Mühendislik Sağlık Rozeti */}
+        {pkg?.bom?.engineering_audit && (
+          <>
+            <div className="hidden h-4 w-px bg-slate-800 md:block" />
+            <div
+              className="flex items-center gap-1.5 text-slate-300"
+              title={pkg.bom.engineering_audit.summary_messages.join(" ")}
+            >
+              <ShieldCheck
+                className={`h-4 w-4 ${
+                  pkg.bom.engineering_audit.has_critical_issues
+                    ? "text-amber-400"
+                    : "text-emerald-400"
+                }`}
+              />
+              <span className="text-slate-400 hidden sm:inline">Statik:</span>
+              <span
+                className={`font-mono font-bold ${
+                  pkg.bom.engineering_audit.has_critical_issues
+                    ? "text-amber-300"
+                    : "text-emerald-300"
+                }`}
+              >
+                %{pkg.bom.engineering_audit.overall_health_score}{" "}
+                {pkg.bom.engineering_audit.has_critical_issues ? "Uyarılı" : "Güvenli"}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Sağ Grup: Hızlı Kütüphane ve Eskiz Butonları */}

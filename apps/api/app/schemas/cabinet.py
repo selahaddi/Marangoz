@@ -559,6 +559,87 @@ class HardwareItem(BaseModel):
     note: str = Field(default="", description="Montaj açıklaması")
 
 
+class ShelfDeflectionResult(BaseModel):
+    """Euler-Bernoulli kiriş teorisine göre raf sehim (esneme) analizi sonucu."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    shelf_id: str = Field(description="Raf parça kimliği")
+    span_mm: float = Field(ge=0.0, description="Raf net açıklığı (mm)")
+    depth_mm: float = Field(ge=0.0, description="Raf derinliği (mm)")
+    thickness_mm: float = Field(gt=0.0, description="Raf et kalınlığı (mm)")
+    material: str = Field(description="Raf malzemesi (suntalam, mdf, masif)")
+    load_kg: float = Field(ge=0.0, description="Raf üzerindeki tasarım yükü (kg)")
+    deflection_mm: float = Field(ge=0.0, description="Hesaplanan maksimum sehim (mm)")
+    allowable_deflection_mm: float = Field(
+        ge=0.0, description="İzin verilen maksimum sehim sınırı (mm)"
+    )
+    is_acceptable: bool = Field(description="Sehim sınırı güvenli mi?")
+    warning: str | None = Field(default=None, description="Mühendislik uyarısı")
+    recommendation: str | None = Field(
+        default=None, description="Marangozluk takviye tavsiyesi"
+    )
+
+
+class DoorHardwareAudit(BaseModel):
+    """Kapak ağırlığı, menteşe adedi ve gazlı amortisör taşıma kapasitesi denetimi."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    door_id: str = Field(description="Kapak parça kimliği")
+    height_mm: float = Field(gt=0.0, description="Kapak yüksekliği (mm)")
+    width_mm: float = Field(gt=0.0, description="Kapak genişliği (mm)")
+    weight_kg: float = Field(gt=0.0, description="Kapak net ağırlığı (kg)")
+    door_type: str = Field(description="Kapak açılma tipi")
+    current_hinge_count: int = Field(ge=0, description="Mevcut menteşe adedi")
+    recommended_hinge_count: int = Field(ge=2, description="Önerilen menteşe adedi")
+    recommended_gas_piston_n: int | None = Field(
+        default=None, description="Kalkar kapak için önerilen piston kuvveti (Newton)"
+    )
+    is_acceptable: bool = Field(description="Donanım kapasitesi yeterli mi?")
+    warning: str | None = Field(default=None, description="Kapasite aşım uyarısı")
+
+
+class SiteFittingAudit(BaseModel):
+    """Şantiye, rölöve, süpürgelik ve duvar tolerans uyumluluk denetimi."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    has_wall_clash_risk: bool = Field(
+        default=False, description="Duvar veya niş sürtünme riski var mı?"
+    )
+    has_baseboard_clash_risk: bool = Field(
+        default=False, description="Süpürgelik baza çakışma riski var mı?"
+    )
+    warnings: list[str] = Field(default_factory=list, description="Şantiye uyarıları")
+    recommendations: list[str] = Field(
+        default_factory=list, description="Rölöve ve montaj tavsiyeleri"
+    )
+
+
+class EngineeringAuditReport(BaseModel):
+    """Marangozluk Mühendislik ve Taşıma Kapasitesi Kural Motoru Denetim Raporu."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    shelf_deflections: list[ShelfDeflectionResult] = Field(
+        default_factory=list, description="Raf sehim analizleri"
+    )
+    door_audits: list[DoorHardwareAudit] = Field(
+        default_factory=list, description="Kapak donanım yük analizleri"
+    )
+    site_fitting: SiteFittingAudit = Field(description="Şantiye uyumluluk analizi")
+    overall_health_score: int = Field(
+        ge=0, le=100, description="Genel mobilya mühendislik sağlık skoru (0-100)"
+    )
+    has_critical_issues: bool = Field(
+        default=False, description="Kritik mühendislik hatası var mı?"
+    )
+    summary_messages: list[str] = Field(
+        default_factory=list, description="Özet mühendislik değerlendirmeleri"
+    )
+
+
 class BOMReport(BaseModel):
     """Malzeme İhtiyaç ve Kesim Listesi (Bill of Materials) raporu."""
 
@@ -580,6 +661,9 @@ class BOMReport(BaseModel):
     )
     total_parts_count: int = Field(ge=0, description="Toplam parça adedi")
     total_drill_count: int = Field(ge=0, description="Toplam CNC delik sayısı")
+    engineering_audit: EngineeringAuditReport | None = Field(
+        default=None, description="Marangozluk mühendislik ve yük kapasitesi denetim raporu"
+    )
 
 
 class NestedPartPlacement(BaseModel):
