@@ -126,6 +126,71 @@ export function App() {
   const [apiKey, setApiKey] = useState<string>(() => getStoredGeminiApiKey());
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
   const [tempApiKey, setTempApiKey] = useState<string>("");
+  const [testKeyStatus, setTestKeyStatus] = useState<{
+    loading: boolean;
+    message: string | null;
+    success: boolean | null;
+  }>({ loading: false, message: null, success: null });
+
+  const handleTestApiKey = async () => {
+    const keyToTest = tempApiKey.trim() || apiKey.trim();
+    setTestKeyStatus({ loading: true, message: null, success: null });
+    try {
+      if (keyToTest) {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${keyToTest}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: "ping" }] }],
+              generationConfig: { maxOutputTokens: 5 },
+            }),
+          }
+        );
+        const data = await res.json();
+        if (res.ok) {
+          setTestKeyStatus({
+            loading: false,
+            message: "Gemini 2.5 Flash Lite bağlantısı başarılı! API anahtarınız geçerli.",
+            success: true,
+          });
+        } else {
+          setTestKeyStatus({
+            loading: false,
+            message: `Hata (${res.status}): ${data?.error?.message ?? "Erişilemedi"}`,
+            success: false,
+          });
+        }
+      } else {
+        const res = await fetch("/api/parse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: "ping" }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setTestKeyStatus({
+            loading: false,
+            message: `Sunucu Vercel Gemini bağlantısı başarılı! (${data.engine_label || data.engine})`,
+            success: true,
+          });
+        } else {
+          setTestKeyStatus({
+            loading: false,
+            message: `Sunucu API Hatası: ${data?.error ?? `HTTP ${res.status}`}`,
+            success: false,
+          });
+        }
+      }
+    } catch (err) {
+      setTestKeyStatus({
+        loading: false,
+        message: `Bağlantı hatası: ${err instanceof Error ? err.message : String(err)}`,
+        success: false,
+      });
+    }
+  };
 
   // Multimodal Vision / Eskiz Yükleme Modalı State'leri
   const [showSketchModal, setShowSketchModal] = useState<boolean>(false);
@@ -374,14 +439,45 @@ export function App() {
               type="button"
               onClick={() => {
                 setTempApiKey(apiKey);
+                setTestKeyStatus({ loading: false, message: null, success: null });
                 setShowKeyModal(true);
               }}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/20"
+              className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                parseInfo && parseInfo.engine !== "rule_based"
+                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+                  : parseInfo && parseInfo.engine === "rule_based"
+                  ? "border-amber-500/50 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+                  : apiKey
+                  ? "border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"
+                  : "border-slate-700 bg-slate-800/80 text-slate-300 hover:bg-slate-800"
+              }`}
             >
-              <Sparkles className="h-3.5 w-3.5 text-sky-400" />
+              <span className="relative flex h-2 w-2">
+                <span
+                  className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    parseInfo && parseInfo.engine !== "rule_based"
+                      ? "animate-ping bg-emerald-400"
+                      : parseInfo && parseInfo.engine === "rule_based"
+                      ? "bg-amber-400"
+                      : "bg-sky-400"
+                  }`}
+                />
+                <span
+                  className={`relative inline-flex h-2 w-2 rounded-full ${
+                    parseInfo && parseInfo.engine !== "rule_based"
+                      ? "bg-emerald-500"
+                      : parseInfo && parseInfo.engine === "rule_based"
+                      ? "bg-amber-500"
+                      : "bg-sky-500"
+                  }`}
+                />
+              </span>
+              <Sparkles className="h-3.5 w-3.5" />
               <span>
                 {parseInfo && parseInfo.engine !== "rule_based"
-                  ? "Gemini AI Aktif"
+                  ? `AI: ${parseInfo.engineLabel}`
+                  : parseInfo && parseInfo.engine === "rule_based"
+                  ? "Yedek Kural Motoru (AI Kapalı)"
                   : apiKey
                   ? "Gemini: Kişisel Anahtar"
                   : "Gemini AI Ayarları"}
@@ -415,13 +511,35 @@ export function App() {
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-lg">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="flex-1">
-              <label
-                htmlFor="nl-prompt-input"
-                className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-sky-400"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                Doğal Dil Mobilya İstemi (Semantic Parser → CabinetConfig JSON)
-              </label>
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <label
+                  htmlFor="nl-prompt-input"
+                  className="flex items-center gap-1.5 font-semibold uppercase tracking-wider text-sky-400"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Doğal Dil Mobilya İstemi (Semantic Parser → CabinetConfig JSON)
+                </label>
+                <div className="flex items-center gap-1.5">
+                  {parseInfo ? (
+                    parseInfo.engine !== "rule_based" ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-950/70 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300 shadow-sm">
+                        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                        Aktif Motor: {parseInfo.engineLabel}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/50 bg-amber-950/70 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300 shadow-sm">
+                        <span className="h-2 w-2 rounded-full bg-amber-400" />
+                        Aktif Motor: Yedek Kural Motoru (AI Devre Dışı)
+                      </span>
+                    )
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-950/50 px-2.5 py-0.5 text-[11px] font-medium text-sky-300">
+                      <Sparkles className="h-3 w-3 text-sky-400" />
+                      Gemini 2.5 Flash Lite Hazır
+                    </span>
+                  )}
+                </div>
+              </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   id="nl-prompt-input"
@@ -844,46 +962,76 @@ export function App() {
             <div className="mt-4">
               <label
                 htmlFor="gemini-key-input"
-                className="mb-1 block text-xs font-medium text-slate-300"
+                className="mb-1 flex items-center justify-between text-xs font-medium text-slate-300"
               >
-                Gemini API Key
+                <span>Gemini API Key</span>
+                <span className="text-[10px] text-slate-400">Öncelikli Model: gemini-2.5-flash-lite</span>
               </label>
               <input
                 id="gemini-key-input"
                 type="password"
                 value={tempApiKey}
                 onChange={(e) => setTempApiKey(e.target.value)}
-                placeholder="AIza... (Google AI Studio anahtarı)"
+                placeholder="AIza... (Boş bırakırsanız Vercel sunucusundaki anahtar kullanılır)"
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-sky-500 focus:outline-none"
               />
             </div>
 
-            <div className="mt-5 flex items-center justify-end gap-2">
+            {testKeyStatus.message && (
+              <div
+                className={`mt-3 rounded-lg border p-2.5 text-xs ${
+                  testKeyStatus.success
+                    ? "border-emerald-500/40 bg-emerald-950/40 text-emerald-200"
+                    : "border-red-500/40 bg-red-950/40 text-red-200"
+                }`}
+              >
+                {testKeyStatus.message}
+              </div>
+            )}
+
+            <div className="mt-5 flex items-center justify-between gap-2 border-t border-slate-800/80 pt-3">
               <button
                 type="button"
-                onClick={() => {
-                  setTempApiKey("");
-                  setApiKey("");
-                  setStoredGeminiApiKey("");
-                  setShowKeyModal(false);
-                }}
-                className="rounded-lg border border-slate-800 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800"
+                disabled={testKeyStatus.loading}
+                onClick={() => void handleTestApiKey()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20 disabled:opacity-50"
               >
-                Temizle
+                {testKeyStatus.loading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                Bağlantıyı Test Et
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const cleaned = tempApiKey.trim();
-                  setApiKey(cleaned);
-                  setStoredGeminiApiKey(cleaned);
-                  setShowKeyModal(false);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-sky-500"
-              >
-                <Check className="h-3.5 w-3.5" />
-                Kaydet
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempApiKey("");
+                    setApiKey("");
+                    setStoredGeminiApiKey("");
+                    setTestKeyStatus({ loading: false, message: null, success: null });
+                    setShowKeyModal(false);
+                  }}
+                  className="rounded-lg border border-slate-800 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800"
+                >
+                  Temizle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cleaned = tempApiKey.trim();
+                    setApiKey(cleaned);
+                    setStoredGeminiApiKey(cleaned);
+                    setShowKeyModal(false);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-sky-500"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Kaydet
+                </button>
+              </div>
             </div>
           </div>
         </div>

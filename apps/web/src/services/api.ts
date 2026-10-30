@@ -37,6 +37,7 @@ export interface ParseResult {
 
 interface VercelParseEnvelope extends ApiResponse<CabinetConfig> {
   engine?: string;
+  engine_label?: string;
 }
 
 /**
@@ -95,7 +96,7 @@ export async function parseNaturalLanguagePrompt(prompt: string): Promise<ParseR
         return {
           config: envelope.data,
           engine: "vercel_gemini",
-          engineLabel: envelope.engine ?? "Gemini (sunucu)",
+          engineLabel: envelope.engine_label || envelope.engine || "Gemini (sunucu)",
           aiErrors,
         };
       }
@@ -197,7 +198,7 @@ export async function parseSketchImage(
         return {
           config: envelope.data,
           engine: "vercel_gemini",
-          engineLabel: envelope.engine ?? "Gemini Vision (sunucu)",
+          engineLabel: envelope.engine_label || envelope.engine || "Gemini Vision (sunucu)",
           aiErrors,
         };
       }

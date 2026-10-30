@@ -347,3 +347,4 @@ export function getHardwareByBrand(brand: HardwareBrand): CatalogHardwareItem[] 
 export function getHardwareByCategory(category: HardwareCategory): CatalogHardwareItem[] {
   return HARDWARE_CATALOG.filter((item) => item.category === category);
 }
+

@@ -21,15 +21,15 @@ const CABINET_TYPES = [
 const DOOR_TYPES = ["none", "single_left", "single_right", "double", "flap_up"];
 
 const REVISION_SYSTEM_INSTRUCTION =
-  "Sen mobilya fabrikası için uzman bir CAD/CAM Tasarım ve Revizyon Asistanısın. " +
-  "Kullanıcı mevcut bir dolap tasarımında değişiklik (revizyon) istemektedir. " +
-  "Girdi olarak sana MEVCUT DOLAP PARAMETRELERİ (JSON) ve KULLANICININ REVİZYON İSTEĞİ verilecektir. " +
-  "GÖREVİN: " +
-  "1. Kullanıcının değiştirmek istediği özellikleri (ölçü, çekmece, raf, kapak, açık niş, dikey bölmeler, çatı eğimi, L-köşe, renk, malzeme vb.) tespit et. " +
-  "2. Kullanıcının açıkça DEĞİŞTİRMEDİĞİ tüm mevcut parametreleri (iç bölmeler, kertmeler, bağlantı tipleri vb.) AYNEN KORU. " +
-  "3. Sıfırdan yeni bir dolap üretme; mevcut dolabı mutasyona uğrat. " +
-  "4. Ölçüleri milimetre (mm) olarak yaz (örn: 110 cm -> 1100). " +
-  "5. Çıktı olarak güncellenmiş parametreleri JSON şemasına uygun olarak üret.";
+  "Sen mobilya fabrikası için uzman bir CAD/CAM Tasarım ve Revizyon Asistanısın.\n" +
+  "Kullanıcı mevcut bir dolap tasarımında değişiklik (revizyon) istemektedir.\n" +
+  "Girdi olarak sana MEVCUT DOLAP PARAMETRELERİ (JSON) ve KULLANICININ REVİZYON İSTEĞİ verilecektir.\n" +
+  "GÖREVİN:\n" +
+  "1. Kullanıcının değiştirmek istediği özellikleri (ölçü, çekmece, raf, kapak, açık niş, dikey bölmeler, çatı eğimi, L-köşe, renk, malzeme vb.) tespit et.\n" +
+  "2. Kullanıcının açıkça DEĞİŞTİRMEDİĞİ tüm mevcut parametreleri (iç bölmeler, kertmeler, bağlantı tipleri, ek modüller vb.) KESİNLİKLE AYNEN KORU.\n" +
+  "3. Sıfırdan yeni bir dolap üretme; mevcut dolabı mutasyona uğrat.\n" +
+  "4. Ölçüleri milimetre (mm) olarak yaz (örn: 110 cm -> 1100, 85 cm -> 850).\n" +
+  "5. Çıktı olarak güncellenmiş parametreleri verilen JSON şemasına uygun olarak üret.";
 
 const RESPONSE_SCHEMA = {
   type: "OBJECT",
@@ -96,6 +96,35 @@ const RESPONSE_SCHEMA = {
         },
       },
     },
+    additional_modules: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          name: { type: "STRING" },
+          cabinet_type: { type: "STRING", enum: CABINET_TYPES },
+          width_mm: { type: "NUMBER" },
+          height_mm: { type: "NUMBER" },
+          depth_mm: { type: "NUMBER" },
+          shelf_count: { type: "INTEGER" },
+          door_type: { type: "STRING", enum: DOOR_TYPES },
+          drawer_count: { type: "INTEGER" },
+          drawer_front_height_mm: { type: "NUMBER" },
+          body_material: { type: "STRING" },
+          door_material: { type: "STRING" },
+          body_color_hex: { type: "STRING" },
+          door_color_hex: { type: "STRING" },
+          has_plinth: { type: "BOOLEAN" },
+          plinth_height_mm: { type: "NUMBER" },
+          has_slope: { type: "BOOLEAN" },
+          slope_side: { type: "STRING", enum: ["left", "right"] },
+          slope_start_height_mm: { type: "NUMBER" },
+          is_corner_module: { type: "BOOLEAN" },
+          corner_blind_width_mm: { type: "NUMBER" },
+        },
+        required: ["cabinet_type", "width_mm", "height_mm", "depth_mm"],
+      },
+    },
   },
   required: ["cabinet_type", "width_mm", "height_mm", "depth_mm"],
 };
@@ -119,7 +148,7 @@ function normalize(raw, currentConfig) {
   const nicheOffset = clamp(raw.niche_bottom_offset_mm, 0, heightMm, 0);
   const isBottomNiche = rawNicheH > 0 && nicheOffset <= 0;
   const hasPlinth =
-    isBottomNiche ? false : typeof raw.has_plinth === "boolean" ? raw.has_plinth : true;
+    isBottomNiche ? false : typeof raw.has_plinth === "boolean" ? raw.has_plinth : (currentConfig?.has_plinth ?? true);
 
   const rawZones = Array.isArray(raw.zones) ? raw.zones : [];
   const zones = rawZones.map((z, idx) => ({
@@ -149,6 +178,45 @@ function normalize(raw, currentConfig) {
     niche_color_hex: isHex(z.niche_color_hex) ? z.niche_color_hex : undefined,
     niche_back_open: typeof z.niche_back_open === "boolean" ? z.niche_back_open : undefined,
     door_color_hex: isHex(z.door_color_hex) ? z.door_color_hex : undefined,
+  }));
+
+  const rawModules = Array.isArray(raw.additional_modules)
+    ? raw.additional_modules
+    : Array.isArray(currentConfig?.additional_modules)
+    ? currentConfig.additional_modules
+    : [];
+
+  const additionalModules = rawModules.map((m, idx) => ({
+    name: typeof m.name === "string" && m.name.trim() ? m.name.trim() : `Ek Modül #${idx + 2}`,
+    cabinet_type: CABINET_TYPES.includes(m.cabinet_type) ? m.cabinet_type : raw.cabinet_type || "kitchen_base",
+    width_mm: clamp(m.width_mm, 200, 2400, 600),
+    height_mm: clamp(m.height_mm, 300, 2750, heightMm),
+    depth_mm: clamp(m.depth_mm, 200, 900, clamp(raw.depth_mm, 200, 900, 580)),
+    shelf_count: Math.round(clamp(m.shelf_count, 0, 12, 1)),
+    door_type: DOOR_TYPES.includes(m.door_type) ? m.door_type : "single_left",
+    drawer_count: Math.round(clamp(m.drawer_count, 0, 6, 0)),
+    drawer_front_height_mm: clamp(m.drawer_front_height_mm, 120, 350, 180),
+    body_material: typeof m.body_material === "string" && m.body_material.trim() ? m.body_material.trim() : (raw.body_material || "18mm Beyaz Suntalam"),
+    door_material: typeof m.door_material === "string" && m.door_material.trim() ? m.door_material.trim() : (raw.door_material || ""),
+    body_color_hex: isHex(m.body_color_hex) ? m.body_color_hex : (isHex(raw.body_color_hex) ? raw.body_color_hex : "#F4F1EA"),
+    door_color_hex: isHex(m.door_color_hex) ? m.door_color_hex : (isHex(raw.door_color_hex) ? raw.door_color_hex : "#C89F70"),
+    front_pvc_thickness_mm: 2.0,
+    hidden_pvc_thickness_mm: 0.4,
+    back_panel_type: raw.back_panel_type === "nailed_3mm" ? "nailed_3mm" : "grooved_8mm",
+    sheet_size: raw.sheet_size === "3660x1830" ? "3660x1830" : "2800x2100",
+    fastener_type: raw.fastener_type === "cabineo_12" ? "cabineo_12" : "minifix_dowel",
+    cutting_mode: raw.cutting_mode === "cnc_router" ? "cnc_router" : "panel_saw",
+    plinth_type: raw.plinth_type === "adjustable_legs" ? "adjustable_legs" : "wood_plinth",
+    has_plinth: typeof m.has_plinth === "boolean" ? m.has_plinth : (raw.has_plinth ?? true),
+    plinth_height_mm: typeof m.plinth_height_mm === "number" ? clamp(m.plinth_height_mm, 50, 200, 80) : 80,
+    has_baseboard_notch: false,
+    has_column_notch: false,
+    has_slope: Boolean(m.has_slope),
+    slope_side: m.slope_side === "right" ? "right" : "left",
+    slope_start_height_mm: clamp(m.slope_start_height_mm, 300, 2750, 1200),
+    is_corner_module: Boolean(m.is_corner_module),
+    corner_blind_width_mm: clamp(m.corner_blind_width_mm, 50, 600, 100),
+    additional_modules: [],
   }));
 
   return {
@@ -200,9 +268,7 @@ function normalize(raw, currentConfig) {
     is_corner_module: Boolean(raw.is_corner_module),
     corner_angle_deg: clamp(raw.corner_angle_deg, 45, 135, 90),
     corner_blind_width_mm: clamp(raw.corner_blind_width_mm, 50, 600, 100),
-    additional_modules: Array.isArray(currentConfig?.additional_modules)
-      ? currentConfig.additional_modules
-      : [],
+    additional_modules: additionalModules,
     zones: zones.length > 0 ? zones : undefined,
   };
 }
@@ -249,6 +315,11 @@ function computeDiffSummary(oldCfg, newCfg) {
   if (oldZ !== newZ) {
     diffs.push(`Dikey Bölmeler: ${oldZ} Bölme ➔ ${newZ} Bölme`);
   }
+  const oldM = Array.isArray(oldCfg.additional_modules) ? oldCfg.additional_modules.length : 0;
+  const newM = Array.isArray(newCfg.additional_modules) ? newCfg.additional_modules.length : 0;
+  if (oldM !== newM) {
+    diffs.push(`Ek Modüller: ${oldM} ➔ ${newM}`);
+  }
   return diffs;
 }
 
@@ -290,8 +361,12 @@ export default async function handler(req, res) {
     `KULLANICI REVİZYON KOMUTU:\n"${instruction}"\n\n` +
     "Lütfen yalnızca kullanıcının talep ettiği değişiklikleri uygulayarak şemaya uygun güncellenmiş JSON parametrelerini üret.";
 
-  const models = [process.env.GEMINI_MODEL || "gemini-2.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
-    .filter((m, i, arr) => m && arr.indexOf(m) === i);
+  const models = [
+    process.env.GEMINI_MODEL,
+    "gemini-2.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-2.5-flash",
+  ].filter((m, i, arr) => m && arr.indexOf(m) === i);
 
   const errors = [];
   for (const model of models) {
@@ -344,6 +419,8 @@ export default async function handler(req, res) {
           updated_config: updatedConfig,
           assistant_message: assistantMessage,
           diff_summary: diffSummary,
+          engine: model,
+          engine_label: model === "gemini-2.5-flash-lite" ? "Gemini 2.5 Flash Lite" : `Gemini (${model})`,
         },
       });
     } catch (err) {
@@ -356,4 +433,3 @@ export default async function handler(req, res) {
     message: `Gemini revizyon yanıtı alınamadı: ${errors.join(" | ")}`,
   });
 }
-

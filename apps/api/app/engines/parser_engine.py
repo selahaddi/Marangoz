@@ -49,6 +49,31 @@ class ZoneParseSchema(BaseModel):
     door_color_hex: str = Field(default="", description="Bölme kapağı özel rengi")
 
 
+class SubModuleParseSchema(BaseModel):
+    """Yan yana çoklu modül hattındaki ek dolap modülleri için özyinelemesiz şema."""
+
+    name: str = Field(default="Ek Modül", description="Modül adı")
+    cabinet_type: CabinetType = Field(default=CabinetType.KITCHEN_BASE, description="Dolap tipi")
+    width_mm: float = Field(default=600.0, description="Dış genişlik (mm)")
+    height_mm: float = Field(default=850.0, description="Dış yükseklik (mm)")
+    depth_mm: float = Field(default=580.0, description="Dış derinlik (mm)")
+    shelf_count: int = Field(default=1, description="Raf sayısı")
+    door_type: DoorType = Field(default=DoorType.SINGLE_LEFT, description="Kapak tipi")
+    drawer_count: int = Field(default=0, description="Çekmece adedi")
+    drawer_front_height_mm: float = Field(default=180.0, description="Çekmece klapa boyu")
+    body_material: str = Field(default="18mm Beyaz Suntalam", description="Gövde malzemesi")
+    door_material: str = Field(default="", description="Kapak malzemesi")
+    body_color_hex: str = Field(default="#F4F1EA", description="Gövde renk hex kodu")
+    door_color_hex: str = Field(default="#C89F70", description="Kapak renk hex kodu")
+    has_plinth: bool = Field(default=True, description="Alt baza var mı")
+    plinth_height_mm: float = Field(default=80.0, description="Baza yüksekliği (mm)")
+    has_slope: bool = Field(default=False, description="Çatı eğimi var mı")
+    slope_side: str = Field(default="left", description="Eğimin alçak kenarı")
+    slope_start_height_mm: float = Field(default=1200.0, description="Eğim başlama boyu")
+    is_corner_module: bool = Field(default=False, description="L-Köşe modülü mü")
+    corner_blind_width_mm: float = Field(default=100.0, description="Kör panel genişliği")
+
+
 class CabinetParseSchema(BaseModel):
     """Gemini API ile yapılandırılmış JSON çıktısı için özyinelemesiz şema."""
 
@@ -138,35 +163,42 @@ class CabinetParseSchema(BaseModel):
     is_corner_module: bool = Field(default=False, description="L-Köşe dönüş modülü mü")
     corner_angle_deg: float = Field(default=90.0, description="L-Köşe açısı (derece)")
     corner_blind_width_mm: float = Field(default=100.0, description="L-Köşe kör kapama paneli genişliği (mm)")
+    additional_modules: list[SubModuleParseSchema] = Field(
+        default_factory=list,
+        description="Yan yana çoklu modül hattındaki (örn. mutfak alt dolapları, bitişik modüller) diğer modüller",
+    )
 
 
 class SemanticParserEngine:
     """Doğal dil mobilya tarifini CabinetConfig şemasına ayrıştırır."""
 
     SYSTEM_INSTRUCTION = (
-        "Sen bir mobilya fabrikası için Doğal Dil Ayrıştırıcısısın (Semantic Parser). "
-        "Kullanıcının Türkçe veya İngilizce dolap tarifini dikkatle oku ve yalnızca "
-        "CabinetConfig JSON şemasına uygun parametreleri çıkar. "
-        "Ölçüler santimetre (cm) verilmişse milimetreye (mm) çevir (örn: 235 cm -> 2350 mm). "
-        "Toplam dış ölçüleri width_mm, height_mm, depth_mm olarak yaz; alt kısımda buzdolabı veya "
-        "cihaz için açık bir niş/boşluk yüksekliği tarif edilmişse (örn: 185 cm açık niş) bunu "
-        "appliance_niche_height_mm ve niche_height_mm alanına mm cinsinden (1850) yaz, niche_bottom_offset_mm=0 ve has_plinth=false yap. "
-        "Orta açık niş, kahve istasyonu / kahve köşesi, ankastre fırın veya mikrodalga boşluğu varsa "
-        "niche_height_mm ve niche_bottom_offset_mm değerlerini doldur (örn: yerden 85 cm yükseklikte 45 cm niş -> niche_bottom_offset_mm=850, niche_height_mm=450). "
-        "Arkalık açık veya priz/havalandırma istenmişse niche_back_open=true yap. "
-        "Niş arka/iç rengi belirtilmişse (örn: ahşap kontrast niş) niche_color_hex alanını doldur. "
-        "Gazlı pistonlu / yukarı doğru açılan kalkar kapak istenmişse door_type='flap_up' seç. "
-        "İstemde açıkça raf adedi belirtilmemişse ve üst kalkar kapaklı niş dolabıysa shelf_count=0 ver. "
-        "Eğer kullanıcı dolabın içini dikey bölmelere / kolonlara ayırmışsa (örn: 'sol tarafı 4 raflı, sağ tarafı askılıklı ve 2 çekmeceli', "
-        "'2 bölmeli gardırop', '3 bölmeli sol raflı orta askılı'), her bölmeyi 'zones' dizisinde tanımla. "
-        "Her bölme için name, width_ratio, shelf_count, door_type, drawer_count, has_hanging_rod parametrelerini doldur. "
-        "Çatı eğimi, tavan eğimi, mansard çatı veya merdiven altı dolap istenmişse has_slope=true yap, "
-        "eğimin alçak tarafını slope_side ('left' veya 'right') ve alçak kenar boyunu slope_start_height_mm olarak yaz. "
-        "L-Köşe dönüş modülü veya 90 derece köşe dolap istenmişse is_corner_module=true yap. "
-        "Lamello Cabineo 12 veya 3-eksen bağlantı istenmişse fastener_type='cabineo_12' seç. "
-        "Ayarlı plastik ayak istenmişse plinth_type='adjustable_legs' seç. "
-        "Süpürgelik kertmesi varsa has_baseboard_notch=true, kolon kertmesi varsa has_column_notch=true yap. "
-        "Hiçbir kesim veya delik hesabı yapma, sadece şema parametrelerini çıkar."
+        "Sen bir mobilya fabrikası için uzman Doğal Dil CAD/CAM Ayrıştırıcısısın (Semantic Parser).\n"
+        "Kullanıcının Türkçe veya İngilizce dolap, oda veya mobilya tarifini dikkatle oku ve yalnızca "
+        "CabinetConfig JSON şemasına uygun nesne üret.\n\n"
+        "ÖLÇÜ DÖNÜŞÜM KURALLARI (HER ZAMAN MİLİMETRE):\n"
+        "- 'en', 'eninde', 'genişlik', 'genişliğinde', 'boyuna' (en anlamında) -> width_mm (örn: 120 cm -> 1200, 2.4 m -> 2400).\n"
+        "- 'boy', 'boyunda', 'yükseklik', 'yüksekliğinde', 'tavan boyu' -> height_mm (örn: 210 cm -> 2100, 240 cm -> 2400).\n"
+        "- 'derinlik', 'derinliğinde' -> depth_mm (varsayılanlar: gardırop=580, mutfak alt=580, mutfak üst=330, banyo=480, kitaplık=320, vestiyer/ayakkabılık=360).\n\n"
+        "MİMARİ VE FONKSİYONEL KURALLAR:\n"
+        "- TEK DOLAP İÇİ BÖLMELER (İÇ DİKME) İLE ÇOKLU MODÜL HATTI FARKI:\n"
+        "  * Eğer kullanıcı TEK BİR DOLABIN İÇİNİ (örn. sol tarafı raflı, sağ tarafı askılı tek bir gardırop) tarif ediyorsa 'zones' dizisini kullan.\n"
+        "  * FAKAT kullanıcı YAN YANA AYRI MODÜLLERDEN OLUŞAN BİR HAT (örn: mutfak alt dolapları, 80 cm evye + 60 cm çekmeceli + 100 cm tencere dolabı gibi) tarif ediyorsa 'zones' KULLANMA!\n"
+        "    Bunun yerine ilk modülü ana nesneye (örn: width_mm: 800, name: '80cm Evye Dolabı'), diğer modülleri sırasıyla 'additional_modules' dizisine ekle.\n"
+        "- 'Tavandan tabana' veya 'yerden tavana' bazasız demektir (has_plinth=false, plinth_height_mm=0).\n"
+        "- Ayarlı plastik ayak istenmişse plinth_type='adjustable_legs'; standart ahşap baza için plinth_type='wood_plinth'.\n"
+        "- Lamello Cabineo 12 veya 3-eksen bağlantı için fastener_type='cabineo_12'; Minifix/kavela için fastener_type='minifix_dowel'.\n"
+        "- Açık nişler:\n"
+        "  * Altta buzdolabı / solo cihaz boşluğu varsa: appliance_niche_height_mm ve niche_height_mm (örn: 185 cm -> 1850), niche_bottom_offset_mm=0, has_plinth=false.\n"
+        "  * Orta açık niş / kahve köşesi / fırın varsa: niche_bottom_offset_mm (yerden kot mm, örn: 85 cm -> 850) ve niche_height_mm (örn: 45 cm -> 450).\n"
+        "  * Priz, kablo veya havalandırma için arkalıksız ise niche_back_open=true.\n"
+        "- Çatı / Merdiven Eğimi:\n"
+        "  * has_slope=true, slope_side ('left' veya 'right'), slope_start_height_mm (eğimin alçak kenar boyu mm).\n"
+        "- L-Köşe Modülü:\n"
+        "  * 90° köşe dolap için is_corner_module=true, corner_blind_width_mm=100.\n"
+        "- Renkler: hex koduna çevir (#F4F1EA kırık beyaz, #C89F70 doğal meşe, #6E472B ceviz, #374151 antrasit, #1E293B mat siyah).\n"
+        "- Kapak malzemesi ayrı belirtilmişse door_material alanına yaz (örn: '18mm Doğal Meşe MDF-Lam', '18mm Mat Antrasit Akrilik').\n"
+        "Kesinlikle hiçbir delik, kesim veya parça geometrisi hesabı yapma; yalnızca dolap parametrelerini JSON olarak döndür."
     )
 
     COLOR_MAP: dict[str, tuple[str, str]] = {
@@ -766,9 +798,10 @@ class SemanticParserEngine:
         api_key = (api_key_override or settings.gemini_api_key or "").strip()
         if api_key:
             candidate_models = [
-                settings.gemini_model,
+                settings.gemini_model.strip() if settings.gemini_model else "",
+                "gemini-2.5-flash-lite",
+                "gemini-3.5-flash",
                 "gemini-2.5-flash",
-                "gemini-2.0-flash",
             ]
             models_to_try: list[str] = []
             for m in candidate_models:
@@ -802,9 +835,6 @@ class SemanticParserEngine:
                         model_name,
                         exc,
                     )
-                    if any(err in str(exc) for err in ("RESOURCE_EXHAUSTED", "429", "QuotaFailure", "limit exceeded")):
-                        logger.info("Gemini kota sınırı algılandı, doğrudan kural tabanlı ayrıştırıcıya geçiliyor.")
-                        break
                     continue
 
         return cls._deterministic_rule_parse(prompt)
@@ -812,14 +842,67 @@ class SemanticParserEngine:
     @classmethod
     def _parsed_schema_to_config(cls, parsed: CabinetParseSchema) -> CabinetConfig:
         """Gemini'den dönen CabinetParseSchema nesnesini sınır kontrolleriyle CabinetConfig'e çevirir."""
+        raw_modules = list(parsed.additional_modules or [])
+        primary_name = parsed.name
+        primary_type = parsed.cabinet_type
         width_mm = max(300.0, min(2700.0, parsed.width_mm))
         height_mm = max(300.0, min(2750.0, parsed.height_mm))
         depth_mm = max(200.0, min(900.0, parsed.depth_mm))
         shelf_count = max(0, min(12, parsed.shelf_count))
+        door_type = parsed.door_type
         drawer_count = max(0, min(6, parsed.drawer_count))
         drawer_front_height = max(
             120.0, min(350.0, parsed.drawer_front_height_mm or 180.0)
         )
+
+        # Eğer LLM tüm modülleri additional_modules içine koymuşsa ve root modül toplam genişlik ise:
+        if len(raw_modules) >= 2:
+            sum_mod_w = sum(m.width_mm for m in raw_modules)
+            if abs(sum_mod_w - parsed.width_mm) < 50:
+                first_m = raw_modules[0]
+                primary_name = first_m.name
+                primary_type = first_m.cabinet_type
+                width_mm = max(200.0, min(2700.0, first_m.width_mm))
+                shelf_count = max(0, min(12, first_m.shelf_count))
+                door_type = first_m.door_type
+                drawer_count = max(0, min(6, first_m.drawer_count))
+                raw_modules = raw_modules[1:]
+
+        additional_modules: list[CabinetConfig] = []
+        for idx, m in enumerate(raw_modules):
+            additional_modules.append(
+                CabinetConfig(
+                    name=m.name or f"Ek Modül #{idx + 2}",
+                    cabinet_type=m.cabinet_type,
+                    width_mm=max(200.0, min(2400.0, m.width_mm)),
+                    height_mm=height_mm,
+                    depth_mm=depth_mm,
+                    shelf_count=max(0, min(12, m.shelf_count)),
+                    door_type=m.door_type,
+                    drawer_count=max(0, min(6, m.drawer_count)),
+                    drawer_front_height_mm=m.drawer_front_height_mm,
+                    has_plinth=m.has_plinth,
+                    plinth_height_mm=m.plinth_height_mm if m.has_plinth else 0.0,
+                    body_material=m.body_material or parsed.body_material,
+                    door_material=m.door_material or parsed.door_material,
+                    body_color_hex=m.body_color_hex or parsed.body_color_hex,
+                    door_color_hex=m.door_color_hex or parsed.door_color_hex,
+                    front_pvc_thickness_mm=2.0,
+                    hidden_pvc_thickness_mm=0.4,
+                    back_panel_type=parsed.back_panel_type,
+                    sheet_size=parsed.sheet_size,
+                    fastener_type=parsed.fastener_type,
+                    cutting_mode=parsed.cutting_mode,
+                    plinth_type=parsed.plinth_type,
+                    has_slope=m.has_slope,
+                    slope_side=m.slope_side if m.slope_side in ("left", "right") else "left",
+                    slope_start_height_mm=max(300.0, min(height_mm, m.slope_start_height_mm)),
+                    is_corner_module=m.is_corner_module,
+                    corner_blind_width_mm=max(50.0, min(600.0, m.corner_blind_width_mm)),
+                    additional_modules=[],
+                )
+            )
+
         raw_niche_h = max(
             float(parsed.niche_height_mm or 0.0),
             float(parsed.appliance_niche_height_mm or 0.0),
@@ -859,13 +942,13 @@ class SemanticParserEngine:
             )
 
         return CabinetConfig(
-            name=parsed.name,
-            cabinet_type=parsed.cabinet_type,
+            name=primary_name,
+            cabinet_type=primary_type,
             width_mm=width_mm,
             height_mm=height_mm,
             depth_mm=depth_mm,
             shelf_count=shelf_count,
-            door_type=parsed.door_type,
+            door_type=door_type,
             drawer_count=drawer_count,
             drawer_front_height_mm=drawer_front_height,
             has_plinth=has_plinth,
@@ -894,7 +977,7 @@ class SemanticParserEngine:
             column_notch_depth_mm=parsed.column_notch_depth_mm,
             left_filler_width_mm=parsed.left_filler_width_mm,
             right_filler_width_mm=parsed.right_filler_width_mm,
-            additional_modules=[],
+            additional_modules=additional_modules,
             zones=zones,
             has_slope=parsed.has_slope,
             slope_side=parsed.slope_side if parsed.slope_side in ("left", "right") else "left",
@@ -925,9 +1008,10 @@ class SemanticParserEngine:
         if api_key:
             client = genai.Client(api_key=api_key)
             candidate_models = [
-                settings.gemini_model.strip(),
+                settings.gemini_model.strip() if settings.gemini_model else "",
+                "gemini-2.5-flash-lite",
+                "gemini-3.5-flash",
                 "gemini-2.5-flash",
-                "gemini-2.0-flash",
             ]
             models_to_try: list[str] = []
             for m in candidate_models:

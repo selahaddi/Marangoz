@@ -374,3 +374,4 @@ def get_hardware_by_brand(brand: HardwareBrand) -> list[CatalogHardwareItem]:
 def get_hardware_by_category(category: HardwareCategory) -> list[CatalogHardwareItem]:
     """Kategoriye göre katalog öğelerini filtreler."""
     return [item for item in HARDWARE_CATALOG if item.category == category]
+

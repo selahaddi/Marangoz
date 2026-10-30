@@ -42,3 +42,4 @@ def test_shop_drawing_svg_generation():
     assert "ARKALIK KANALI" in svg
     assert "BAZA (100 mm)" in svg
     assert "KRİTİK İMALAT" in svg
+

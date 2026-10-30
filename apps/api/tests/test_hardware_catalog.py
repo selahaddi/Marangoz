@@ -90,3 +90,4 @@ def test_bom_hardware_brand_integration():
     bom_gola = BOMEngine.generate_bom(gola_cfg)
     gola_codes = [h.code for h in bom_gola.hardware]
     assert "PRF-GOLA-L" in gola_codes
+

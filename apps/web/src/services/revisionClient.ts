@@ -559,7 +559,7 @@ export async function reviseCabinet(
       "Kullanıcının değiştirmediği tüm alanları (bölmeler, kertmeler, bağlantı tipi, eğim vb.) kesinlikle KORU. Asla silme veya varsayılana sıfırlama. " +
       "Ölçüleri mm cinsinden yaz (120 cm -> 1200 mm). Renkleri hex koduna çevir (#374151 vb.).";
 
-    for (const model of ["gemini-2.5-flash", "gemini-2.0-flash"]) {
+    for (const model of ["gemini-2.5-flash-lite", "gemini-3.5-flash", "gemini-2.5-flash"]) {
       try {
         const generationConfig: Record<string, unknown> = {
           response_mime_type: "application/json",
