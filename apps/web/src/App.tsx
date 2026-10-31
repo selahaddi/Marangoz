@@ -201,6 +201,9 @@ export function App() {
 
   // Modern UI & Çekmece State'leri
   const [showTemplateDrawer, setShowTemplateDrawer] = useState<boolean>(false);
+  const [templateDrawerMode, setTemplateDrawerMode] = useState<
+    "replace" | "add_side_module"
+  >("replace");
   const [showAIChatDrawer, setShowAIChatDrawer] = useState<boolean>(false);
   const [configHistory, setConfigHistory] = useState<CabinetConfig[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
@@ -240,11 +243,28 @@ export function App() {
   };
 
   const handleAddSideModule = (presetModule?: Partial<CabinetConfig>) => {
-    const nextIdx = (config.additional_modules?.length ?? 0) + 2;
-    const newModule: CabinetConfig = presetModule
-      ? {
+    const currentExtras = [...(config.additional_modules ?? [])];
+
+    if (!presetModule) {
+      const nextIdx = currentExtras.length + 2;
+      const newModule: CabinetConfig = {
+        ...activeModule,
+        name: `Ek Modül #${nextIdx}`,
+        additional_modules: [],
+      };
+      currentExtras.push(newModule);
+    } else {
+      // Çoklu modül şablonu (additional_modules içeren) veya tekil modül desteği
+      const modulesToAppend: Partial<CabinetConfig>[] = [
+        presetModule,
+        ...(presetModule.additional_modules ?? []),
+      ];
+
+      for (const mod of modulesToAppend) {
+        const nextIdx = currentExtras.length + 2;
+        const normalized: CabinetConfig = {
           ...activeModule,
-          ...presetModule,
+          ...mod,
           // Tutarlı mimari hat için gövde rengi ve bağlantı standardını aktif modülden devral:
           body_material: activeModule.body_material,
           body_color_hex: activeModule.body_color_hex,
@@ -255,20 +275,19 @@ export function App() {
           fastener_type: activeModule.fastener_type,
           sheet_size: activeModule.sheet_size,
           cutting_mode: activeModule.cutting_mode,
-          name: presetModule.name ?? `Ek Modül #${nextIdx}`,
-          additional_modules: [],
-        }
-      : {
-          ...activeModule,
-          name: `Ek Modül #${nextIdx}`,
+          name: mod.name ?? `Ek Modül #${nextIdx}`,
           additional_modules: [],
         };
+        currentExtras.push(normalized);
+      }
+    }
+
     const nextConfig: CabinetConfig = {
       ...config,
-      additional_modules: [...(config.additional_modules ?? []), newModule],
+      additional_modules: currentExtras,
     };
     setConfig(nextConfig);
-    setActiveModuleIndex((config.additional_modules?.length ?? 0) + 1);
+    setActiveModuleIndex(currentExtras.length); // En son eklenen modüle odaklan
     void runGeneration(nextConfig);
   };
 
@@ -608,7 +627,10 @@ export function App() {
             })}
             <button
               type="button"
-              onClick={() => setShowTemplateDrawer(true)}
+              onClick={() => {
+                setTemplateDrawerMode("replace");
+                setShowTemplateDrawer(true);
+              }}
               className="inline-flex items-center gap-1 rounded-lg border border-indigo-500/40 bg-indigo-600/20 px-2.5 py-1 text-[11px] font-bold text-indigo-300 hover:bg-indigo-600 hover:text-white transition shadow-sm"
             >
               <LayoutGrid className="h-3 w-3" />
@@ -616,7 +638,10 @@ export function App() {
             </button>
             <button
               type="button"
-              onClick={() => setShowTemplateDrawer(true)}
+              onClick={() => {
+                setTemplateDrawerMode("replace");
+                setShowTemplateDrawer(true);
+              }}
               className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/20 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-500 hover:text-slate-950 transition shadow-sm"
               title="Kendi tasarımlarınızı kaydedin veya JSON olarak içe/dışa aktarın"
             >
@@ -716,6 +741,10 @@ export function App() {
               activeModuleIndex={activeModuleIndex}
               onSelectModule={(idx) => setActiveModuleIndex(idx)}
               onAddModule={handleAddSideModule}
+              onOpenAddSideModule={() => {
+                setTemplateDrawerMode("add_side_module");
+                setShowTemplateDrawer(true);
+              }}
               onRemoveModule={handleRemoveModule}
               onUpdateActiveModule={updateActiveModule}
               onUpdateGlobalConfig={(patch) => {
@@ -1185,6 +1214,12 @@ export function App() {
       <TemplateCatalogDrawer
         isOpen={showTemplateDrawer}
         onClose={() => setShowTemplateDrawer(false)}
+        mode={templateDrawerMode}
+        activeModuleIndex={activeModuleIndex}
+        onAddSideModule={(moduleConfig) => {
+          handleAddSideModule(moduleConfig);
+          setShowTemplateDrawer(false);
+        }}
         activePresetId={activePresetId}
         currentConfig={config}
         onSelectPreset={(preset) => {

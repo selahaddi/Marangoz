@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Bookmark,
   Check,
+  Copy,
   Download,
   FileJson,
   Filter,
@@ -39,6 +40,9 @@ interface TemplateCatalogDrawerProps {
   onSelectPrompt: (prompt: string) => void;
   currentConfig?: CabinetConfig;
   onSelectCustomConfig?: (config: CabinetConfig) => void;
+  mode?: "replace" | "add_side_module";
+  activeModuleIndex?: number;
+  onAddSideModule?: (moduleConfig: Partial<CabinetConfig>) => void;
 }
 
 export function TemplateCatalogDrawer({
@@ -49,7 +53,13 @@ export function TemplateCatalogDrawer({
   onSelectPrompt,
   currentConfig,
   onSelectCustomConfig,
+  mode = "replace",
+  activeModuleIndex = 0,
+  onAddSideModule,
 }: TemplateCatalogDrawerProps) {
+  const isAddSideMode = mode === "add_side_module";
+  const currentModulesCount = 1 + (currentConfig?.additional_modules?.length ?? 0);
+  const nextModuleIdx = currentModulesCount + 1;
   const [mainTab, setMainTab] = useState<"standard" | "custom">("standard");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [activeCategory, setActiveCategory] = useState<CatalogCategoryId | "all">("all");
@@ -163,19 +173,36 @@ export function TemplateCatalogDrawer({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/70 backdrop-blur-sm transition-opacity">
       {/* Drawer Container */}
-      <div className="relative flex h-full w-full max-w-4xl flex-col border-l border-slate-800 bg-slate-950 text-slate-100 shadow-2xl animate-in slide-in-from-right duration-200">
+      <div className="relative flex h-full w-full max-w-5xl xl:max-w-6xl flex-col border-l border-slate-800 bg-slate-950 text-slate-100 shadow-2xl animate-in slide-in-from-right duration-200">
         {/* Drawer Header */}
         <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/90 px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600/20 text-indigo-400">
-              <LayoutGrid className="h-5 w-5" />
+            <div
+              className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                isAddSideMode
+                  ? "bg-emerald-600/20 text-emerald-400"
+                  : "bg-indigo-600/20 text-indigo-400"
+              }`}
+            >
+              {isAddSideMode ? <Plus className="h-5 w-5" /> : <LayoutGrid className="h-5 w-5" />}
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">
-                Şablon Kütüphanesi &amp; Özel Tasarım Yöneticisi
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-white">
+                  {isAddSideMode
+                    ? "Hatta Yanına Modül Ekle — Şablon Kütüphanesi"
+                    : "Şablon Kütüphanesi & Özel Tasarım Yöneticisi"}
+                </h2>
+                {isAddSideMode && (
+                  <span className="rounded-md border border-emerald-500/40 bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+                    Hedef: M{nextModuleIdx}
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-400">
-                {ROOM_LINE_PRESETS.length} Fabrika Şablonu · {userPresets.length} Özel Tasarım · JSON Dışa/İçe Aktar
+                {isAddSideMode
+                  ? `Mevcut hatta ${nextModuleIdx}. modül olarak eklemek istediğiniz şablonu seçin veya aktif modülü klonlayın.`
+                  : `${ROOM_LINE_PRESETS.length} Fabrika Şablonu · ${userPresets.length} Özel Tasarım · JSON Dışa/İçe Aktar`}
               </p>
             </div>
           </div>
@@ -188,6 +215,40 @@ export function TemplateCatalogDrawer({
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {/* Yanına Ekleme Modunda Hızlı Aksiyon & Bilgi Banner'ı */}
+        {isAddSideMode && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-900/40 bg-emerald-950/30 px-6 py-2.5 text-xs">
+            <div className="flex items-center gap-2 text-emerald-300">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-[10px] font-bold">
+                M{nextModuleIdx}
+              </span>
+              <span>
+                Seçtiğiniz şablon, mevcut <strong>{currentModulesCount} modüllü</strong> hattın sağına <strong>Modül #{nextModuleIdx}</strong> olarak eklenecektir.
+              </span>
+            </div>
+            {currentConfig && onAddSideModule && (
+              <button
+                type="button"
+                onClick={() => {
+                  const activeMod =
+                    activeModuleIndex === 0
+                      ? currentConfig
+                      : currentConfig.additional_modules?.[activeModuleIndex - 1] ?? currentConfig;
+                  onAddSideModule({
+                    ...activeMod,
+                    name: `${activeMod.name || `Modül #${activeModuleIndex + 1}`} (Kopya)`,
+                  });
+                  onClose();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-600/30 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-600/50 transition shadow-sm"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                <span>Aktif Modülü (M{activeModuleIndex + 1}) Klonla &amp; Ekle</span>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Ana Tab Switcher: Standart vs Özel Şablonlar */}
         <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/60 px-6 py-2">
@@ -513,30 +574,79 @@ export function TemplateCatalogDrawer({
                       </div>
 
                       <div className="mt-4 flex items-center gap-2 border-t border-slate-800/80 pt-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSelectPreset(preset);
-                            onClose();
-                          }}
-                          className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition ${
-                            isSelected
-                              ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
-                              : "bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600 hover:text-white"
-                          }`}
-                        >
-                          {isSelected ? (
-                            <>
-                              <Check className="h-3.5 w-3.5" />
-                              Aktif Şablon
-                            </>
-                          ) : (
-                            <>
-                              <ArrowRight className="h-3.5 w-3.5" />
-                              3D &amp; Üretime Yükle
-                            </>
-                          )}
-                        </button>
+                        {isAddSideMode ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onAddSideModule) {
+                                  onAddSideModule(preset.config);
+                                } else {
+                                  onSelectPreset(preset);
+                                }
+                                onClose();
+                              }}
+                              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-md shadow-emerald-950/40 hover:bg-emerald-500 transition"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              <span>+ Hatta Yanına Ekle (M{nextModuleIdx})</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onSelectPreset(preset);
+                                onClose();
+                              }}
+                              title="Projeyi bu şablonla sıfırla / değiştir"
+                              className="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-2 text-[11px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700 transition"
+                            >
+                              Yeni Proje
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onSelectPreset(preset);
+                                onClose();
+                              }}
+                              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition ${
+                                isSelected
+                                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                                  : "bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600 hover:text-white"
+                              }`}
+                            >
+                              {isSelected ? (
+                                <>
+                                  <Check className="h-3.5 w-3.5" />
+                                  Aktif Şablon
+                                </>
+                              ) : (
+                                <>
+                                  <ArrowRight className="h-3.5 w-3.5" />
+                                  3D &amp; Üretime Yükle
+                                </>
+                              )}
+                            </button>
+
+                            {onAddSideModule && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onAddSideModule(preset.config);
+                                  onClose();
+                                }}
+                                title={`Bu şablonu hattın sağına (M${nextModuleIdx}) ekle`}
+                                className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-600/10 px-2.5 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-600/20 transition"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                <span>Yanına Ekle</span>
+                              </button>
+                            )}
+                          </>
+                        )}
 
                         <button
                           type="button"
@@ -606,31 +716,82 @@ export function TemplateCatalogDrawer({
                     </div>
 
                     <div className="mt-4 flex items-center gap-2 border-t border-slate-800/80 pt-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onSelectCustomConfig) {
-                            onSelectCustomConfig(preset.config);
-                          } else {
-                            onSelectPreset({
-                              id: preset.id,
-                              categoryId: "living",
-                              category: "Özel Tasarım",
-                              title: preset.title,
-                              subtitle: preset.description,
-                              highlights: preset.tags || [],
-                              prompt: `Özel tasarım: ${preset.title}`,
-                              config: preset.config,
-                              totalWidthMm: preset.config.width_mm,
-                            });
-                          }
-                          onClose();
-                        }}
-                        className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-amber-600/90 py-2 text-xs font-bold text-white hover:bg-amber-500 transition shadow"
-                      >
-                        <ArrowRight className="h-3.5 w-3.5" />
-                        3D &amp; Üretime Yükle
-                      </button>
+                      {isAddSideMode ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onAddSideModule) {
+                                onAddSideModule(preset.config);
+                              } else if (onSelectCustomConfig) {
+                                onSelectCustomConfig(preset.config);
+                              }
+                              onClose();
+                            }}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-md shadow-emerald-950/40 hover:bg-emerald-500 transition"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            <span>+ Hatta Yanına Ekle (M{nextModuleIdx})</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectCustomConfig) {
+                                onSelectCustomConfig(preset.config);
+                              }
+                              onClose();
+                            }}
+                            title="Projeyi bu özel şablonla sıfırla / değiştir"
+                            className="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-2 text-[11px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700 transition"
+                          >
+                            Yeni Proje
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectCustomConfig) {
+                                onSelectCustomConfig(preset.config);
+                              } else {
+                                onSelectPreset({
+                                  id: preset.id,
+                                  categoryId: "living",
+                                  category: "Özel Tasarım",
+                                  title: preset.title,
+                                  subtitle: preset.description,
+                                  highlights: preset.tags || [],
+                                  prompt: `Özel tasarım: ${preset.title}`,
+                                  config: preset.config,
+                                  totalWidthMm: preset.config.width_mm,
+                                });
+                              }
+                              onClose();
+                            }}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-amber-600/90 py-2 text-xs font-bold text-white hover:bg-amber-500 transition shadow"
+                          >
+                            <ArrowRight className="h-3.5 w-3.5" />
+                            3D &amp; Üretime Yükle
+                          </button>
+
+                          {onAddSideModule && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onAddSideModule(preset.config);
+                                onClose();
+                              }}
+                              title={`Bu özel tasarımı hattın sağına (M${nextModuleIdx}) ekle`}
+                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-600/10 px-2.5 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-600/20 transition"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              <span>Yanına Ekle</span>
+                            </button>
+                          )}
+                        </>
+                      )}
 
                       <button
                         type="button"

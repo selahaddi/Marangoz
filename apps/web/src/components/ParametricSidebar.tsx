@@ -15,8 +15,8 @@ import {
   DoorOpen,
   Columns,
   Shirt,
+  LayoutGrid,
 } from "lucide-react";
-import { AddModuleModal } from "./AddModuleModal";
 import type {
   BackPanelType,
   CabinetConfig,
@@ -34,6 +34,7 @@ interface ParametricSidebarProps {
   activeModuleIndex: number;
   onSelectModule: (idx: number) => void;
   onAddModule: (moduleConfig?: Partial<CabinetConfig>) => void;
+  onOpenAddSideModule?: () => void;
   onRemoveModule: (idx: number) => void;
   onUpdateActiveModule: (partial: Partial<CabinetConfig>) => void;
   onUpdateGlobalConfig: (partial: Partial<CabinetConfig>) => void;
@@ -48,6 +49,7 @@ export function ParametricSidebar({
   activeModuleIndex,
   onSelectModule,
   onAddModule,
+  onOpenAddSideModule,
   onRemoveModule,
   onUpdateActiveModule,
   onUpdateGlobalConfig,
@@ -71,9 +73,6 @@ export function ParametricSidebar({
   });
 
   const [activeZoneIndex, setActiveZoneIndex] = useState<number>(0);
-
-  // Hatta Modül Ekleme Listesi Modal State'i
-  const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
 
   const toggleSection = (sec: string) => {
     setOpenSections((prev) => ({ ...prev, [sec]: !prev[sec] }));
@@ -125,13 +124,19 @@ export function ParametricSidebar({
           </span>
           <button
             type="button"
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => {
+              if (onOpenAddSideModule) {
+                onOpenAddSideModule();
+              } else {
+                onAddModule();
+              }
+            }}
             className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600/90 px-2.5 py-1 text-[11px] font-bold text-white transition hover:bg-indigo-500 shadow-sm"
-            title="Hatta eklenecek hazır modül veya mimari ürünü listeden seçin"
+            title="Şablon kütüphanesinden tüm hazır modülleri görerek yanına ekleyin"
           >
             <Plus className="h-3.5 w-3.5" />
             <span>Yanına Ekle</span>
-            <ChevronDown className="h-3 w-3 opacity-80" />
+            <LayoutGrid className="h-3 w-3 opacity-80" />
           </button>
         </div>
 
@@ -1315,18 +1320,6 @@ export function ParametricSidebar({
           <span>⚡ Anında Güncelle &amp; Hesapla</span>
         </button>
       </div>
-
-      {/* Hatta Yeni Modül / Ürün Ekleme Seçim Listesi Modalı */}
-      <AddModuleModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        activeModule={activeModule}
-        activeModuleIndex={safeIdx}
-        onSelectOption={(optionConfig) => {
-          onAddModule(optionConfig);
-          setIsAddModalOpen(false);
-        }}
-      />
     </aside>
   );
 }
